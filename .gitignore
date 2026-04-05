@@ -1,3 +1,58 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/aroute
+/dist/
+
+# Go build
+/bin/
+/vendor/
+
+# Test
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node (Admin UI)
+admin/node_modules/
+admin/dist/
+admin/.env.local
+
+# Data (runtime)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets
+*.pem
+*.key
+license.json
+license.bin
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+/tmp/
+
+# OpenCode / Agent (development tools)
 .agent/
 .opencode/
 openspec/

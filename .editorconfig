@@ -1,0 +1,42 @@
+# https://editorconfig.org
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Go: tabs per gofmt convention
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# YAML/JSON/Markdown
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# Frontend (Admin UI)
+[*.{ts,tsx,js,jsx,css,scss,html}]
+indent_size = 2
+
+# Makefile: must use tabs
+[Makefile]
+indent_style = tab
+
+# Shell scripts
+[*.sh]
+indent_size = 2
+
+# Proto files
+[*.proto]
+indent_size = 2
+
+# Config templates
+[*.toml]
+indent_size = 2

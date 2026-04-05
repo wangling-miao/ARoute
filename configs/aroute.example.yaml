@@ -1,0 +1,105 @@
+# Aroute CMS Configuration
+# Copy this file to aroute.yaml and modify as needed.
+
+# Server settings
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# Database configuration
+database:
+  # Driver: "sqlite" or "postgres"
+  driver: "sqlite"
+
+  # SQLite settings (used when driver is "sqlite")
+  sqlite:
+    path: "data/aroute.db"
+
+  # PostgreSQL settings (used when driver is "postgres")
+  # postgres:
+  #   host: "localhost"
+  #   port: 5432
+  #   user: "aroute"
+  #   password: "changeme"
+  #   dbname: "aroute"
+  #   sslmode: "disable"
+
+# Authentication
+auth:
+  # JWT signing secret (CHANGE THIS in production!)
+  jwt_secret: "change-me-to-a-random-string"
+  # Access token lifetime
+  access_token_ttl: "15m"
+  # Refresh token lifetime
+  refresh_token_ttl: "7d"
+
+# Media storage
+media:
+  # Storage driver: "local" or "s3"
+  storage: "local"
+  # Local storage settings
+  local:
+    upload_dir: "data/uploads"
+  # S3-compatible storage settings
+  # s3:
+  #   endpoint: "s3.amazonaws.com"
+  #   bucket: "aroute-media"
+  #   region: "us-east-1"
+  #   access_key: ""
+  #   secret_key: ""
+  #   use_ssl: true
+
+  # Upload limits
+  max_file_size: "50MB"
+  allowed_types:
+    - "image/*"
+    - "application/pdf"
+    - "video/*"
+    - "audio/*"
+
+# Search
+search:
+  # Index storage directory
+  index_dir: "data/search"
+
+# Cache
+cache:
+  # Maximum cache size in MB
+  max_size: 256
+  # Default TTL for cached items
+  default_ttl: "5m"
+
+# Theme
+theme:
+  # Active theme name
+  active: "default"
+  # Theme directory
+  dir: "themes"
+
+# Logging
+log:
+  # Log level: debug, info, warn, error
+  level: "info"
+  # Log format: json, text
+  format: "text"
+
+# CORS settings
+cors:
+  allowed_origins:
+    - "*"
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+
+# Plugins directory
+plugins:
+  dir: "plugins"
+
+# Data directory (for bbolt, search indices, uploads, etc.)
+data_dir: "data"

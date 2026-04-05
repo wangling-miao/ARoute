@@ -1,0 +1,62 @@
+version: 2
+
+project_name: aroute
+
+builds:
+  - id: aroute
+    main: ./cmd/aroute
+    binary: aroute
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/wangling-miao/aroute/internal/version.Version={{.Version}}
+      - -X github.com/wangling-miao/aroute/internal/version.Commit={{.Commit}}
+      - -X github.com/wangling-miao/aroute/internal/version.BuildDate={{ .CommitDate }}
+      - -X github.com/wangling-miao/aroute/internal/version.GoVersion={{.Env.GOVERSION}}
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    wrap_in_directory: true
+
+checksum:
+  name_template: "checksums.txt"
+
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_src"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: wangling-miao
+    name: aroute
+  draft: false
+  prerelease: auto
