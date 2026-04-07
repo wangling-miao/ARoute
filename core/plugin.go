@@ -3,10 +3,6 @@
 // plugin lifecycle, service discovery, and event distribution.
 package core
 
-import (
-	"context"
-)
-
 // Plugin defines the interface that all Aroute plugins must implement.
 // Plugins are the fundamental building blocks of the CMS - all functionality
 // (including HTTP server, database, authentication) is provided through plugins.
@@ -48,7 +44,7 @@ type Plugin interface {
 	//   - Logger: Structured logging
 	//   - DataDir: Plugin-specific data directory
 	//   - PluginDir: Plugin installation directory
-	Init(ctx *CoreContext) error
+	Init(ctx CoreContext) error
 
 	// Start activates the plugin after successful initialization.
 	// Called after all dependencies have been resolved and initialized.
@@ -57,16 +53,23 @@ type Plugin interface {
 	// Start should block until the plugin is ready to serve requests.
 	// If the plugin needs background goroutines, start them here.
 	// Return an error if startup fails.
-	Start(ctx context.Context) error
+	Start() error
 
 	// Stop gracefully shuts down the plugin.
 	// Called during graceful shutdown or when disabling the plugin.
 	// Should clean up resources, stop goroutines, and close connections.
 	//
-	// Stop MUST complete within a reasonable time (check ctx.Done()).
 	// After Stop returns, no plugin methods will be called.
-	Stop(ctx context.Context) error
+	Stop() error
+}
 
+// PluginLifecycleHooks defines optional lifecycle hooks for plugins.
+// Plugins can implement this interface to receive load/unload notifications.
+// These hooks are NOT part of the main Plugin interface.
+//
+// OnLoad is called before Init, OnUnload is called after Stop.
+// Use for setup/cleanup that doesn't require Core context.
+type PluginLifecycleHooks interface {
 	// OnLoad is called after the plugin binary/module is loaded into memory
 	// but before Init. Use for one-time setup that doesn't depend on Core
 	// context or other plugins.

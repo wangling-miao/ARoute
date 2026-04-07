@@ -43,26 +43,18 @@ func TestBasePlugin(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	coreCtx := &CoreContext{ctx: ctx}
+	coreCtx := NewCoreContext(ctx, nil, nil, nil, nil, "/data", "/plugins")
 
 	if err := plugin.Init(coreCtx); err != nil {
 		t.Errorf("Init() error = %v, want nil", err)
 	}
 
-	if err := plugin.Start(ctx); err != nil {
+	if err := plugin.Start(); err != nil {
 		t.Errorf("Start() error = %v, want nil", err)
 	}
 
-	if err := plugin.Stop(ctx); err != nil {
+	if err := plugin.Stop(); err != nil {
 		t.Errorf("Stop() error = %v, want nil", err)
-	}
-
-	if err := plugin.OnLoad(); err != nil {
-		t.Errorf("OnLoad() error = %v, want nil", err)
-	}
-
-	if err := plugin.OnUnload(); err != nil {
-		t.Errorf("OnUnload() error = %v, want nil", err)
 	}
 }
 
@@ -304,12 +296,12 @@ func TestCoreContext(t *testing.T) {
 		t.Errorf("Context() returned wrong context")
 	}
 
-	if coreCtx.DataDir != "/data" {
-		t.Errorf("DataDir = %v, want /data", coreCtx.DataDir)
+	if coreCtx.DataDir() != "/data" {
+		t.Errorf("DataDir() = %v, want /data", coreCtx.DataDir())
 	}
 
-	if coreCtx.PluginDir != "/plugins" {
-		t.Errorf("PluginDir = %v, want /plugins", coreCtx.PluginDir)
+	if coreCtx.PluginDir() != "/plugins" {
+		t.Errorf("PluginDir() = %v, want /plugins", coreCtx.PluginDir())
 	}
 }
 

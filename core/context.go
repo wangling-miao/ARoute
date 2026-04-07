@@ -9,55 +9,72 @@ import (
 // It's passed to plugins during initialization and provides the bridge
 // between plugins and the Core microkernel.
 //
-// CoreContext is safe for concurrent use across goroutines.
-type CoreContext struct {
-	// Services is the service container for dependency injection.
+// CoreContext is read-only after creation - plugins cannot replace
+// the container, event bus, or other core references.
+// It is safe for concurrent use across goroutines.
+type CoreContext interface {
+	// Services returns the service container for dependency injection.
 	// Plugins use this to obtain and provide services to other plugins.
-	Services ServiceContainer
+	Services() ServiceContainer
 
-	// Events is the event bus for plugin communication.
+	// Events returns the event bus for plugin communication.
 	// Plugins use this to subscribe to events and emit events.
-	Events EventBus
+	Events() EventBus
 
-	// Config provides configuration values for the plugin.
-	// Implementation depends on the config system (viper, etc.).
-	Config ConfigProvider
+	// Config returns the configuration provider for this plugin.
+	// The ConfigProvider is scoped to the plugin's own configuration namespace.
+	Config() ConfigProvider
 
-	// Logger is the structured logger instance.
+	// Logger returns a structured logger pre-configured with the plugin's name.
 	// All plugins should use this logger for consistent log formatting.
-	Logger *slog.Logger
+	Logger() *slog.Logger
 
-	// DataDir is the plugin-specific data directory.
+	// DataDir returns the plugin-specific data directory.
 	// Plugins can use this for persistent storage.
 	// Path: ~/.aroute/data/plugins/{plugin-name}/
-	DataDir string
+	DataDir() string
 
-	// PluginDir is the plugin installation directory.
+	// PluginDir returns the plugin installation directory.
 	// Path: ~/.aroute/plugins/{plugin-name}/
-	PluginDir string
+	PluginDir() string
 
-	// Context provides request-scoped values and cancellation.
+	// Context returns the context for request-scoped values and cancellation.
 	// Use this for coordinating plugin shutdown.
-	ctx context.Context
+	Context() context.Context
+}
+
+// coreContextImpl is the concrete implementation of CoreContext.
+// It holds the actual data and implements the getter methods.
+type coreContextImpl struct {
+	services  ServiceContainer
+	events    EventBus
+	config    ConfigProvider
+	logger    *slog.Logger
+	dataDir   string
+	pluginDir string
+	ctx       context.Context
 }
 
 // NewCoreContext creates a new CoreContext with the provided values.
-func NewCoreContext(ctx context.Context, services ServiceContainer, events EventBus, config ConfigProvider, logger *slog.Logger, dataDir, pluginDir string) *CoreContext {
-	return &CoreContext{
-		Services:  services,
-		Events:    events,
-		Config:    config,
-		Logger:    logger,
-		DataDir:   dataDir,
-		PluginDir: pluginDir,
+func NewCoreContext(ctx context.Context, services ServiceContainer, events EventBus, config ConfigProvider, logger *slog.Logger, dataDir, pluginDir string) CoreContext {
+	return &coreContextImpl{
+		services:  services,
+		events:    events,
+		config:    config,
+		logger:    logger,
+		dataDir:   dataDir,
+		pluginDir: pluginDir,
 		ctx:       ctx,
 	}
 }
 
-// Context returns the context associated with this CoreContext.
-func (c *CoreContext) Context() context.Context {
-	return c.ctx
-}
+func (c *coreContextImpl) Services() ServiceContainer { return c.services }
+func (c *coreContextImpl) Events() EventBus           { return c.events }
+func (c *coreContextImpl) Config() ConfigProvider     { return c.config }
+func (c *coreContextImpl) Logger() *slog.Logger       { return c.logger }
+func (c *coreContextImpl) DataDir() string            { return c.dataDir }
+func (c *coreContextImpl) PluginDir() string          { return c.pluginDir }
+func (c *coreContextImpl) Context() context.Context   { return c.ctx }
 
 // ServiceContainer defines the interface for dependency injection.
 // Plugins use this to register services (Provide) and obtain services (Get).
@@ -161,14 +178,12 @@ func NewBasePlugin(name, version string) *BasePlugin {
 	}
 }
 
-func (p *BasePlugin) Name() string                    { return p.name }
-func (p *BasePlugin) Version() string                 { return p.version }
-func (p *BasePlugin) Manifest() *Manifest             { return p.manifest }
-func (p *BasePlugin) Init(ctx *CoreContext) error     { return nil }
-func (p *BasePlugin) Start(ctx context.Context) error { return nil }
-func (p *BasePlugin) Stop(ctx context.Context) error  { return nil }
-func (p *BasePlugin) OnLoad() error                   { return nil }
-func (p *BasePlugin) OnUnload() error                 { return nil }
+func (p *BasePlugin) Name() string               { return p.name }
+func (p *BasePlugin) Version() string            { return p.version }
+func (p *BasePlugin) Manifest() *Manifest        { return p.manifest }
+func (p *BasePlugin) Init(ctx CoreContext) error { return nil }
+func (p *BasePlugin) Start() error               { return nil }
+func (p *BasePlugin) Stop() error                { return nil }
 
 // Compile-time interface checks
 var _ Plugin = (*BasePlugin)(nil)
