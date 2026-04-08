@@ -159,3 +159,14 @@ const (
 	// Note: L2 gRPC plugins are reserved for Pro/Enterprise versions
 	// and provide process isolation with gRPC communication.
 )
+
+func (e EngineType) String() string {
+	switch e {
+	case EngineL1Native:
+		return "native"
+	case EngineL3Wasm:
+		return "wasm"
+	default:
+		return "unknown"
+	}
+}

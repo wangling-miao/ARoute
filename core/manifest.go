@@ -45,7 +45,7 @@ func (m *Manifest) Validate() error {
 
 	if m.Engine == "" {
 		errs = append(errs, errors.New("engine is required (must be 'native' or 'wasm')"))
-	} else if _, err := parseEngine(m.Engine); err != nil {
+	} else if _, err := ParseEngine(m.Engine); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -69,7 +69,9 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
-func parseEngine(s string) (EngineType, error) {
+// ParseEngine parses an engine type string and returns the corresponding EngineType.
+// Supports "native" and "l1" for L1Native, "wasm" and "l3" for L3Wasm.
+func ParseEngine(s string) (EngineType, error) {
 	switch s {
 	case "native", "l1":
 		return EngineL1Native, nil
