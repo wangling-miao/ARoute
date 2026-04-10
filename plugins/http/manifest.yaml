@@ -1,0 +1,21 @@
+name: http
+version: 1.0.0
+description: Production-ready HTTP server with middleware, CORS, health checks, and graceful shutdown
+author: wangling
+license: MIT
+engine: native
+requires: []
+after: []
+provides:
+  - http.server
+  - http.router
+homepage: https://github.com/wangling-miao/aroute
+repository: https://github.com/wangling-miao/aroute
+keywords:
+  - http
+  - server
+  - router
+  - chi
+  - middleware
+  - cors
+  - health-check

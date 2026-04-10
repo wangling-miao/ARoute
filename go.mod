@@ -3,6 +3,8 @@ module github.com/wangling-miao/aroute
 go 1.26
 
 require (
+	github.com/go-chi/chi/v5 v5.2.4
+	github.com/go-chi/cors v1.2.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/tetratelabs/wazero v1.11.0

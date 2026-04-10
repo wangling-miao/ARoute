@@ -61,6 +61,7 @@ var skipConfigCommands = map[string]bool{
 	"version":    true,
 	"help":       true,
 	"completion": true,
+	"plugin":     true,
 }
 
 func initConfig() {
