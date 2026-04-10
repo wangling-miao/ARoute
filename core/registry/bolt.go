@@ -3,6 +3,8 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/wangling-miao/aroute/core"
@@ -33,6 +35,10 @@ type BoltRegistry struct {
 //
 // Thread safety: Safe to call from multiple goroutines.
 func NewBoltRegistry(dbPath string) (*BoltRegistry, error) {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return nil, fmt.Errorf("create registry directory: %w", err)
+	}
+
 	db, err := bolt.Open(dbPath, 0600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open bbolt database: %w", err)
