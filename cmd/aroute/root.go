@@ -45,54 +45,53 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Global persistent flags (available to all subcommands)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./aroute.yaml, $HOME/.config/aroute/aroute.yaml)")
 	rootCmd.PersistentFlags().StringVar(&dataDir, "data-dir", "", "data directory (default is ./data)")
 	rootCmd.PersistentFlags().StringVar(&pluginDir, "plugin-dir", "", "plugin directory (default is ./plugins)")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "text", "log format (text, json)")
 
-	// Bind flags to viper
 	viper.BindPFlag("data_dir", rootCmd.PersistentFlags().Lookup("data-dir"))
 	viper.BindPFlag("plugins.dir", rootCmd.PersistentFlags().Lookup("plugin-dir"))
 	viper.BindPFlag("log.level", rootCmd.PersistentFlags().Lookup("log-level"))
 	viper.BindPFlag("log.format", rootCmd.PersistentFlags().Lookup("log-format"))
 }
 
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	// Set environment variable prefix
-	viper.SetEnvPrefix("AROUTE")
-	viper.AutomaticEnv() // read in environment variables that match
+var skipConfigCommands = map[string]bool{
+	"version":    true,
+	"help":       true,
+	"completion": true,
+}
 
-	// If a config file is explicitly specified, use it
+func initConfig() {
+	if len(os.Args) > 1 {
+		cmdName := os.Args[1]
+		if skipConfigCommands[cmdName] {
+			return
+		}
+	}
+
+	viper.SetEnvPrefix("AROUTE")
+	viper.AutomaticEnv()
+
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// Search for config in multiple locations
-		// 1. Current directory
 		viper.AddConfigPath(".")
-		// 2. Home directory .config/aroute
 		home, err := os.UserHomeDir()
 		if err == nil {
 			viper.AddConfigPath(filepath.Join(home, ".config", "aroute"))
 		}
-		// 3. /etc/aroute (system-wide config)
 		viper.AddConfigPath("/etc/aroute")
 
-		// Config file name without extension (viper will auto-detect format)
 		viper.SetConfigName("aroute")
 		viper.SetConfigType("yaml")
 	}
 
-	// Set default values
 	setDefaults()
 
-	// Read config file (if exists)
 	if err := viper.ReadInConfig(); err != nil {
-		// Config file not found is OK - use defaults and env vars
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !os.IsNotExist(err) {
-			// Config file was found but another error occurred
 			fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
 			os.Exit(1)
 		}
