@@ -19,8 +19,10 @@ import (
 	"github.com/wangling-miao/aroute/core/events"
 	"github.com/wangling-miao/aroute/core/license"
 	"github.com/wangling-miao/aroute/core/lifecycle"
+	"github.com/wangling-miao/aroute/core/loader"
 	"github.com/wangling-miao/aroute/core/registry"
 	"github.com/wangling-miao/aroute/core/services"
+	httpplugin "github.com/wangling-miao/aroute/plugins/http"
 )
 
 var serveCmd = &cobra.Command{
@@ -89,6 +91,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	dispatcher := engine.NewDispatcher()
 	licenseValidator := license.NewValidator(nil, (*ecdsa.PublicKey)(nil))
 
+	discovery := registry.NewFSDiscovery(pluginDir)
+	registered, err := registry.LoadAndRegister(reg, discovery)
+	if err != nil {
+		logger.Warn("plugin discovery error", "error", err)
+	}
+	logger.Info("plugins discovered and registered", "count", registered)
+
 	// Core context factory for plugins
 	ctxFactory := func(pluginCtx context.Context, pluginName string) core.CoreContext {
 		pluginLogger := logger.With("plugin", pluginName)
@@ -97,9 +106,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return core.NewCoreContext(pluginCtx, container, &eventBusAdapter{eb: eventBus}, pluginConfig, pluginLogger, pluginDataDir, pluginDir)
 	}
 
+	// Create native plugin loader and register built-in plugins
+	pluginLoader := loader.NewNativePluginLoader()
+	pluginLoader.Register("http", func() core.Plugin {
+		return httpplugin.New()
+	})
+
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},
-		nil, // engine dispatcher will be set later
+		&pluginLoaderAdapter{loader: pluginLoader},
 		&eventBusAdapter{eb: eventBus},
 		container,
 		ctxFactory,
@@ -321,6 +336,14 @@ func (a *registryAdapterForLifecycle) IsEnabled(name string) (bool, error) {
 		return false, err
 	}
 	return entry.Enabled, nil
+}
+
+type pluginLoaderAdapter struct {
+	loader *loader.NativePluginLoader
+}
+
+func (a *pluginLoaderAdapter) Load(manifest core.Manifest) (core.Plugin, error) {
+	return a.loader.Load(manifest)
 }
 
 type dispatcherAdapter struct {
