@@ -102,18 +102,43 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 
 // setupMiddleware configures the global middleware stack.
 func (p *Plugin) setupMiddleware(logger *slog.Logger) {
-	// Core middleware stack
 	p.router.Use(middleware.RequestID)
 	p.router.Use(middleware.RealIP)
 	p.router.Use(middleware.Recoverer)
-	p.router.Use(middleware.Logger)
-
-	// Set timeout on request context
+	p.router.Use(p.slogMiddleware(logger))
 	p.router.Use(middleware.Timeout(60 * time.Second))
 
 	logger.Debug("Middleware stack configured",
-		"middlewares", []string{"RequestID", "RealIP", "Recoverer", "Logger", "Timeout"},
+		"middlewares", []string{"RequestID", "RealIP", "Recoverer", "SlogLogger", "Timeout"},
 	)
+}
+
+func (p *Plugin) slogMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+			defer func() {
+				status := ww.Status()
+				if status == 0 {
+					status = 200
+				}
+				duration := time.Since(start)
+
+				logger.Info("request completed",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", status,
+					"bytes", ww.BytesWritten(),
+					"duration", duration.String(),
+					"request_id", middleware.GetReqID(r.Context()),
+				)
+			}()
+
+			next.ServeHTTP(ww, r)
+		})
+	}
 }
 
 // Start starts the HTTP server.

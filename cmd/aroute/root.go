@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/wangling-miao/aroute/core/logger"
 )
 
 // Global configuration variables
@@ -133,6 +134,13 @@ func setDefaults() {
 	// Logging defaults
 	viper.SetDefault("log.level", "info")
 	viper.SetDefault("log.format", "text")
+	viper.SetDefault("log.output", "stdout")
+	viper.SetDefault("log.file.path", "data/logs")
+	viper.SetDefault("log.file.name", "aroute.log")
+	viper.SetDefault("log.file.max_size", 100)
+	viper.SetDefault("log.file.max_age", 30)
+	viper.SetDefault("log.file.max_backups", 10)
+	viper.SetDefault("log.file.compress", true)
 
 	// CORS defaults
 	viper.SetDefault("cors.allowed_origins", []string{"*"})
@@ -146,38 +154,59 @@ func setDefaults() {
 	viper.SetDefault("data_dir", "data")
 }
 
-// getLogger creates a configured slog logger
+// initLogger initializes the global logger from configuration.
+func initLogger() error {
+	// Start with defaults
+	defaultCfg := logger.DefaultConfig()
+
+	// Override with config values if set
+	cfg := &logger.Config{
+		Level:  viper.GetString("log.level"),
+		Format: viper.GetString("log.format"),
+		Output: logger.OutputTarget(viper.GetString("log.output")),
+		File: logger.FileConfig{
+			Path:       viper.GetString("log.file.path"),
+			Name:       viper.GetString("log.file.name"),
+			MaxSize:    viper.GetInt("log.file.max_size"),
+			MaxAge:     viper.GetInt("log.file.max_age"),
+			MaxBackups: viper.GetInt("log.file.max_backups"),
+			Compress:   viper.GetBool("log.file.compress"),
+		},
+	}
+
+	// Apply defaults for empty values
+	if cfg.Level == "" {
+		cfg.Level = defaultCfg.Level
+	}
+	if cfg.Format == "" {
+		cfg.Format = defaultCfg.Format
+	}
+	if cfg.Output == "" {
+		cfg.Output = defaultCfg.Output
+	}
+	if cfg.File.Path == "" {
+		cfg.File.Path = defaultCfg.File.Path
+	}
+	if cfg.File.Name == "" {
+		cfg.File.Name = defaultCfg.File.Name
+	}
+	if cfg.File.MaxSize == 0 {
+		cfg.File.MaxSize = defaultCfg.File.MaxSize
+	}
+	if cfg.File.MaxAge == 0 {
+		cfg.File.MaxAge = defaultCfg.File.MaxAge
+	}
+	if cfg.File.MaxBackups == 0 {
+		cfg.File.MaxBackups = defaultCfg.File.MaxBackups
+	}
+
+	return logger.Init(cfg)
+}
+
 func getLogger() *slog.Logger {
-	level := parseLogLevel(viper.GetString("log.level"))
-	format := viper.GetString("log.format")
-
-	var handler slog.Handler
-	opts := &slog.HandlerOptions{Level: level}
-
-	if format == "json" {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
-	} else {
-		handler = slog.NewTextHandler(os.Stdout, opts)
-	}
-
-	return slog.New(handler)
+	return logger.Get()
 }
 
-// parseLogLevel converts string level to slog.Level
-func parseLogLevel(level string) slog.Level {
-	switch level {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
-// getDataDir returns the configured data directory, creating it if needed
 func getDataDir() string {
 	dir := viper.GetString("data_dir")
 	if dir == "" {

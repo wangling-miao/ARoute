@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -51,8 +50,10 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
+	if err := initLogger(); err != nil {
+		return fmt.Errorf("init logger: %w", err)
+	}
 	logger := getLogger()
-	slog.SetDefault(logger)
 
 	// Get configuration values
 	dataDir := getDataDir()
@@ -78,7 +79,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize core subsystems
 	container := services.NewContainer()
 	eventBus := events.NewEventBus()
 
