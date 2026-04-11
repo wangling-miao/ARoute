@@ -141,19 +141,21 @@ func (p *Plugin) detectDriver(ctx core.CoreContext) Driver {
 func (p *Plugin) createMigrationsTable(ctx core.CoreContext) error {
 	logger := ctx.Logger()
 
-	// Create migrations table with driver-specific SQL
+	// Create migrations table with INTEGER PRIMARY KEY for version
+	// Migration versions are YYYYMMDDNN format integers (e.g., 2024010101)
+	// INTEGER PRIMARY KEY in SQLite allows explicit values without auto-increment
 	var createTableSQL string
 	if p.driver == DriverSQLite {
 		createTableSQL = `
 CREATE TABLE IF NOT EXISTS _migrations (
-	version TEXT PRIMARY KEY,
+	version INTEGER PRIMARY KEY,
 	name TEXT NOT NULL,
 	applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`
 	} else {
 		createTableSQL = `
 CREATE TABLE IF NOT EXISTS _migrations (
-	version VARCHAR(255) PRIMARY KEY,
+	version INTEGER PRIMARY KEY,
 	name VARCHAR(255) NOT NULL,
 	applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`

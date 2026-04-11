@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -15,6 +16,11 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/wangling-miao/aroute/core"
 )
+
+type tlsConfig struct {
+	certFile string
+	keyFile  string
+}
 
 // Plugin implements the core.Plugin interface for HTTP server functionality.
 // It provides a production-ready HTTP server with middleware, CORS, health checks,
@@ -26,6 +32,7 @@ type Plugin struct {
 	ctx     core.CoreContext
 	router  *chi.Mux
 	server  *http.Server
+	tls     tlsConfig
 	running bool
 }
 
@@ -143,6 +150,7 @@ func (p *Plugin) slogMiddleware(logger *slog.Logger) func(http.Handler) http.Han
 
 // Start starts the HTTP server.
 // It listens on the configured address and serves requests.
+// If TLS configuration is provided, it enables HTTPS.
 func (p *Plugin) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -154,7 +162,6 @@ func (p *Plugin) Start() error {
 	logger := p.ctx.Logger()
 	config := p.ctx.Config()
 
-	// Get server configuration - check for http.addr first, then fall back to server.host/port
 	addr := config.GetString("http.addr")
 	if addr == "" {
 		host := config.GetString("server.host")
@@ -168,7 +175,9 @@ func (p *Plugin) Start() error {
 		addr = fmt.Sprintf("%s:%d", host, port)
 	}
 
-	// Create HTTP server
+	p.tls.certFile = config.GetString("server.tls.cert_file")
+	p.tls.keyFile = config.GetString("server.tls.key_file")
+
 	p.server = &http.Server{
 		Addr:         addr,
 		Handler:      p.router,
@@ -177,11 +186,24 @@ func (p *Plugin) Start() error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	logger.Info("Starting HTTP server", "address", addr)
+	logger.Info("Starting HTTP server", "address", addr, "tls", p.tls.certFile != "")
 
-	// Start server in goroutine
 	go func() {
-		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if p.tls.certFile != "" && p.tls.keyFile != "" {
+			if _, errCert := os.Stat(p.tls.certFile); errCert != nil {
+				logger.Error("TLS cert file not found", "path", p.tls.certFile, "error", errCert)
+				return
+			}
+			if _, errKey := os.Stat(p.tls.keyFile); errKey != nil {
+				logger.Error("TLS key file not found", "path", p.tls.keyFile, "error", errKey)
+				return
+			}
+			err = p.server.ListenAndServeTLS(p.tls.certFile, p.tls.keyFile)
+		} else {
+			err = p.server.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			logger.Error("HTTP server error", "error", err)
 		}
 	}()

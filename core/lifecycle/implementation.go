@@ -214,6 +214,26 @@ func (m *ManagerImpl) Enable(ctx context.Context, pluginName string) error {
 		}
 	}
 
+	if info.State == core.StateStopped {
+		if !m.canTransition(info, core.StateResolved) {
+			return &StateError{
+				PluginName:   pluginName,
+				CurrentState: info.State,
+				TargetState:  core.StateResolved,
+				Message:      "cannot transition to resolved",
+			}
+		}
+		m.setState(info, pluginName, core.StateResolved)
+	}
+
+	if !m.canTransition(info, core.StateStarting) {
+		return &StateError{
+			PluginName:   pluginName,
+			CurrentState: info.State,
+			TargetState:  core.StateStarting,
+			Message:      "cannot transition to starting",
+		}
+	}
 	m.setState(info, pluginName, core.StateStarting)
 
 	if err := m.startPlugin(ctx, pluginName, info); err != nil {

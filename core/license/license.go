@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math/big"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -69,6 +70,7 @@ func (t *Tier) UnmarshalJSON(data []byte) error {
 // ParseTier parses a tier string and returns the corresponding Tier.
 // Accepts: "open", "pro", "enterprise" (case-insensitive).
 func ParseTier(s string) (Tier, error) {
+	s = strings.ToLower(s)
 	switch s {
 	case "open":
 		return TierOpen, nil

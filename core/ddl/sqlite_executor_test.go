@@ -48,6 +48,10 @@ func (s *sqliteTestDB) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+func (s *sqliteTestDB) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return s.db.PrepareContext(ctx, query)
+}
+
 func (s *sqliteTestDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
 	introspector := NewIntrospector(s, DialectSQLite)
 	tableNames, err := introspector.ListTables(ctx)

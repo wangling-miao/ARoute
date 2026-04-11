@@ -50,6 +50,10 @@ func (tdb *introspectTestDB) Ping(ctx context.Context) error {
 	return tdb.db.PingContext(ctx)
 }
 
+func (tdb *introspectTestDB) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return tdb.db.PrepareContext(ctx, query)
+}
+
 func (tdb *introspectTestDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
 	rows, err := tdb.db.QueryContext(ctx,
 		"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")

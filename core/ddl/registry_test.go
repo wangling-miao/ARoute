@@ -49,6 +49,10 @@ func (tdb *testDB) Ping(ctx context.Context) error {
 	return tdb.db.PingContext(ctx)
 }
 
+func (tdb *testDB) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return tdb.db.PrepareContext(ctx, query)
+}
+
 func (tdb *testDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
 	return nil, fmt.Errorf("not implemented for test")
 }

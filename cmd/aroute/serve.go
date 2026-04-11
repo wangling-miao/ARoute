@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/core/ddl"
 	"github.com/wangling-miao/aroute/core/engine"
 	"github.com/wangling-miao/aroute/core/events"
 	"github.com/wangling-miao/aroute/core/license"
@@ -23,6 +24,7 @@ import (
 	"github.com/wangling-miao/aroute/core/services"
 	"github.com/wangling-miao/aroute/plugins/database"
 	httpplugin "github.com/wangling-miao/aroute/plugins/http"
+	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
 var serveCmd = &cobra.Command{
@@ -140,6 +142,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 	logger.Info("starting aroute engine")
 	if err := aroute.Start(ctx); err != nil {
 		return fmt.Errorf("start engine: %w", err)
+	}
+
+	var dbService interfaces.DatabaseService
+	if err := container.Get(&dbService); err != nil {
+		logger.Warn("DDL Registry skipped: database service unavailable", "error", err)
+	} else {
+		ddlRegistry := ddl.NewRegistry(dbService)
+		aroute.SetDDL(&ddlRegistryAdapter{reg: ddlRegistry})
+		if err := aroute.DDL().Init(ctx); err != nil {
+			logger.Warn("DDL initialization failed", "error", err)
+		} else {
+			logger.Info("DDL Registry initialized")
+		}
 	}
 
 	logger.Info("aroute engine started successfully",
@@ -381,3 +396,47 @@ func (a *dispatcherAdapter) Execute(ctx context.Context, plugin core.Plugin, man
 }
 
 func (a *dispatcherAdapter) Close() error { return a.d.Close() }
+
+type ddlRegistryAdapter struct {
+	reg *ddl.Registry
+}
+
+func (a *ddlRegistryAdapter) Init(ctx context.Context) error {
+	return a.reg.Init(ctx)
+}
+
+func (a *ddlRegistryAdapter) Create(ctx context.Context, schema interface{}) error {
+	s, ok := schema.(*ddl.Schema)
+	if !ok {
+		return fmt.Errorf("ddl: invalid schema type")
+	}
+	return a.reg.Create(ctx, s)
+}
+
+func (a *ddlRegistryAdapter) Get(ctx context.Context, name string) (interface{}, error) {
+	return a.reg.Get(ctx, name)
+}
+
+func (a *ddlRegistryAdapter) Update(ctx context.Context, schema interface{}) error {
+	s, ok := schema.(*ddl.Schema)
+	if !ok {
+		return fmt.Errorf("ddl: invalid schema type")
+	}
+	return a.reg.Update(ctx, s)
+}
+
+func (a *ddlRegistryAdapter) Delete(ctx context.Context, name string, force bool) error {
+	return a.reg.Delete(ctx, name, force)
+}
+
+func (a *ddlRegistryAdapter) List(ctx context.Context) ([]interface{}, error) {
+	schemas, err := a.reg.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]interface{}, len(schemas))
+	for i, s := range schemas {
+		result[i] = s
+	}
+	return result, nil
+}

@@ -63,6 +63,7 @@ var skipConfigCommands = map[string]bool{
 	"help":       true,
 	"completion": true,
 	"plugin":     true,
+	"init":       true,
 }
 
 func initConfig() {
@@ -78,6 +79,7 @@ func initConfig() {
 
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
+		viper.SetConfigType(detectConfigType(cfgFile))
 	} else {
 		viper.AddConfigPath(".")
 		home, err := os.UserHomeDir()
@@ -222,4 +224,34 @@ func getPluginDir() string {
 		dir = "plugins"
 	}
 	return dir
+}
+
+// parseLogLevel converts string to slog.Level.
+// Returns slog.LevelInfo for unknown/invalid levels.
+func parseLogLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// detectConfigType determines config file type from extension.
+// Returns "toml" for .toml files, "yaml" for .yaml/.yml files,
+// and "yaml" as default for unknown extensions.
+func detectConfigType(configPath string) string {
+	ext := filepath.Ext(configPath)
+	switch ext {
+	case ".toml":
+		return "toml"
+	case ".yaml", ".yml":
+		return "yaml"
+	default:
+		return "yaml"
+	}
 }

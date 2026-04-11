@@ -42,6 +42,10 @@ func TestParseTier(t *testing.T) {
 		{"enterprise", TierEnterprise, false},
 		{"invalid", TierOpen, true},
 		{"", TierOpen, true},
+		{"OPEN", TierOpen, false},
+		{"Pro", TierPro, false},
+		{"ENTERPRISE", TierEnterprise, false},
+		{"OpEn", TierOpen, false},
 	}
 	for _, tt := range tests {
 		got, err := ParseTier(tt.input)

@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 type Migration struct {
-	Version   string
+	Version   int64
 	Name      string
 	Checksum  string
 	FilePath  string
@@ -82,7 +83,7 @@ func (m *MigrationRunner) Load(ctx context.Context) error {
 
 func (m *MigrationRunner) parseMigrationFile(dir, filename string) (*Migration, error) {
 	version, name := extractVersionAndName(filename)
-	if version == "" {
+	if version == 0 {
 		return nil, fmt.Errorf("invalid migration filename format: %s (expected YYYYMMDDNN_description.sql)", filename)
 	}
 
@@ -105,25 +106,30 @@ func (m *MigrationRunner) parseMigrationFile(dir, filename string) (*Migration, 
 	}, nil
 }
 
-func extractVersionAndName(filename string) (string, string) {
+func extractVersionAndName(filename string) (int64, string) {
 	re := regexp.MustCompile(`^(\d{4,12})_(.+)\.sql$`)
 	matches := re.FindStringSubmatch(filename)
 	if len(matches) < 3 {
-		return "", ""
+		return 0, ""
 	}
-	return matches[1], matches[2]
+	versionStr := matches[1]
+	version, err := strconv.ParseInt(versionStr, 10, 64)
+	if err != nil {
+		return 0, ""
+	}
+	return version, matches[2]
 }
 
-func (m *MigrationRunner) getAppliedMigrations(ctx context.Context) (map[string]time.Time, error) {
+func (m *MigrationRunner) getAppliedMigrations(ctx context.Context) (map[int64]time.Time, error) {
 	rows, err := m.service.Query(ctx, "SELECT version, applied_at FROM _migrations")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	applied := map[string]time.Time{}
+	applied := map[int64]time.Time{}
 	for rows.Next() {
-		var version string
+		var version int64
 		var appliedAtStr string
 		if err := rows.Scan(&version, &appliedAtStr); err != nil {
 			return nil, err
@@ -150,7 +156,7 @@ func (m *MigrationRunner) Apply(ctx context.Context) (int, error) {
 
 		err := m.applyMigration(ctx, migration)
 		if err != nil {
-			return appliedCount, fmt.Errorf("failed to apply migration %s: %w", migration.Version, err)
+			return appliedCount, fmt.Errorf("failed to apply migration %d: %w", migration.Version, err)
 		}
 
 		migration.Applied = true
@@ -250,7 +256,7 @@ func (m *MigrationRunner) Revert(ctx context.Context, n int) (int, error) {
 
 		err := m.revertMigration(ctx, migration)
 		if err != nil {
-			return revertedCount, fmt.Errorf("failed to revert migration %s: %w", migration.Version, err)
+			return revertedCount, fmt.Errorf("failed to revert migration %d: %w", migration.Version, err)
 		}
 
 		migration.Applied = false
@@ -263,7 +269,7 @@ func (m *MigrationRunner) Revert(ctx context.Context, n int) (int, error) {
 func (m *MigrationRunner) revertMigration(ctx context.Context, migration *Migration) error {
 	downContent := extractDownMigration(migration.Content)
 	if downContent == "" {
-		return fmt.Errorf("no down migration found for %s", migration.Version)
+		return fmt.Errorf("no down migration found for %d", migration.Version)
 	}
 
 	tx, err := m.service.BeginTx(ctx, nil)
@@ -332,7 +338,7 @@ func (m *MigrationRunner) Status(ctx context.Context) ([]MigrationStatus, error)
 }
 
 type MigrationStatus struct {
-	Version   string
+	Version   int64
 	Name      string
 	Checksum  string
 	Status    string
@@ -372,14 +378,15 @@ func (m *MigrationRunner) VerifyChecksum(ctx context.Context) ([]string, error) 
 
 	tampered := []string{}
 	for rows.Next() {
-		var version, name string
+		var version int64
+		var name string
 		if err := rows.Scan(&version, &name); err != nil {
 			return nil, err
 		}
 
 		for _, migration := range m.migrations {
 			if migration.Version == version && migration.Name != name {
-				tampered = append(tampered, version)
+				tampered = append(tampered, strconv.FormatInt(version, 10))
 			}
 		}
 	}

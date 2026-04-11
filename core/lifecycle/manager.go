@@ -156,6 +156,7 @@ var stateMachine = map[core.PluginState]map[core.PluginState]bool{
 		core.StateFailed:  true,
 	},
 	core.StateStopped: {
+		core.StateResolved: true,
 		core.StateStarting: true,
 		core.StateFailed:   true,
 	},

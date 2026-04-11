@@ -51,6 +51,7 @@ func (e *DiffEngine) diffColumns(desired *Schema, actual *interfaces.TableDefini
 				ColumnName:  field.Name,
 				ColumnType:  string(field.Type),
 				Constraints: field.Constraints,
+				ForeignKey:  field.ForeignKey,
 			})
 			continue
 		}

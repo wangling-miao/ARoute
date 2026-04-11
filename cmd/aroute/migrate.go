@@ -341,7 +341,7 @@ func runMigrateStatus(cmd *cobra.Command, args []string) error {
 		} else {
 			pendingCount++
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Version, s.Name, s.Status, appliedAt)
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", s.Version, s.Name, s.Status, appliedAt)
 	}
 	w.Flush()
 

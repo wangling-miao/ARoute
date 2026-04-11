@@ -52,6 +52,10 @@ func (tdb *migrationTestDB) Ping(ctx context.Context) error {
 	return tdb.db.PingContext(ctx)
 }
 
+func (tdb *migrationTestDB) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return tdb.db.PrepareContext(ctx, query)
+}
+
 func (tdb *migrationTestDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
 	return nil, fmt.Errorf("not implemented")
 }

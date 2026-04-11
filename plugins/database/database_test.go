@@ -500,19 +500,19 @@ func TestMaskPassword(t *testing.T) {
 func TestExtractVersionAndName(t *testing.T) {
 	tests := []struct {
 		filename string
-		version  string
+		version  int64
 		name     string
 	}{
-		{"2026041301_init.sql", "2026041301", "init"},
-		{"2026041302_create_users.sql", "2026041302", "create_users"},
-		{"invalid.sql", "", ""},
-		{"1234_short.sql", "1234", "short"},
+		{"2026041301_init.sql", 2026041301, "init"},
+		{"2026041302_create_users.sql", 2026041302, "create_users"},
+		{"invalid.sql", 0, ""},
+		{"1234_short.sql", 1234, "short"},
 	}
 
 	for _, tt := range tests {
 		version, name := extractVersionAndName(tt.filename)
 		if version != tt.version || name != tt.name {
-			t.Errorf("extractVersionAndName(%s) = (%s, %s), want (%s, %s)",
+			t.Errorf("extractVersionAndName(%s) = (%d, %s), want (%d, %s)",
 				tt.filename, version, name, tt.version, tt.name)
 		}
 	}

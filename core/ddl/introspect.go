@@ -141,6 +141,31 @@ func (i *Introspector) introspectSQLiteTable(ctx context.Context, tableName stri
 		}
 	}
 
+	fkRows, err := i.db.Query(ctx, fmt.Sprintf("PRAGMA foreign_key_list(\"%s\")", tableName))
+	if err == nil {
+		defer fkRows.Close()
+		for fkRows.Next() {
+			var id, seq int
+			var tableRef, fromCol, toCol string
+			var onUpdate, onDelete, match string
+
+			err := fkRows.Scan(&id, &seq, &tableRef, &fromCol, &toCol, &onUpdate, &onDelete, &match)
+			if err != nil {
+				continue
+			}
+
+			fk := interfaces.ForeignKeyDefinition{
+				Name:       fmt.Sprintf("fk_%s_%s", tableName, fromCol),
+				Columns:    []string{fromCol},
+				RefTable:   tableRef,
+				RefColumns: []string{toCol},
+				OnDelete:   onDelete,
+				OnUpdate:   onUpdate,
+			}
+			table.ForeignKeys = append(table.ForeignKeys, fk)
+		}
+	}
+
 	return table, nil
 }
 
@@ -219,6 +244,49 @@ func (i *Introspector) introspectPostgreSQLTable(ctx context.Context, tableName 
 		}
 
 		table.Indexes = append(table.Indexes, idx)
+	}
+
+	fkRows, err := i.db.Query(ctx, `
+		SELECT
+			tc.constraint_name,
+			kcu.column_name,
+			ccu.table_name AS foreign_table_name,
+			ccu.column_name AS foreign_column_name,
+			rc.delete_rule,
+			rc.update_rule
+		FROM information_schema.table_constraints AS tc
+		JOIN information_schema.key_column_usage AS kcu
+			ON tc.constraint_name = kcu.constraint_name
+			AND tc.table_schema = kcu.table_schema
+		JOIN information_schema.constraint_column_usage AS ccu
+			ON ccu.constraint_name = tc.constraint_name
+			AND ccu.table_schema = tc.table_schema
+		JOIN information_schema.referential_constraints AS rc
+			ON rc.constraint_name = tc.constraint_name
+			AND rc.constraint_schema = tc.table_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+			AND tc.table_name = $1
+			AND tc.table_schema = 'public'
+	`, tableName)
+	if err == nil {
+		defer fkRows.Close()
+		for fkRows.Next() {
+			var name, columnName, refTable, refColumn, onDelete, onUpdate string
+			err := fkRows.Scan(&name, &columnName, &refTable, &refColumn, &onDelete, &onUpdate)
+			if err != nil {
+				continue
+			}
+
+			fk := interfaces.ForeignKeyDefinition{
+				Name:       name,
+				Columns:    []string{columnName},
+				RefTable:   refTable,
+				RefColumns: []string{refColumn},
+				OnDelete:   onDelete,
+				OnUpdate:   onUpdate,
+			}
+			table.ForeignKeys = append(table.ForeignKeys, fk)
+		}
 	}
 
 	return table, nil

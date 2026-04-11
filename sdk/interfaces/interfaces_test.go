@@ -279,6 +279,10 @@ func (m *mockDatabaseService) Close() error {
 	return nil
 }
 
+func (m *mockDatabaseService) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return nil, nil
+}
+
 func (m *mockDatabaseService) SchemaIntrospect(ctx context.Context) (*DatabaseSchema, error) {
 	return nil, nil
 }

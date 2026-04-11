@@ -53,6 +53,9 @@ type DiffOperation struct {
 	// OldConstraints are the previous constraints (for column modify).
 	OldConstraints *Constraints `json:"old_constraints,omitempty"`
 
+	// ForeignKey is the foreign key reference (for relation column add/modify).
+	ForeignKey *ForeignKeyReference `json:"foreign_key,omitempty"`
+
 	// IndexName is the index name (for index operations).
 	IndexName string `json:"index_name,omitempty"`
 

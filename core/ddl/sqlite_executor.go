@@ -105,6 +105,21 @@ func (e *SQLiteExecutor) buildColumnDef(field FieldDefinition) string {
 		}
 	}
 
+	if field.Type == FieldTypeRelation && field.ForeignKey != nil {
+		refCol := field.ForeignKey.Column
+		if refCol == "" {
+			refCol = "id"
+		}
+		fkClause := fmt.Sprintf("REFERENCES \"%s\"(\"%s\")", field.ForeignKey.Table, refCol)
+		if field.ForeignKey.OnDelete != "" {
+			fkClause += fmt.Sprintf(" ON DELETE %s", field.ForeignKey.OnDelete)
+		}
+		if field.ForeignKey.OnUpdate != "" {
+			fkClause += fmt.Sprintf(" ON UPDATE %s", field.ForeignKey.OnUpdate)
+		}
+		parts = append(parts, fkClause)
+	}
+
 	return strings.Join(parts, " ")
 }
 
@@ -119,6 +134,21 @@ func (e *SQLiteExecutor) addColumn(ctx context.Context, tx *sql.Tx, op DiffOpera
 			defVal := e.mapper.FormatDefaultValue(op.Constraints.Default, FieldType(op.ColumnType))
 			colDef += fmt.Sprintf(" DEFAULT %s", defVal)
 		}
+	}
+
+	if FieldType(op.ColumnType) == FieldTypeRelation && op.ForeignKey != nil {
+		refCol := op.ForeignKey.Column
+		if refCol == "" {
+			refCol = "id"
+		}
+		fkClause := fmt.Sprintf(" REFERENCES \"%s\"(\"%s\")", op.ForeignKey.Table, refCol)
+		if op.ForeignKey.OnDelete != "" {
+			fkClause += fmt.Sprintf(" ON DELETE %s", op.ForeignKey.OnDelete)
+		}
+		if op.ForeignKey.OnUpdate != "" {
+			fkClause += fmt.Sprintf(" ON UPDATE %s", op.ForeignKey.OnUpdate)
+		}
+		colDef += fkClause
 	}
 
 	query := fmt.Sprintf("ALTER TABLE \"%s\" ADD COLUMN %s", op.TableName, colDef)

@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/tetratelabs/wazero"
@@ -147,17 +148,31 @@ type WasmPlugin interface {
 
 // HostModuleBuilder helps construct host modules for exposing Core APIs to Wasm plugins.
 type HostModuleBuilder struct {
-	container core.ServiceContainer
-	events    core.EventBus
-	module    api.Module
+	container       core.ServiceContainer
+	events          core.EventBus
+	module          api.Module
+	serviceRegistry []string
+	registryMu      sync.RWMutex
 }
 
 // NewHostModuleBuilder creates a new host module builder with Core context.
 func NewHostModuleBuilder(container core.ServiceContainer, events core.EventBus) *HostModuleBuilder {
-	return &HostModuleBuilder{
-		container: container,
-		events:    events,
+	b := &HostModuleBuilder{
+		container:       container,
+		events:          events,
+		serviceRegistry: []string{},
 	}
+	b.refreshServiceRegistry()
+	return b
+}
+
+func (b *HostModuleBuilder) refreshServiceRegistry() {
+	if b.container == nil {
+		return
+	}
+	b.registryMu.Lock()
+	defer b.registryMu.Unlock()
+	b.serviceRegistry = b.container.Keys()
 }
 
 // BuildCMSHostModule creates the "cms" host module with Core API functions.
@@ -178,11 +193,35 @@ func (b *HostModuleBuilder) BuildCMSHostModule(ctx context.Context, runtime waze
 }
 
 func (b *HostModuleBuilder) serviceGet(ctx context.Context, module api.Module, serviceID uint32) uint32 {
-	return 1
+	if b.container == nil {
+		return 0
+	}
+
+	b.refreshServiceRegistry()
+	b.registryMu.RLock()
+	defer b.registryMu.RUnlock()
+
+	if serviceID >= uint32(len(b.serviceRegistry)) {
+		return 0
+	}
+
+	return serviceID + 1
 }
 
 func (b *HostModuleBuilder) serviceHas(ctx context.Context, module api.Module, serviceID uint32) uint32 {
-	return 0
+	if b.container == nil {
+		return 0
+	}
+
+	b.refreshServiceRegistry()
+	b.registryMu.RLock()
+	defer b.registryMu.RUnlock()
+
+	if serviceID >= uint32(len(b.serviceRegistry)) {
+		return 0
+	}
+
+	return 1
 }
 
 func (b *HostModuleBuilder) eventSubscribe(ctx context.Context, module api.Module, topicPtr, topicLen uint32) uint32 {

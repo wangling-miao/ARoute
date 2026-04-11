@@ -72,6 +72,21 @@ type IndexDefinition struct {
 	Unique bool `json:"unique"`
 }
 
+// ForeignKeyReference represents a foreign key reference for a relation field.
+type ForeignKeyReference struct {
+	// Table is the referenced table name.
+	Table string `json:"table"`
+
+	// Column is the referenced column name (defaults to "id" if not specified).
+	Column string `json:"column,omitempty"`
+
+	// OnDelete is the action on delete (e.g., "CASCADE", "SET NULL", "NO ACTION").
+	OnDelete string `json:"on_delete,omitempty"`
+
+	// OnUpdate is the action on update (e.g., "CASCADE", "SET NULL", "NO ACTION").
+	OnUpdate string `json:"on_update,omitempty"`
+}
+
 // FieldDefinition represents a field in a Content Type schema.
 type FieldDefinition struct {
 	// Name is the field name (used as column name).
@@ -85,6 +100,10 @@ type FieldDefinition struct {
 
 	// Index indicates whether to create an index on this field.
 	Index bool `json:"index,omitempty"`
+
+	// ForeignKey specifies the foreign key reference for relation fields.
+	// Only applicable when Type is FieldTypeRelation.
+	ForeignKey *ForeignKeyReference `json:"foreign_key,omitempty"`
 }
 
 // Schema represents a Content Type schema definition.

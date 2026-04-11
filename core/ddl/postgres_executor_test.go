@@ -46,6 +46,10 @@ func (m *mockDB) BeginTx(_ context.Context, _ *sql.TxOptions) (*sql.Tx, error) {
 
 func (m *mockDB) Ping(_ context.Context) error { return nil }
 
+func (m *mockDB) Prepare(_ context.Context, _ string) (*sql.Stmt, error) {
+	return nil, fmt.Errorf("mockDB: Prepare not implemented")
+}
+
 func (m *mockDB) Close() error { return nil }
 
 func (m *mockDB) SchemaIntrospect(_ context.Context) (*interfaces.DatabaseSchema, error) {
