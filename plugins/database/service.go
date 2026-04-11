@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
+
+type txCtxKey struct{}
 
 type Service struct {
 	db     *sql.DB
@@ -23,27 +26,43 @@ func NewService(db *sql.DB, driver Driver) *Service {
 }
 
 func (s *Service) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-	return s.db.QueryContext(ctx, query, args...)
+	normalizedQuery := s.normalizePlaceholders(query)
+	return s.db.QueryContext(ctx, normalizedQuery, args...)
 }
 
 func (s *Service) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
-	return s.db.QueryRowContext(ctx, query, args...)
+	normalizedQuery := s.normalizePlaceholders(query)
+	return s.db.QueryRowContext(ctx, normalizedQuery, args...)
 }
 
 func (s *Service) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-	return s.db.ExecContext(ctx, query, args...)
+	normalizedQuery := s.normalizePlaceholders(query)
+	return s.db.ExecContext(ctx, normalizedQuery, args...)
 }
 
 func (s *Service) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	if ctx.Value(txCtxKey{}) != nil {
+		return nil, fmt.Errorf("nested transactions are not supported; use savepoints within existing transaction")
+	}
 	return s.db.BeginTx(ctx, opts)
 }
 
 func (s *Service) Ping(ctx context.Context) error {
+	_, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
 	return s.db.PingContext(ctx)
 }
 
 func (s *Service) Close() error {
 	return s.db.Close()
+}
+
+func ContextWithTransaction(ctx context.Context) context.Context {
+	return context.WithValue(ctx, txCtxKey{}, true)
 }
 
 func (s *Service) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
@@ -55,6 +74,11 @@ func (s *Service) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSch
 	default:
 		return nil, fmt.Errorf("unsupported driver for schema introspection: %s", s.driver)
 	}
+}
+
+func (s *Service) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	normalizedQuery := s.normalizePlaceholders(query)
+	return s.db.PrepareContext(ctx, normalizedQuery)
 }
 
 func (s *Service) sqliteSchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
@@ -336,4 +360,25 @@ func MaskPassword(connStr string) string {
 	}
 
 	return connStr
+}
+
+func (s *Service) normalizePlaceholders(query string) string {
+	if s.driver != DriverPostgreSQL {
+		return query
+	}
+
+	placeholderCount := 0
+	result := make([]byte, 0, len(query)+10)
+
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			placeholderCount++
+			result = append(result, '$')
+			result = append(result, []byte(fmt.Sprintf("%d", placeholderCount))...)
+		} else {
+			result = append(result, query[i])
+		}
+	}
+
+	return string(result)
 }

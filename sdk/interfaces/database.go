@@ -40,6 +40,12 @@ type DatabaseService interface {
 	// SchemaIntrospect returns schema information for introspection by the DDL Engine.
 	// It lists all tables and their column definitions in the database.
 	SchemaIntrospect(ctx context.Context) (*DatabaseSchema, error)
+
+	// Prepare creates a prepared statement for later queries or executions.
+	// The returned statement can be used multiple times with different arguments.
+	// Multiple queries or executions can be run concurrently from the returned statement.
+	// The caller must call the statement's Close method when the statement is no longer needed.
+	Prepare(ctx context.Context, query string) (*sql.Stmt, error)
 }
 
 // DatabaseSchema represents the database schema structure.

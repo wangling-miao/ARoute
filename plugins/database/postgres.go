@@ -108,16 +108,39 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 		return nil
 	}
 
-	pool, err := pgxpool.NewWithConfig(ctx.Context(), poolConfig)
-	if err != nil {
-		logger.Error("Failed to create PostgreSQL pool", "error", err)
-		return fmt.Errorf("failed to create PostgreSQL pool: %w", err)
+	maxRetries := 3
+	backoffs := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+
+	var pool *pgxpool.Pool
+	var lastErr error
+
+	for attempt := range maxRetries {
+		if attempt > 0 {
+			backoff := backoffs[attempt-1]
+			logger.Debug("Retrying PostgreSQL connection", "attempt", attempt+1, "backoff", backoff)
+			time.Sleep(backoff)
+		}
+
+		pool, err = pgxpool.NewWithConfig(ctx.Context(), poolConfig)
+		if err != nil {
+			lastErr = err
+			logger.Error("Failed to create PostgreSQL pool", "attempt", attempt+1, "error", err)
+			continue
+		}
+
+		if err = pool.Ping(ctx.Context()); err != nil {
+			pool.Close()
+			lastErr = err
+			logger.Error("Failed to ping PostgreSQL database", "attempt", attempt+1, "error", err)
+			continue
+		}
+
+		lastErr = nil
+		break
 	}
 
-	if err := pool.Ping(ctx.Context()); err != nil {
-		pool.Close()
-		logger.Error("Failed to ping PostgreSQL database", "error", err)
-		return fmt.Errorf("failed to ping PostgreSQL database: %w", err)
+	if lastErr != nil {
+		return fmt.Errorf("failed to connect to PostgreSQL after %d retries: %s", maxRetries, MaskPassword(lastErr.Error()))
 	}
 
 	db := stdlib.OpenDBFromPool(pool)
