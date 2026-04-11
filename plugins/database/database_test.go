@@ -3,10 +3,15 @@ package database
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
@@ -527,4 +532,577 @@ SELECT * FROM users;
 	if len(statements) != expectedCount {
 		t.Errorf("Expected %d statements, got %d", expectedCount, len(statements))
 	}
+}
+
+func TestService_Prepare(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE test_prepare (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	stmt, err := service.Prepare(ctx, "INSERT INTO test_prepare (name) VALUES (?)")
+	if err != nil {
+		t.Fatalf("Failed to prepare statement: %v", err)
+	}
+	defer stmt.Close()
+
+	for i := 1; i <= 3; i++ {
+		_, err = stmt.Exec(fmt.Sprintf("name_%d", i))
+		if err != nil {
+			t.Fatalf("Failed to execute prepared statement: %v", err)
+		}
+	}
+
+	row := service.QueryRow(ctx, "SELECT COUNT(*) FROM test_prepare")
+	var count int
+	if err := row.Scan(&count); err != nil {
+		t.Fatalf("Failed to scan count: %v", err)
+	}
+
+	if count != 3 {
+		t.Errorf("Expected count=3, got %d", count)
+	}
+}
+
+func TestService_Prepare_Query(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE prepare_query (id INTEGER PRIMARY KEY, value TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	_, err = service.Exec(ctx, "INSERT INTO prepare_query (value) VALUES ('a')")
+	if err != nil {
+		t.Fatalf("Failed to insert: %v", err)
+	}
+
+	_, err = service.Exec(ctx, "INSERT INTO prepare_query (value) VALUES ('b')")
+	if err != nil {
+		t.Fatalf("Failed to insert: %v", err)
+	}
+
+	stmt, err := service.Prepare(ctx, "SELECT value FROM prepare_query WHERE id = ?")
+	if err != nil {
+		t.Fatalf("Failed to prepare statement: %v", err)
+	}
+	defer stmt.Close()
+
+	var value string
+	err = stmt.QueryRow(1).Scan(&value)
+	if err != nil {
+		t.Fatalf("Failed to query with prepared statement: %v", err)
+	}
+
+	if value != "a" {
+		t.Errorf("Expected value='a', got %s", value)
+	}
+}
+
+func TestService_NormalizePlaceholders_SQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+
+	query := "SELECT * FROM users WHERE id = ? AND status = ?"
+	normalized := service.normalizePlaceholders(query)
+
+	if normalized != query {
+		t.Errorf("SQLite query should not be normalized, got: %s", normalized)
+	}
+}
+
+func TestService_NormalizePlaceholders_PostgreSQL(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverPostgreSQL)
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "SELECT * FROM users WHERE id = ?",
+			expected: "SELECT * FROM users WHERE id = $1",
+		},
+		{
+			input:    "SELECT * FROM users WHERE id = ? AND status = ?",
+			expected: "SELECT * FROM users WHERE id = $1 AND status = $2",
+		},
+		{
+			input:    "INSERT INTO users (name, email) VALUES (?, ?)",
+			expected: "INSERT INTO users (name, email) VALUES ($1, $2)",
+		},
+		{
+			input:    "SELECT * FROM users WHERE id IN (?, ?, ?)",
+			expected: "SELECT * FROM users WHERE id IN ($1, $2, $3)",
+		},
+		{
+			input:    "SELECT * FROM users",
+			expected: "SELECT * FROM users",
+		},
+	}
+
+	for i, tt := range tests {
+		normalized := service.normalizePlaceholders(tt.input)
+		if normalized != tt.expected {
+			t.Errorf("Test %d: expected '%s', got '%s'", i+1, tt.expected, normalized)
+		}
+	}
+}
+
+func TestService_QueryWithPlaceholderNormalization(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE test_placeholder (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	_, err = service.Exec(ctx, "INSERT INTO test_placeholder (name) VALUES (?)", "test_name")
+	if err != nil {
+		t.Fatalf("Failed to insert with ? placeholder: %v", err)
+	}
+
+	rows, err := service.Query(ctx, "SELECT id, name FROM test_placeholder WHERE name = ?", "test_name")
+	if err != nil {
+		t.Fatalf("Failed to query with ? placeholder: %v", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		t.Fatal("Expected one row")
+	}
+
+	var id int
+	var name string
+	if err := rows.Scan(&id, &name); err != nil {
+		t.Fatalf("Failed to scan: %v", err)
+	}
+
+	if name != "test_name" {
+		t.Errorf("Expected name='test_name', got %s", name)
+	}
+}
+
+func TestService_PrepareWithTransaction(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE prepare_tx (id INTEGER PRIMARY KEY, value TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	tx, err := service.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO prepare_tx (value) VALUES (?)")
+	if err != nil {
+		tx.Rollback()
+		t.Fatalf("Failed to prepare in transaction: %v", err)
+	}
+
+	_, err = stmt.Exec("tx_value_1")
+	if err != nil {
+		stmt.Close()
+		tx.Rollback()
+		t.Fatalf("Failed to execute prepared statement in tx: %v", err)
+	}
+
+	_, err = stmt.Exec("tx_value_2")
+	if err != nil {
+		stmt.Close()
+		tx.Rollback()
+		t.Fatalf("Failed to execute second prepared statement in tx: %v", err)
+	}
+
+	stmt.Close()
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	row := service.QueryRow(ctx, "SELECT COUNT(*) FROM prepare_tx")
+	var count int
+	if err := row.Scan(&count); err != nil {
+		t.Fatalf("Failed to scan count: %v", err)
+	}
+
+	if count != 2 {
+		t.Errorf("Expected count=2, got %d", count)
+	}
+}
+
+func TestService_TransactionRollback(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE rollback_test (id INTEGER PRIMARY KEY, value TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	tx, err := service.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO rollback_test (value) VALUES ('to_be_rolled_back')")
+	if err != nil {
+		tx.Rollback()
+		t.Fatalf("Failed to insert in transaction: %v", err)
+	}
+
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Failed to rollback: %v", err)
+	}
+
+	row := service.QueryRow(ctx, "SELECT COUNT(*) FROM rollback_test")
+	var count int
+	if err := row.Scan(&count); err != nil {
+		t.Fatalf("Failed to scan count: %v", err)
+	}
+
+	if count != 0 {
+		t.Errorf("Expected count=0 after rollback, got %d", count)
+	}
+}
+
+func TestService_NestedTransactionPrevention(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE nested_test (id INTEGER PRIMARY KEY)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	txCtx := ContextWithTransaction(ctx)
+	_, err = service.BeginTx(txCtx, nil)
+	if err == nil {
+		t.Error("Expected error for nested transaction, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "nested transactions") {
+		t.Errorf("Expected nested transaction error, got: %v", err)
+	}
+}
+
+func TestService_PingWithTimeout(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	if err := service.Ping(ctx); err != nil {
+		t.Errorf("Ping failed: %v", err)
+	}
+
+	shortCtx, cancel := context.WithTimeout(ctx, 1*time.Nanosecond)
+	cancel()
+	if err := service.Ping(shortCtx); err == nil {
+		t.Error("Expected timeout error for cancelled context")
+	}
+}
+
+func TestService_WALMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "wal_test.db")
+
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE wal_check (id INTEGER PRIMARY KEY)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	row := service.QueryRow(ctx, "PRAGMA journal_mode")
+	var journalMode string
+	if err := row.Scan(&journalMode); err != nil {
+		t.Fatalf("Failed to scan journal mode: %v", err)
+	}
+
+	if journalMode != "wal" {
+		t.Errorf("Expected WAL mode, got: %s", journalMode)
+	}
+}
+
+func TestService_ClosedStatementError(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE stmt_test (id INTEGER PRIMARY KEY)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	stmt, err := service.Prepare(ctx, "INSERT INTO stmt_test DEFAULT VALUES")
+	if err != nil {
+		t.Fatalf("Failed to prepare statement: %v", err)
+	}
+
+	stmt.Close()
+
+	_, err = stmt.Exec()
+	if err == nil {
+		t.Error("Expected error when executing closed statement")
+	}
+}
+
+func TestService_CancelledContext(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = service.Exec(ctx, "CREATE TABLE cancel_test (id INTEGER PRIMARY KEY)")
+	if err == nil {
+		t.Error("Expected error with cancelled context")
+	}
+}
+
+func TestMigrationRunner_Failure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	migrationFile := filepath.Join(tmpDir, "2026041301_invalid.sql")
+	content := `
+CREATE TABLE valid_table (id INTEGER PRIMARY KEY);
+INVALID SQL STATEMENT HERE;
+-- @down
+DROP TABLE valid_table;
+`
+	if err := os.WriteFile(migrationFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write migration file: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+CREATE TABLE IF NOT EXISTS _migrations (
+	version TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	applied_at TEXT NOT NULL
+)
+`)
+	if err != nil {
+		t.Fatalf("Failed to create migrations table: %v", err)
+	}
+
+	runner := NewMigrationRunner(service, tmpDir)
+	if err := runner.Load(ctx); err != nil {
+		t.Fatalf("Failed to load migrations: %v", err)
+	}
+
+	_, err = runner.Apply(ctx)
+	if err == nil {
+		t.Error("Expected error for invalid SQL migration")
+	}
+}
+
+func TestPlugin_DriverDetection(t *testing.T) {
+	tests := []struct {
+		name     string
+		driver   string
+		expected Driver
+	}{
+		{"sqlite", "sqlite", DriverSQLite},
+		{"sqlite3", "sqlite3", DriverSQLite},
+		{"postgres", "postgres", DriverPostgreSQL},
+		{"postgresql", "postgresql", DriverPostgreSQL},
+		{"pg", "pg", DriverPostgreSQL},
+		{"empty", "", DriverSQLite},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plugin := New()
+			driver := plugin.detectDriver(mockCoreContext{driver: tt.driver})
+			if driver != tt.expected {
+				t.Errorf("detectDriver(%s) = %s, want %s", tt.driver, driver, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPlugin_UnknownDriver(t *testing.T) {
+	plugin := New()
+	ctx := mockCoreContext{driver: "mysql"}
+
+	err := plugin.Init(ctx)
+	if err == nil {
+		t.Error("Expected error for unknown driver")
+	}
+	if err != nil && !strings.Contains(err.Error(), "unsupported database driver") {
+		t.Errorf("Expected unsupported driver error, got: %v", err)
+	}
+}
+
+type mockCoreContext struct {
+	driver string
+}
+
+func (m mockCoreContext) Config() core.ConfigProvider {
+	return &mockConfig{driver: m.driver}
+}
+
+func (m mockCoreContext) Logger() *slog.Logger {
+	return slog.Default()
+}
+
+func (m mockCoreContext) Context() context.Context {
+	return context.Background()
+}
+
+func (m mockCoreContext) Services() core.ServiceContainer {
+	return &mockServiceContainer{}
+}
+
+func (m mockCoreContext) Events() core.EventBus {
+	return nil
+}
+
+func (m mockCoreContext) DataDir() string {
+	return "/tmp/aroute/test"
+}
+
+func (m mockCoreContext) PluginDir() string {
+	return ""
+}
+
+type mockConfig struct {
+	driver string
+}
+
+func (m *mockConfig) GetString(key string) string {
+	if key == "database.driver" {
+		return m.driver
+	}
+	return ""
+}
+
+func (m *mockConfig) GetInt(key string) int {
+	return 0
+}
+
+func (m *mockConfig) GetBool(key string) bool {
+	return false
+}
+
+func (m *mockConfig) GetStringSlice(key string) []string {
+	return nil
+}
+
+func (m *mockConfig) Get(key string) interface{} {
+	return nil
+}
+
+func (m *mockConfig) Unmarshal(key string, target interface{}) error {
+	return nil
+}
+
+type mockServiceContainer struct{}
+
+func (m *mockServiceContainer) Provide(fn interface{}) error {
+	return nil
+}
+
+func (m *mockServiceContainer) Get(target interface{}) error {
+	return nil
+}
+
+func (m *mockServiceContainer) GetNamed(name string, target interface{}) error {
+	return nil
+}
+
+func (m *mockServiceContainer) Unregister(target interface{}) error {
+	return nil
+}
+
+func (m *mockServiceContainer) Has(target interface{}) bool {
+	return false
+}
+
+func (m *mockServiceContainer) Keys() []string {
+	return nil
 }
