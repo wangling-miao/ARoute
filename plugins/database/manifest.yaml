@@ -1,0 +1,19 @@
+name: database
+version: 1.0.0
+description: Database abstraction layer supporting SQLite (zero-CGO) and PostgreSQL with migrations, schema introspection, and connection pooling
+author: wangling
+license: MIT
+engine: native
+requires: []
+after: []
+provides:
+  - database.service
+homepage: https://github.com/wangling-miao/aroute
+repository: https://github.com/wangling-miao/aroute
+keywords:
+  - database
+  - sqlite
+  - postgresql
+  - pgx
+  - migrations
+  - schema-introspection

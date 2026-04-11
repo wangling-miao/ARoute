@@ -21,6 +21,7 @@ import (
 	"github.com/wangling-miao/aroute/core/loader"
 	"github.com/wangling-miao/aroute/core/registry"
 	"github.com/wangling-miao/aroute/core/services"
+	"github.com/wangling-miao/aroute/plugins/database"
 	httpplugin "github.com/wangling-miao/aroute/plugins/http"
 )
 
@@ -111,7 +112,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	pluginLoader.Register("http", func() core.Plugin {
 		return httpplugin.New()
 	})
-
+	pluginLoader.Register("database", func() core.Plugin {
+		return database.New()
+	})
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},
 		&pluginLoaderAdapter{loader: pluginLoader},
