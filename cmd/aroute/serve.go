@@ -103,7 +103,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctxFactory := func(pluginCtx context.Context, pluginName string) core.CoreContext {
 		pluginLogger := logger.With("plugin", pluginName)
 		pluginDataDir := filepath.Join(dataDir, "plugins", pluginName)
-		pluginConfig := core.NewScopedConfig(pluginName, make(map[string]interface{}))
+		pluginConfig := core.NewViperConfig(viper.GetViper())
 		return core.NewCoreContext(pluginCtx, container, &eventBusAdapter{eb: eventBus}, pluginConfig, pluginLogger, pluginDataDir, pluginDir)
 	}
 

@@ -81,7 +81,23 @@ log:
   # Log level: debug, info, warn, error
   level: "info"
   # Log format: json, text
-  format: "text"
+  format: "json"
+  # Output target: stdout, file, both
+  output: "both"
+  # File logging settings (used when output is file or both)
+  file:
+    # Directory for log files (created if not exists)
+    path: "data/logs"
+    # Base name for log files
+    name: "aroute.log"
+    # Max size in MB before rotation
+    max_size: 100
+    # Max days to keep old log files (0 = forever)
+    max_age: 30
+    # Max number of old log files to keep (0 = all)
+    max_backups: 10
+    # Compress rotated log files
+    compress: true
 
 # CORS settings
 cors:
