@@ -17,26 +17,30 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 
 	connStr := config.GetString("database.connection_string")
 	if connStr == "" {
-		host := config.GetString("database.host")
+		host := config.GetString("database.postgres.host")
 		if host == "" {
 			host = "localhost"
 		}
-		port := config.GetInt("database.port")
+		port := config.GetInt("database.postgres.port")
 		if port == 0 {
 			port = 5432
 		}
-		user := config.GetString("database.user")
+		user := config.GetString("database.postgres.user")
 		if user == "" {
 			user = "aroute"
 		}
-		password := config.GetString("database.password")
-		dbname := config.GetString("database.name")
+		password := config.GetString("database.postgres.password")
+		dbname := config.GetString("database.postgres.dbname")
 		if dbname == "" {
 			dbname = "aroute"
 		}
+		sslmode := config.GetString("database.postgres.sslmode")
+		if sslmode == "" {
+			sslmode = "disable"
+		}
 
-		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
-			user, password, host, port, dbname)
+		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			user, password, host, port, dbname, sslmode)
 	}
 
 	maskedConnStr := MaskPassword(connStr)
@@ -84,12 +88,6 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 
 	poolConfig.HealthCheckPeriod = 1 * time.Minute
 
-	sslMode := config.GetString("database.ssl_mode")
-	if sslMode != "" {
-		poolConfig.ConnConfig.Config.TLSConfig = nil
-		poolConfig.ConnConfig.Config.RuntimeParams["sslmode"] = sslMode
-	}
-
 	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		statementTimeout := config.GetString("database.statement_timeout")
 		if statementTimeout != "" {
@@ -132,7 +130,6 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 		"min_conns", poolConfig.MinConns,
 		"current_conns", stats.TotalConns(),
 		"idle_conns", stats.IdleConns(),
-		"ssl_mode", sslMode,
 	)
 
 	return nil
