@@ -90,7 +90,7 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	case DriverPostgreSQL:
 		err = p.initPostgreSQL(ctx, logger)
 	default:
-		return fmt.Errorf("unsupported database driver: %s", driverType)
+		return fmt.Errorf("unsupported database driver: %s. Supported drivers: sqlite, postgres", driverType)
 	}
 
 	if err != nil {
@@ -133,8 +133,7 @@ func (p *Plugin) detectDriver(ctx core.CoreContext) Driver {
 	case "postgres", "postgresql", "pg":
 		return DriverPostgreSQL
 	default:
-		// Default to SQLite for unknown or empty driver
-		return DriverSQLite
+		return Driver(driverStr)
 	}
 }
 
