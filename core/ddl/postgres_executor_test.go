@@ -90,9 +90,7 @@ func TestPostgreSQL_TypeMapping(t *testing.T) {
 
 func TestPostgreSQL_TypeMapping_WithMaxLength(t *testing.T) {
 	mapper := NewTypeMapper(DialectPostgreSQL)
-	maxLen := 255
-
-	got := mapper.MapColumnType(FieldTypeText, &Constraints{MaxLength: &maxLen})
+	got := mapper.MapColumnType(FieldTypeText, &Constraints{MaxLength: new(255)})
 	want := "VARCHAR(255)"
 	if got != want {
 		t.Errorf("MapColumnType(text, MaxLength=255) = %q, want %q", got, want)
@@ -429,7 +427,7 @@ func TestPostgreSQL_BuildColumnDef(t *testing.T) {
 				Name: "status",
 				Type: FieldTypeText,
 				Constraints: &Constraints{
-					MaxLength: intPtr(50),
+					MaxLength: new(50),
 					Default:   "pending",
 					Nullable:  false,
 				},
@@ -491,7 +489,7 @@ func TestPostgreSQL_BuildColumnDef(t *testing.T) {
 				Constraints: &Constraints{
 					Nullable:  false,
 					Unique:    true,
-					MaxLength: intPtr(100),
+					MaxLength: new(100),
 					Default:   "",
 				},
 			},
@@ -668,7 +666,7 @@ func TestPostgreSQL_CreateTableSQL(t *testing.T) {
 		Name: "articles",
 		Fields: []FieldDefinition{
 			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
-			{Name: "title", Type: FieldTypeText, Constraints: &Constraints{Nullable: false, MaxLength: intPtr(200)}},
+			{Name: "title", Type: FieldTypeText, Constraints: &Constraints{Nullable: false, MaxLength: new(200)}},
 			{Name: "body", Type: FieldTypeText},
 			{Name: "published", Type: FieldTypeBoolean, Constraints: &Constraints{Nullable: true, Default: false}},
 			{Name: "created_at", Type: FieldTypeDatetime},
@@ -738,7 +736,7 @@ func TestPostgreSQL_AlterColumnSQL(t *testing.T) {
 	mapper := NewTypeMapper(DialectPostgreSQL)
 
 	// Test ADD COLUMN SQL generation
-	addColType := mapper.MapColumnType(FieldTypeText, &Constraints{MaxLength: intPtr(100), Nullable: false})
+	addColType := mapper.MapColumnType(FieldTypeText, &Constraints{MaxLength: new(100), Nullable: false})
 	addColSQL := fmt.Sprintf(`ALTER TABLE "posts" ADD COLUMN "slug" %s`, addColType)
 	if !strings.Contains(addColSQL, "VARCHAR(100)") {
 		t.Errorf("ADD COLUMN SQL should use VARCHAR(100), got: %s", addColSQL)

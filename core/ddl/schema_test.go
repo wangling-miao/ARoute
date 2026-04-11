@@ -30,8 +30,6 @@ func TestFieldType_IsValid(t *testing.T) {
 }
 
 func TestSchema_Validate(t *testing.T) {
-	maxLen := 255
-
 	tests := []struct {
 		name      string
 		schema    *Schema
@@ -60,7 +58,7 @@ func TestSchema_Validate(t *testing.T) {
 						Constraints: &Constraints{
 							Nullable:  false,
 							Unique:    true,
-							MaxLength: &maxLen,
+							MaxLength: new(255),
 						},
 					},
 				},
@@ -145,8 +143,6 @@ func TestSchema_Validate(t *testing.T) {
 }
 
 func TestSchema_JSONRoundTrip(t *testing.T) {
-	maxLen := 255
-
 	original := &Schema{
 		Name: "posts",
 		Fields: []FieldDefinition{
@@ -155,7 +151,7 @@ func TestSchema_JSONRoundTrip(t *testing.T) {
 				Type: FieldTypeText,
 				Constraints: &Constraints{
 					Nullable:  false,
-					MaxLength: &maxLen,
+					MaxLength: new(255),
 				},
 			},
 			{Name: "body", Type: FieldTypeText},
@@ -285,7 +281,7 @@ func TestTypeMapper_MapColumnType(t *testing.T) {
 		{DialectSQLite, FieldTypeBoolean, "INTEGER", nil},
 		{DialectSQLite, FieldTypeJSON, "TEXT", nil},
 		{DialectPostgreSQL, FieldTypeText, "TEXT", nil},
-		{DialectPostgreSQL, FieldTypeText, "VARCHAR(255)", intPtr(255)},
+		{DialectPostgreSQL, FieldTypeText, "VARCHAR(255)", new(255)},
 		{DialectPostgreSQL, FieldTypeNumber, "BIGINT", nil},
 		{DialectPostgreSQL, FieldTypeBoolean, "BOOLEAN", nil},
 		{DialectPostgreSQL, FieldTypeJSON, "JSONB", nil},

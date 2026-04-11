@@ -126,8 +126,7 @@ func (e *PluginError) Unwrap() error {
 
 // IsPluginNotFound returns true if err is ErrPluginNotFound or wraps it.
 func IsPluginNotFound(err error) bool {
-	var e *PluginError
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*PluginError](err); ok {
 		return e.Op == "get" && e.Msg == "plugin not found"
 	}
 	return false
@@ -135,8 +134,7 @@ func IsPluginNotFound(err error) bool {
 
 // IsPluginExists returns true if err is ErrPluginExists or wraps it.
 func IsPluginExists(err error) bool {
-	var e *PluginError
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*PluginError](err); ok {
 		return e.Op == "register" && e.Msg == "plugin already exists"
 	}
 	return false

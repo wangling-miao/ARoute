@@ -60,7 +60,7 @@ func TestTypeMapper_MapColumnType_SQLite_AllTypes(t *testing.T) {
 		{
 			name:        "text with MaxLength still maps to TEXT",
 			fieldType:   FieldTypeText,
-			constraints: &Constraints{MaxLength: intPtr(255)},
+			constraints: &Constraints{MaxLength: new(255)},
 			expected:    "TEXT",
 		},
 	}
@@ -91,13 +91,13 @@ func TestTypeMapper_MapColumnType_PostgreSQL_AllTypes(t *testing.T) {
 		{
 			name:        "text with MaxLength maps to VARCHAR(N)",
 			fieldType:   FieldTypeText,
-			constraints: &Constraints{MaxLength: intPtr(255)},
+			constraints: &Constraints{MaxLength: new(255)},
 			expected:    "VARCHAR(255)",
 		},
 		{
 			name:        "text with MaxLength 100 maps to VARCHAR(100)",
 			fieldType:   FieldTypeText,
-			constraints: &Constraints{MaxLength: intPtr(100)},
+			constraints: &Constraints{MaxLength: new(100)},
 			expected:    "VARCHAR(100)",
 		},
 		{

@@ -250,8 +250,7 @@ func (v *Validator) LicenseInfo() LicenseInfo {
 			if v.license.ExpiresAt.IsZero() {
 				return nil
 			}
-			t := v.license.ExpiresAt
-			return &t
+			return new(v.license.ExpiresAt)
 		}(),
 	}
 }

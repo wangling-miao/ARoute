@@ -760,7 +760,7 @@ func TestDiff_ColumnConstraintsCarried(t *testing.T) {
 				Constraints: &Constraints{
 					Nullable:  false,
 					Unique:    true,
-					MaxLength: intPtrDiff(255),
+					MaxLength: new(255),
 				},
 			},
 		},
@@ -899,7 +899,7 @@ func TestDiff_ColumnModifyWithConstraints(t *testing.T) {
 				Type: FieldTypeNumber,
 				Constraints: &Constraints{
 					Nullable: false,
-					Min:      floatPtr(0),
+					Min:      new(float64(0)),
 				},
 			},
 		},
