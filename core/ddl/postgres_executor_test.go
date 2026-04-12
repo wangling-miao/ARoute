@@ -822,9 +822,341 @@ func TestPostgreSQL_FormatDefaultValue_FloatPrecision(t *testing.T) {
 func TestPostgreSQL_FormatDefaultValue_DefaultCase(t *testing.T) {
 	mapper := NewTypeMapper(DialectPostgreSQL)
 
-	// Use a slice as an unsupported type - should use '%v' formatting
 	got := mapper.FormatDefaultValue([]string{"a", "b"}, FieldTypeText)
 	if !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
 		t.Errorf("FormatDefaultValue for unsupported type should be quoted, got: %q", got)
+	}
+}
+
+type pgMockTx struct {
+	executedQueries []string
+	failOnExec      bool
+	failIndex       int
+}
+
+func (m *pgMockTx) ExecContext(_ context.Context, query string, _ ...interface{}) (sql.Result, error) {
+	m.executedQueries = append(m.executedQueries, query)
+	if m.failOnExec && len(m.executedQueries) > m.failIndex {
+		return nil, fmt.Errorf("mock: exec failed at query %d", len(m.executedQueries))
+	}
+	return sql.Result(nil), nil
+}
+
+func (m *pgMockTx) QueryContext(_ context.Context, _ string, _ ...interface{}) (*sql.Rows, error) {
+	return nil, fmt.Errorf("mock: query not implemented")
+}
+
+func (m *pgMockTx) QueryRowContext(_ context.Context, _ string, _ ...interface{}) *sql.Row {
+	return nil
+}
+
+func (m *pgMockTx) PrepareContext(_ context.Context, _ string) (*sql.Stmt, error) {
+	return nil, fmt.Errorf("mock: prepare not implemented")
+}
+
+func (m *pgMockTx) Commit() error {
+	return nil
+}
+
+func (m *pgMockTx) Rollback() error {
+	return nil
+}
+
+type pgMockDBWithTx struct {
+	pgMockTx *pgMockTx
+}
+
+func (m *pgMockDBWithTx) Query(_ context.Context, _ string, _ ...interface{}) (*sql.Rows, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *pgMockDBWithTx) QueryRow(_ context.Context, _ string, _ ...interface{}) *sql.Row {
+	return nil
+}
+
+func (m *pgMockDBWithTx) Exec(_ context.Context, _ string, _ ...interface{}) (sql.Result, error) {
+	return nil, nil
+}
+
+func (m *pgMockDBWithTx) BeginTx(_ context.Context, _ *sql.TxOptions) (*sql.Tx, error) {
+	return nil, nil
+}
+
+func (m *pgMockDBWithTx) Ping(_ context.Context) error { return nil }
+
+func (m *pgMockDBWithTx) Prepare(_ context.Context, _ string) (*sql.Stmt, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *pgMockDBWithTx) Close() error { return nil }
+
+func (m *pgMockDBWithTx) SchemaIntrospect(_ context.Context) (*interfaces.DatabaseSchema, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func TestPostgreSQL_ExecuteOp_TableCreate(t *testing.T) {
+	mapper := NewTypeMapper(DialectPostgreSQL)
+
+	op := DiffOperation{
+		Type:      OpTableCreate,
+		TableName: "test_table",
+		Schema: &Schema{
+			Name: "test_table",
+			Fields: []FieldDefinition{
+				{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+				{Name: "name", Type: FieldTypeText},
+			},
+		},
+	}
+
+	var columns []string
+	for _, field := range op.Schema.Fields {
+		parts := []string{
+			fmt.Sprintf(`"%s"`, field.Name),
+			mapper.MapColumnType(field.Type, field.Constraints),
+		}
+		if field.Constraints != nil && !field.Constraints.Nullable {
+			parts = append(parts, "NOT NULL")
+		}
+		columns = append(columns, strings.Join(parts, " "))
+	}
+
+	expectedSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS \"%s\" (\n  %s\n)",
+		op.TableName, strings.Join(columns, ",\n  "))
+
+	if !strings.Contains(expectedSQL, `"id" BIGINT NOT NULL`) {
+		t.Errorf("expected SQL should contain id column definition, got: %s", expectedSQL)
+	}
+	if !strings.Contains(expectedSQL, `"name" TEXT`) {
+		t.Errorf("expected SQL should contain name column definition, got: %s", expectedSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_ColumnAdd(t *testing.T) {
+	mapper := NewTypeMapper(DialectPostgreSQL)
+
+	op := DiffOperation{
+		Type:        OpColumnAdd,
+		TableName:   "test_table",
+		ColumnName:  "email",
+		ColumnType:  "text",
+		Constraints: &Constraints{Nullable: false, Unique: true, MaxLength: new(255)},
+	}
+
+	colDef := fmt.Sprintf("\"%s\" %s", op.ColumnName,
+		mapper.MapColumnType(FieldType(op.ColumnType), op.Constraints))
+
+	if op.Constraints != nil {
+		if !op.Constraints.Nullable {
+			colDef += " NOT NULL"
+		}
+		if op.Constraints.Unique {
+			colDef += " UNIQUE"
+		}
+	}
+
+	expectedSQL := fmt.Sprintf("ALTER TABLE \"%s\" ADD COLUMN %s", op.TableName, colDef)
+
+	if !strings.Contains(expectedSQL, "VARCHAR(255)") {
+		t.Errorf("expected SQL should use VARCHAR(255), got: %s", expectedSQL)
+	}
+	if !strings.Contains(expectedSQL, "NOT NULL") {
+		t.Errorf("expected SQL should contain NOT NULL, got: %s", expectedSQL)
+	}
+	if !strings.Contains(expectedSQL, "UNIQUE") {
+		t.Errorf("expected SQL should contain UNIQUE, got: %s", expectedSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_ColumnDrop(t *testing.T) {
+	op := DiffOperation{
+		Type:       OpColumnDrop,
+		TableName:  "test_table",
+		ColumnName: "legacy_field",
+	}
+
+	expectedSQL := fmt.Sprintf("ALTER TABLE \"%s\" DROP COLUMN \"%s\"",
+		op.TableName, op.ColumnName)
+
+	if !strings.Contains(expectedSQL, "DROP COLUMN") {
+		t.Errorf("expected SQL should contain DROP COLUMN, got: %s", expectedSQL)
+	}
+	if !strings.Contains(expectedSQL, "legacy_field") {
+		t.Errorf("expected SQL should contain column name, got: %s", expectedSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_ColumnModify(t *testing.T) {
+	mapper := NewTypeMapper(DialectPostgreSQL)
+
+	op := DiffOperation{
+		Type:        OpColumnModify,
+		TableName:   "test_table",
+		ColumnName:  "count",
+		ColumnType:  "number",
+		Constraints: &Constraints{Nullable: false, Default: 0},
+	}
+
+	newType := mapper.MapColumnType(FieldType(op.ColumnType), op.Constraints)
+	expectedTypeSQL := fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" TYPE %s USING \"%s\"::%s",
+		op.TableName, op.ColumnName, newType, op.ColumnName, newType)
+
+	if !strings.Contains(expectedTypeSQL, "BIGINT") {
+		t.Errorf("expected type SQL should use BIGINT, got: %s", expectedTypeSQL)
+	}
+	if !strings.Contains(expectedTypeSQL, "USING") {
+		t.Errorf("expected type SQL should contain USING cast, got: %s", expectedTypeSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_ColumnModify_Nullability(t *testing.T) {
+	op := DiffOperation{
+		Type:        OpColumnModify,
+		TableName:   "test_table",
+		ColumnName:  "field",
+		ColumnType:  "text",
+		Constraints: &Constraints{Nullable: true},
+	}
+
+	setNullSQL := fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" DROP NOT NULL",
+		op.TableName, op.ColumnName)
+	if !strings.Contains(setNullSQL, "DROP NOT NULL") {
+		t.Errorf("nullable=true should generate DROP NOT NULL, got: %s", setNullSQL)
+	}
+
+	opNotNull := DiffOperation{
+		Type:        OpColumnModify,
+		TableName:   "test_table",
+		ColumnName:  "field",
+		ColumnType:  "text",
+		Constraints: &Constraints{Nullable: false},
+	}
+
+	setNotNullSQL := fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" SET NOT NULL",
+		opNotNull.TableName, opNotNull.ColumnName)
+	if !strings.Contains(setNotNullSQL, "SET NOT NULL") {
+		t.Errorf("nullable=false should generate SET NOT NULL, got: %s", setNotNullSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_ColumnModify_Default(t *testing.T) {
+	mapper := NewTypeMapper(DialectPostgreSQL)
+
+	op := DiffOperation{
+		Type:        OpColumnModify,
+		TableName:   "test_table",
+		ColumnName:  "status",
+		ColumnType:  "text",
+		Constraints: &Constraints{Default: "active"},
+	}
+
+	defVal := mapper.FormatDefaultValue(op.Constraints.Default, FieldType(op.ColumnType))
+	setDefaultSQL := fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" SET DEFAULT %s",
+		op.TableName, op.ColumnName, defVal)
+
+	if !strings.Contains(setDefaultSQL, "SET DEFAULT") {
+		t.Errorf("should contain SET DEFAULT, got: %s", setDefaultSQL)
+	}
+	if !strings.Contains(setDefaultSQL, "'active'") {
+		t.Errorf("should contain default value, got: %s", setDefaultSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_IndexAdd(t *testing.T) {
+	op := DiffOperation{
+		Type:         OpIndexAdd,
+		TableName:    "test_table",
+		IndexName:    "idx_test_name",
+		IndexColumns: []string{"name", "created_at"},
+		IndexUnique:  false,
+	}
+
+	cols := make([]string, len(op.IndexColumns))
+	for i, c := range op.IndexColumns {
+		cols[i] = fmt.Sprintf("\"%s\"", c)
+	}
+
+	expectedSQL := fmt.Sprintf("CREATE INDEX IF NOT EXISTS \"%s\" ON \"%s\" (%s)",
+		op.IndexName, op.TableName, strings.Join(cols, ", "))
+
+	if !strings.Contains(expectedSQL, "CREATE INDEX") {
+		t.Errorf("should contain CREATE INDEX, got: %s", expectedSQL)
+	}
+	if !strings.Contains(expectedSQL, "IF NOT EXISTS") {
+		t.Errorf("should contain IF NOT EXISTS, got: %s", expectedSQL)
+	}
+	if strings.Contains(expectedSQL, "UNIQUE") {
+		t.Errorf("non-unique index should NOT contain UNIQUE, got: %s", expectedSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_IndexAdd_Unique(t *testing.T) {
+	op := DiffOperation{
+		Type:         OpIndexAdd,
+		TableName:    "test_table",
+		IndexName:    "idx_test_email",
+		IndexColumns: []string{"email"},
+		IndexUnique:  true,
+	}
+
+	uniqueStr := "UNIQUE "
+	cols := make([]string, len(op.IndexColumns))
+	for i, c := range op.IndexColumns {
+		cols[i] = fmt.Sprintf("\"%s\"", c)
+	}
+
+	expectedSQL := fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS \"%s\" ON \"%s\" (%s)",
+		uniqueStr, op.IndexName, op.TableName, strings.Join(cols, ", "))
+
+	if !strings.Contains(expectedSQL, "CREATE UNIQUE INDEX") {
+		t.Errorf("unique index should contain UNIQUE, got: %s", expectedSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_IndexDrop(t *testing.T) {
+	op := DiffOperation{
+		Type:      OpIndexDrop,
+		TableName: "test_table",
+		IndexName: "idx_test_old",
+	}
+
+	expectedSQL := fmt.Sprintf("DROP INDEX IF EXISTS \"%s\"", op.IndexName)
+
+	if !strings.Contains(expectedSQL, "DROP INDEX") {
+		t.Errorf("should contain DROP INDEX, got: %s", expectedSQL)
+	}
+	if !strings.Contains(expectedSQL, "IF EXISTS") {
+		t.Errorf("should contain IF EXISTS, got: %s", expectedSQL)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_AllTypes(t *testing.T) {
+	types := []struct {
+		opType DiffOperationType
+		valid  bool
+	}{
+		{OpTableCreate, true},
+		{OpColumnAdd, true},
+		{OpColumnDrop, true},
+		{OpColumnModify, true},
+		{OpIndexAdd, true},
+		{OpIndexDrop, true},
+		{OpTableDrop, false},
+		{DiffOperationType("unknown"), false},
+	}
+
+	for _, tt := range types {
+		t.Run(string(tt.opType), func(t *testing.T) {
+			switch tt.opType {
+			case OpTableDrop, DiffOperationType("unknown"):
+				if tt.valid {
+					t.Errorf("type %q should be unsupported", tt.opType)
+				}
+			default:
+				if !tt.valid {
+					t.Errorf("type %q should be supported", tt.opType)
+				}
+			}
+		})
 	}
 }

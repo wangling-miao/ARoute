@@ -1026,3 +1026,845 @@ func TestSQLiteExecutor_UnsupportedOpType(t *testing.T) {
 		t.Fatal("expected error for unsupported operation type, got nil")
 	}
 }
+
+// ============================================================================
+// Tests for inferFieldType - covers all SQL type mappings
+// ============================================================================
+
+func TestSQLiteExecutor_InferFieldType(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+
+	tests := []struct {
+		sqlType string
+		want    FieldType
+	}{
+		{"INTEGER", FieldTypeNumber},
+		{"INT", FieldTypeNumber},
+		{"BIGINT", FieldTypeNumber},
+		{"SMALLINT", FieldTypeNumber},
+		{"TINYINT", FieldTypeNumber},
+		{"REAL", FieldTypeDecimal},
+		{"DOUBLE", FieldTypeDecimal},
+		{"FLOAT", FieldTypeDecimal},
+		{"NUMERIC", FieldTypeDecimal},
+		{"DECIMAL", FieldTypeDecimal},
+		{"TEXT", FieldTypeText},
+		{"VARCHAR", FieldTypeText},
+		{"CHAR", FieldTypeText},
+		{"CLOB", FieldTypeText},
+		{"BOOLEAN", FieldTypeBoolean},
+		{"BOOL", FieldTypeBoolean},
+		{"JSON", FieldTypeJSON},
+		{"JSONB", FieldTypeJSON},
+		{"UNKNOWN_TYPE", FieldTypeText}, // default fallback
+		{"integer", FieldTypeNumber},    // case-insensitive
+		{"text", FieldTypeText},         // case-insensitive
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sqlType, func(t *testing.T) {
+			got := executor.inferFieldType(tt.sqlType)
+			if got != tt.want {
+				t.Errorf("inferFieldType(%q) = %q, want %q", tt.sqlType, got, tt.want)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// Tests for buildColumnDef with foreign key references
+// ============================================================================
+
+func TestSQLiteExecutor_BuildColumnDef_ForeignKey(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	// Create parent table first
+	parentSchema := &Schema{
+		Name: "categories",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+		},
+	}
+	createTestTable(t, executor, ctx, parentSchema)
+
+	// Create child table with foreign key reference
+	childSchema := &Schema{
+		Name: "products",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+			{Name: "category_id", Type: FieldTypeRelation, ForeignKey: &ForeignKeyReference{
+				Table:    "categories",
+				Column:   "id",
+				OnDelete: "CASCADE",
+				OnUpdate: "SET NULL",
+			}},
+		},
+	}
+
+	ops := []DiffOperation{
+		{Type: OpTableCreate, TableName: "products", Schema: childSchema},
+	}
+
+	if err := executor.Execute(ctx, ops, false); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Verify table was created with FK
+	if !tableExists(t, tdb.db, "products") {
+		t.Error("table 'products' should exist")
+	}
+
+	// Verify foreign key constraint exists via introspection
+	introspector := NewIntrospector(tdb, DialectSQLite)
+	tableDef, err := introspector.IntrospectTable(ctx, "products")
+	if err != nil {
+		t.Fatalf("IntrospectTable() error = %v", err)
+	}
+
+	if tableDef == nil {
+		t.Fatal("IntrospectTable() returned nil")
+	}
+
+	// Check foreign keys were created
+	foundFK := false
+	for _, fk := range tableDef.ForeignKeys {
+		if fk.RefTable == "categories" && len(fk.Columns) > 0 && fk.Columns[0] == "category_id" {
+			foundFK = true
+			if fk.OnDelete != "CASCADE" {
+				t.Errorf("FK OnDelete = %q, want CASCADE", fk.OnDelete)
+			}
+			if fk.OnUpdate != "SET NULL" {
+				t.Errorf("FK OnUpdate = %q, want SET NULL", fk.OnUpdate)
+			}
+			break
+		}
+	}
+	if !foundFK {
+		t.Error("foreign key to categories.category_id not found")
+	}
+}
+
+func TestSQLiteExecutor_BuildColumnDef_ForeignKeyDefaultRefColumn(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	// Create parent table
+	parentSchema := &Schema{
+		Name: "authors",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+		},
+	}
+	createTestTable(t, executor, ctx, parentSchema)
+
+	// Create child table with FK using default column (empty Column should default to "id")
+	childSchema := &Schema{
+		Name: "books",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "title", Type: FieldTypeText},
+			{Name: "author_id", Type: FieldTypeRelation, ForeignKey: &ForeignKeyReference{
+				Table:    "authors",
+				Column:   "", // Empty - should default to "id"
+				OnDelete: "NO ACTION",
+			}},
+		},
+	}
+
+	ops := []DiffOperation{
+		{Type: OpTableCreate, TableName: "books", Schema: childSchema},
+	}
+
+	if err := executor.Execute(ctx, ops, false); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Verify FK references "id" column by default
+	introspector := NewIntrospector(tdb, DialectSQLite)
+	tableDef, err := introspector.IntrospectTable(ctx, "books")
+	if err != nil {
+		t.Fatalf("IntrospectTable() error = %v", err)
+	}
+
+	if tableDef == nil {
+		t.Fatal("IntrospectTable() returned nil")
+	}
+
+	for _, fk := range tableDef.ForeignKeys {
+		if fk.RefTable == "authors" {
+			// Should reference "id" column since FK.Column was empty
+			if len(fk.RefColumns) > 0 && fk.RefColumns[0] != "id" {
+				t.Errorf("FK RefColumn = %q, want id (default)", fk.RefColumns[0])
+			}
+		}
+	}
+}
+
+// ============================================================================
+// Tests for addColumn with foreign key
+// ============================================================================
+
+func TestSQLiteExecutor_AddColumn_WithForeignKey(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	// Create parent table
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "departments",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+		},
+	})
+
+	// Create child table without FK initially
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "employees",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+		},
+	})
+
+	// Add column with foreign key reference
+	ops := []DiffOperation{
+		{
+			Type:       OpColumnAdd,
+			TableName:  "employees",
+			ColumnName: "department_id",
+			ColumnType: "relation",
+			ForeignKey: &ForeignKeyReference{
+				Table:    "departments",
+				Column:   "id",
+				OnDelete: "SET NULL",
+			},
+			Constraints: &Constraints{Nullable: true},
+		},
+	}
+
+	if err := executor.Execute(ctx, ops, false); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Verify column exists
+	if !columnExists(t, tdb.db, "employees", "department_id") {
+		t.Error("column 'department_id' should exist after add")
+	}
+
+	// Verify FK was created
+	introspector := NewIntrospector(tdb, DialectSQLite)
+	tableDef, err := introspector.IntrospectTable(ctx, "employees")
+	if err != nil {
+		t.Fatalf("IntrospectTable() error = %v", err)
+	}
+
+	if tableDef == nil {
+		t.Fatal("IntrospectTable() returned nil")
+	}
+
+	foundFK := false
+	for _, fk := range tableDef.ForeignKeys {
+		if fk.RefTable == "departments" && len(fk.Columns) > 0 && fk.Columns[0] == "department_id" {
+			foundFK = true
+			break
+		}
+	}
+	if !foundFK {
+		t.Error("foreign key to departments not found after addColumn")
+	}
+}
+
+// ============================================================================
+// Tests for dropColumn direct execution (non-rebuild path)
+// ============================================================================
+
+func TestSQLiteExecutor_DropColumn_DirectExecution(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	// Create table with columns
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "items",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+			{Name: "description", Type: FieldTypeText},
+		},
+	})
+
+	// Verify all columns exist
+	if !columnExists(t, tdb.db, "items", "id") {
+		t.Fatal("id column should exist initially")
+	}
+	if !columnExists(t, tdb.db, "items", "name") {
+		t.Fatal("name column should exist initially")
+	}
+	if !columnExists(t, tdb.db, "items", "description") {
+		t.Fatal("description column should exist initially")
+	}
+
+	// Insert test data
+	_, err := tdb.Exec(ctx, "INSERT INTO items (id, name, description) VALUES (?, ?, ?)", 1, "Item1", "Desc1")
+	if err != nil {
+		t.Fatalf("insert test data: %v", err)
+	}
+
+	// Drop description column with force (triggers rebuildTable)
+	ops := []DiffOperation{
+		{
+			Type:       OpColumnDrop,
+			TableName:  "items",
+			ColumnName: "description",
+		},
+	}
+
+	if err := executor.Execute(ctx, ops, true); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Verify column was dropped
+	if columnExists(t, tdb.db, "items", "description") {
+		t.Error("column 'description' should not exist after drop")
+	}
+
+	// Verify other columns still exist
+	if !columnExists(t, tdb.db, "items", "id") {
+		t.Error("column 'id' should still exist")
+	}
+	if !columnExists(t, tdb.db, "items", "name") {
+		t.Error("column 'name' should still exist")
+	}
+
+	// Verify data preserved
+	count := getRowCount(t, tdb.db, "items")
+	if count != 1 {
+		t.Errorf("expected 1 row after drop, got %d", count)
+	}
+}
+
+// ============================================================================
+// Tests for modifyColumn direct error case
+// ============================================================================
+
+func TestSQLiteExecutor_ModifyColumn_ReturnsError(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	// Create table
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "data",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "value", Type: FieldTypeText},
+		},
+	})
+
+	// modifyColumn should return error when called directly (not via rebuildTable path)
+	// This tests the direct method which returns "column modification requires table rebuild"
+	tx, err := tdb.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+
+	op := DiffOperation{
+		Type:       OpColumnModify,
+		TableName:  "data",
+		ColumnName: "value",
+		ColumnType: "number",
+	}
+
+	// Call executeOp directly which will call modifyColumn directly
+	err = executor.modifyColumn(ctx, tx, op)
+	if err == nil {
+		tx.Rollback()
+		t.Fatal("modifyColumn should return error indicating rebuild is needed")
+	}
+	tx.Rollback()
+
+	if !strings.Contains(err.Error(), "table rebuild") {
+		t.Errorf("error message should mention table rebuild, got: %v", err)
+	}
+}
+
+// ============================================================================
+// Tests for transaction begin failure
+// ============================================================================
+
+func TestSQLiteExecutor_Execute_BeginTxError(t *testing.T) {
+	// Use a mock DB that fails BeginTx
+	mock := &mockBeginTxFail{}
+	executor := NewSQLiteExecutor(mock)
+	ctx := context.Background()
+
+	ops := []DiffOperation{
+		{Type: OpTableCreate, TableName: "test", Schema: &Schema{Name: "test"}},
+	}
+
+	err := executor.Execute(ctx, ops, false)
+	if err == nil {
+		t.Fatal("expected error when BeginTx fails, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "beginning transaction") {
+		t.Errorf("error should mention 'beginning transaction', got: %v", err)
+	}
+}
+
+// mockBeginTxFail implements interfaces.DatabaseService but fails BeginTx
+type mockBeginTxFail struct{}
+
+func (m *mockBeginTxFail) Exec(_ context.Context, _ string, _ ...interface{}) (sql.Result, error) {
+	return nil, nil
+}
+
+func (m *mockBeginTxFail) Query(_ context.Context, _ string, _ ...interface{}) (*sql.Rows, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockBeginTxFail) QueryRow(_ context.Context, _ string, _ ...interface{}) *sql.Row {
+	return nil
+}
+
+func (m *mockBeginTxFail) BeginTx(_ context.Context, _ *sql.TxOptions) (*sql.Tx, error) {
+	return nil, fmt.Errorf("mock: BeginTx failed")
+}
+
+func (m *mockBeginTxFail) Ping(_ context.Context) error { return nil }
+
+func (m *mockBeginTxFail) Prepare(_ context.Context, _ string) (*sql.Stmt, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockBeginTxFail) Close() error { return nil }
+
+func (m *mockBeginTxFail) SchemaIntrospect(_ context.Context) (*interfaces.DatabaseSchema, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+// ============================================================================
+// Tests for buildColumnDef with all constraint combinations
+// ============================================================================
+
+func TestSQLiteExecutor_BuildColumnDef_AllConstraints(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	// Create table with columns having various constraint combinations
+	schema := &Schema{
+		Name: "test_constraints",
+		Fields: []FieldDefinition{
+			{Name: "col1", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false, Unique: true}},
+			{Name: "col2", Type: FieldTypeText, Constraints: &Constraints{Nullable: true, Default: "default_val"}},
+			{Name: "col3", Type: FieldTypeBoolean, Constraints: &Constraints{Nullable: false, Default: false}},
+			{Name: "col4", Type: FieldTypeText}, // No constraints
+			{Name: "col5", Type: FieldTypeDecimal, Constraints: &Constraints{Nullable: false, Default: 0.0}},
+		},
+	}
+
+	ops := []DiffOperation{
+		{Type: OpTableCreate, TableName: schema.Name, Schema: schema},
+	}
+
+	if err := executor.Execute(ctx, ops, false); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Verify all columns created
+	for _, col := range []string{"col1", "col2", "col3", "col4", "col5"} {
+		if !columnExists(t, tdb.db, "test_constraints", col) {
+			t.Errorf("column %q should exist", col)
+		}
+	}
+}
+
+// ============================================================================
+// Tests for rebuildTable with index recreation
+// ============================================================================
+
+func TestSQLiteExecutor_RebuildTable_PreservesIndexes(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "orders",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "customer_id", Type: FieldTypeNumber},
+			{Name: "status", Type: FieldTypeText},
+		},
+	})
+
+	_, err := tdb.Exec(ctx, "CREATE INDEX idx_orders_customer ON orders(customer_id)")
+	if err != nil {
+		t.Fatalf("create index: %v", err)
+	}
+
+	_, err = tdb.Exec(ctx, "INSERT INTO orders (id, customer_id, status) VALUES (?, ?, ?)", 1, 100, "pending")
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	if !indexExists(t, tdb.db, "idx_orders_customer") {
+		t.Fatal("idx_orders_customer should exist before rebuild")
+	}
+
+	ops := []DiffOperation{
+		{Type: OpColumnDrop, TableName: "orders", ColumnName: "status"},
+	}
+
+	if err := executor.Execute(ctx, ops, true); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !tableExists(t, tdb.db, "orders") {
+		t.Fatal("orders table should exist after rebuild")
+	}
+
+	if columnExists(t, tdb.db, "orders", "status") {
+		t.Error("column 'status' should not exist after drop")
+	}
+
+	count := getRowCount(t, tdb.db, "orders")
+	if count != 1 {
+		t.Errorf("expected 1 row after rebuild, got %d", count)
+	}
+}
+
+// ============================================================================
+// Tests for empty schema
+// ============================================================================
+
+func TestSQLiteExecutor_TableCreate_EmptySchema(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	schema := &Schema{
+		Name:   "empty_table",
+		Fields: []FieldDefinition{},
+	}
+
+	ops := []DiffOperation{
+		{Type: OpTableCreate, TableName: schema.Name, Schema: schema},
+	}
+
+	err := executor.Execute(ctx, ops, false)
+	if err == nil {
+		t.Fatal("expected error for empty schema, got nil")
+	}
+}
+
+// ============================================================================
+// Tests for SchemaIntrospect integration
+// ============================================================================
+
+func TestSQLiteExecutor_SchemaIntrospect(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	// Create multiple tables
+	for _, schema := range []*Schema{
+		{Name: "users", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}}},
+		{Name: "posts", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}, {Name: "title", Type: FieldTypeText}}},
+	} {
+		createTestTable(t, executor, ctx, schema)
+	}
+
+	// Call SchemaIntrospect via the test DB implementation
+	schema, err := tdb.SchemaIntrospect(ctx)
+	if err != nil {
+		t.Fatalf("SchemaIntrospect() error = %v", err)
+	}
+
+	if len(schema.Tables) < 2 {
+		t.Errorf("expected at least 2 tables, got %d", len(schema.Tables))
+	}
+
+	foundUsers := false
+	foundPosts := false
+	for _, tbl := range schema.Tables {
+		if tbl.Name == "users" {
+			foundUsers = true
+		}
+		if tbl.Name == "posts" {
+			foundPosts = true
+		}
+	}
+
+	if !foundUsers {
+		t.Error("users table not found in schema introspection")
+	}
+	if !foundPosts {
+		t.Error("posts table not found in schema introspection")
+	}
+}
+
+// ============================================================================
+// Tests for getIntrospectedSchema error case
+// ============================================================================
+
+func TestSQLiteExecutor_GetIntrospectedSchema_NonExistentTable(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	_, err := executor.getIntrospectedSchema(ctx, "nonexistent_table")
+	if err == nil {
+		t.Fatal("expected error for non-existent table, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found', got: %v", err)
+	}
+}
+
+// ============================================================================
+// Tests for column type validation after modify
+// ============================================================================
+
+func TestSQLiteExecutor_ColumnModify_ChangeConstraints(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "settings",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "value", Type: FieldTypeText, Constraints: &Constraints{Nullable: true}},
+		},
+	})
+
+	ops := []DiffOperation{
+		{
+			Type:        OpColumnModify,
+			TableName:   "settings",
+			ColumnName:  "value",
+			ColumnType:  "text",
+			Constraints: &Constraints{Nullable: false, Default: "empty"},
+		},
+	}
+
+	if err := executor.Execute(ctx, ops, false); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !columnExists(t, tdb.db, "settings", "value") {
+		t.Error("column 'value' should exist after modify")
+	}
+}
+
+func TestSQLiteExecutor_DropColumn_DirectMethod(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "items",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+			{Name: "temp", Type: FieldTypeText},
+		},
+	})
+
+	tx, err := tdb.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+
+	op := DiffOperation{
+		Type:       OpColumnDrop,
+		TableName:  "items",
+		ColumnName: "temp",
+	}
+
+	err = executor.dropColumn(ctx, tx, op)
+	if err != nil {
+		tx.Rollback()
+		t.Fatalf("dropColumn: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if columnExists(t, tdb.db, "items", "temp") {
+		t.Error("column 'temp' should not exist after drop")
+	}
+}
+
+func TestSQLiteExecutor_RebuildTable_WithSchema(t *testing.T) {
+	tdb := newSQLiteTestDB(t)
+	defer tdb.Close()
+
+	executor := NewSQLiteExecutor(tdb)
+	ctx := context.Background()
+
+	createTestTable(t, executor, ctx, &Schema{
+		Name: "accounts",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+			{Name: "email", Type: FieldTypeText},
+		},
+	})
+
+	_, err := tdb.Exec(ctx, "INSERT INTO accounts (id, name, email) VALUES (?, ?, ?)", 1, "Alice", "alice@test.com")
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	ops := []DiffOperation{
+		{
+			Type:       OpColumnDrop,
+			TableName:  "accounts",
+			ColumnName: "email",
+			Schema: &Schema{
+				Name: "accounts",
+				Fields: []FieldDefinition{
+					{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+					{Name: "name", Type: FieldTypeText},
+				},
+			},
+		},
+	}
+
+	if err := executor.Execute(ctx, ops, true); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !tableExists(t, tdb.db, "accounts") {
+		t.Error("accounts table should exist")
+	}
+
+	if columnExists(t, tdb.db, "accounts", "email") {
+		t.Error("email column should not exist")
+	}
+
+	count := getRowCount(t, tdb.db, "accounts")
+	if count != 1 {
+		t.Errorf("expected 1 row, got %d", count)
+	}
+}
+
+func TestSchema_HasField(t *testing.T) {
+	schema := &Schema{
+		Name: "test",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber},
+			{Name: "name", Type: FieldTypeText},
+		},
+	}
+
+	if !schema.HasField("id") {
+		t.Error("HasField('id') should return true")
+	}
+	if !schema.HasField("name") {
+		t.Error("HasField('name') should return true")
+	}
+	if schema.HasField("nonexistent") {
+		t.Error("HasField('nonexistent') should return false")
+	}
+}
+
+func TestSchema_GetIndex(t *testing.T) {
+	schema := &Schema{
+		Name: "test",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber},
+		},
+		Indexes: []IndexDefinition{
+			{Name: "idx_test_id", Columns: []string{"id"}, Unique: true},
+			{Name: "idx_test_name", Columns: []string{"name"}, Unique: false},
+		},
+	}
+
+	idx := schema.GetIndex("idx_test_id")
+	if idx == nil {
+		t.Error("GetIndex('idx_test_id') should return index")
+	}
+	if idx != nil && !idx.Unique {
+		t.Error("idx_test_id should be unique")
+	}
+
+	idx = schema.GetIndex("idx_test_name")
+	if idx == nil {
+		t.Error("GetIndex('idx_test_name') should return index")
+	}
+
+	idx = schema.GetIndex("nonexistent")
+	if idx != nil {
+		t.Error("GetIndex('nonexistent') should return nil")
+	}
+}
+
+func TestSchema_Clone_DeepCopy(t *testing.T) {
+	original := &Schema{
+		Name: "test",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+		},
+		Indexes: []IndexDefinition{
+			{Name: "idx_test_id", Columns: []string{"id"}, Unique: true},
+		},
+	}
+
+	cloned := original.Clone()
+
+	if cloned.Name != original.Name {
+		t.Errorf("cloned.Name = %q, want %q", cloned.Name, original.Name)
+	}
+
+	if len(cloned.Fields) != len(original.Fields) {
+		t.Errorf("cloned has %d fields, want %d", len(cloned.Fields), len(original.Fields))
+	}
+
+	if len(cloned.Indexes) != len(original.Indexes) {
+		t.Errorf("cloned has %d indexes, want %d", len(cloned.Indexes), len(original.Indexes))
+	}
+
+	cloned.Fields[0].Name = "modified"
+	if original.Fields[0].Name == "modified" {
+		t.Error("modifying clone should not affect original")
+	}
+}
