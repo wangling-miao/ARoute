@@ -23,6 +23,7 @@ import (
 	"github.com/wangling-miao/aroute/core/registry"
 	"github.com/wangling-miao/aroute/core/services"
 	"github.com/wangling-miao/aroute/plugins/auth"
+	"github.com/wangling-miao/aroute/plugins/content"
 	"github.com/wangling-miao/aroute/plugins/database"
 	httpplugin "github.com/wangling-miao/aroute/plugins/http"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
@@ -120,6 +121,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 	pluginLoader.Register("auth", func() core.Plugin {
 		return auth.New()
+	})
+	pluginLoader.Register("content", func() core.Plugin {
+		return content.New()
 	})
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},

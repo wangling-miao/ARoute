@@ -125,6 +125,9 @@ type ContentType struct {
 	// Name is the content type name (e.g., "post", "page", "product").
 	Name string `json:"name"`
 
+	// Slug is the URL-friendly identifier (auto-generated from name if not provided).
+	Slug string `json:"slug"`
+
 	// DisplayName is the human-readable name (e.g., "Blog Post", "Product").
 	DisplayName string `json:"display_name"`
 
