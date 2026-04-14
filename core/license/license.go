@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -155,8 +156,11 @@ func (l *License) VerifySignature(pubKey *ecdsa.PublicKey) error {
 	return nil
 }
 
-// Validator manages license validation and feature gating. Safe for concurrent use after creation.
+// Validator manages license validation and feature gating.
+// All methods are safe for concurrent use. Validate() acquires a write lock;
+// all other methods acquire read locks.
 type Validator struct {
+	mu        sync.RWMutex
 	license   *License
 	publicKey *ecdsa.PublicKey
 	features  map[string]bool
@@ -194,11 +198,15 @@ func NewValidator(license *License, pubKey *ecdsa.PublicKey) *Validator {
 
 // License returns the current active license.
 func (v *Validator) License() *License {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 	return v.license
 }
 
 // Tier returns the current license tier.
 func (v *Validator) Tier() Tier {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 	return v.license.Tier
 }
 
@@ -206,11 +214,15 @@ func (v *Validator) Tier() Tier {
 // Returns true if the feature is listed in the license's Features slice.
 // Unknown feature names return false. Enterprise tier has all features.
 func (v *Validator) IsFeatureAllowed(feature string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 	return v.features[feature]
 }
 
 // IsExpired checks whether the current license has expired.
 func (v *Validator) IsExpired() bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 	return v.license.IsExpired()
 }
 
@@ -219,6 +231,9 @@ func (v *Validator) IsExpired() bool {
 // Expired licenses are handled by downgrading the active license to the
 // default Open tier license, and Validate returns nil (no error).
 func (v *Validator) Validate() error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	if v.license.ID == "open-default" {
 		return nil
 	}
@@ -245,6 +260,8 @@ func (v *Validator) Validate() error {
 // LicenseInfo returns the current license state for other components to query.
 // Provides the current tier, allowed features, and expiry date (nil for perpetual).
 func (v *Validator) LicenseInfo() LicenseInfo {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 	return LicenseInfo{
 		Tier:     v.license.Tier,
 		Features: v.license.Features,
