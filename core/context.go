@@ -172,6 +172,15 @@ func NewBasePlugin(name, version string) *BasePlugin {
 	}
 }
 
+// NewBasePluginFromManifest creates a BasePlugin populated from a loaded Manifest.
+func NewBasePluginFromManifest(m *Manifest) *BasePlugin {
+	return &BasePlugin{
+		name:     m.Name,
+		version:  m.Version,
+		manifest: m,
+	}
+}
+
 func (p *BasePlugin) Name() string               { return p.name }
 func (p *BasePlugin) Version() string            { return p.version }
 func (p *BasePlugin) Manifest() *Manifest        { return p.manifest }

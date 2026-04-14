@@ -5,6 +5,7 @@ package http
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/wangling-miao/aroute/core"
 )
+
+//go:embed manifest.yaml
+var manifestData []byte
 
 type tlsConfig struct {
 	certFile string
@@ -38,33 +42,12 @@ type Plugin struct {
 
 // New creates a new HTTP plugin instance.
 func New() *Plugin {
-	return &Plugin{
-		BasePlugin: core.NewBasePlugin("http", "1.0.0"),
+	manifest, err := core.ParseManifest(manifestData, ".yaml")
+	if err != nil {
+		panic("http plugin: failed to parse embedded manifest: " + err.Error())
 	}
-}
-
-// Name returns the plugin name.
-func (p *Plugin) Name() string {
-	return "http"
-}
-
-// Version returns the plugin version.
-func (p *Plugin) Version() string {
-	return "1.0.0"
-}
-
-// Manifest returns the plugin manifest.
-func (p *Plugin) Manifest() *core.Manifest {
-	return &core.Manifest{
-		Name:        "http",
-		Version:     "1.0.0",
-		Description: "Production-ready HTTP server with middleware, CORS, health checks, and graceful shutdown",
-		Author:      "Aroute Team",
-		License:     "MIT",
-		Engine:      "native",
-		Requires:    []string{},
-		After:       []string{},
-		Provides:    []string{"http.server", "http.router"},
+	return &Plugin{
+		BasePlugin: core.NewBasePluginFromManifest(manifest),
 	}
 }
 

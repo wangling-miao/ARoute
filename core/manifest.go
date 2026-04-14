@@ -104,15 +104,29 @@ func LoadManifest(path string) (*Manifest, error) {
 		return nil, fmt.Errorf("read manifest: %w", err)
 	}
 
+	ext := ".yaml"
+	if strings.HasSuffix(path, ".json") {
+		ext = ".json"
+	}
+
+	return ParseManifest(data, ext)
+}
+
+// ParseManifest parses a manifest from raw bytes.
+// The ext parameter should be ".yaml", ".yml", or ".json" to select the parser.
+func ParseManifest(data []byte, ext string) (*Manifest, error) {
 	var m Manifest
-	if strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") {
+	switch ext {
+	case ".yaml", ".yml":
 		if err := yaml.Unmarshal(data, &m); err != nil {
 			return nil, fmt.Errorf("parse yaml manifest: %w", err)
 		}
-	} else {
+	case ".json":
 		if err := json.Unmarshal(data, &m); err != nil {
 			return nil, fmt.Errorf("parse json manifest: %w", err)
 		}
+	default:
+		return nil, fmt.Errorf("unsupported manifest format: %s", ext)
 	}
 
 	if err := m.Validate(); err != nil {

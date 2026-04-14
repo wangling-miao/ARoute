@@ -4,6 +4,7 @@
 package auth
 
 import (
+	_ "embed"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,6 +14,9 @@ import (
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
+
+//go:embed manifest.yaml
+var manifestData []byte
 
 // authConfig holds the configuration for the auth plugin.
 type authConfig struct {
@@ -41,34 +45,12 @@ type Plugin struct {
 
 // New creates a new auth plugin instance.
 func New() *Plugin {
-	return &Plugin{
-		BasePlugin: core.NewBasePlugin("auth", "1.0.0"),
+	manifest, err := core.ParseManifest(manifestData, ".yaml")
+	if err != nil {
+		panic("auth plugin: failed to parse embedded manifest: " + err.Error())
 	}
-}
-
-// Name returns the plugin name.
-func (p *Plugin) Name() string {
-	return "auth"
-}
-
-// Version returns the plugin version.
-func (p *Plugin) Version() string {
-	return "1.0.0"
-}
-
-// Manifest returns the plugin manifest.
-func (p *Plugin) Manifest() *core.Manifest {
-	return &core.Manifest{
-		Name:        "auth",
-		Version:     "1.0.0",
-		Description: "Authentication and authorization plugin with JWT, RBAC, API tokens",
-		Author:      "Aroute Team",
-		License:     "MIT",
-		Engine:      "native",
-		Requires:    []string{"database"},
-		After:       []string{"database"},
-		Provides:    []string{"auth.service"},
-		Keywords:    []string{"auth", "jwt", "rbac", "authentication", "authorization"},
+	return &Plugin{
+		BasePlugin: core.NewBasePluginFromManifest(manifest),
 	}
 }
 

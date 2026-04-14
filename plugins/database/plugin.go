@@ -5,12 +5,16 @@
 package database
 
 import (
+	_ "embed"
 	"fmt"
 	"sync"
 
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
+
+//go:embed manifest.yaml
+var manifestData []byte
 
 // Plugin implements the core.Plugin interface for database functionality.
 // It provides a unified database abstraction layer supporting SQLite and PostgreSQL.
@@ -34,33 +38,12 @@ const (
 
 // New creates a new database plugin instance.
 func New() *Plugin {
-	return &Plugin{
-		BasePlugin: core.NewBasePlugin("database", "1.0.0"),
+	manifest, err := core.ParseManifest(manifestData, ".yaml")
+	if err != nil {
+		panic("database plugin: failed to parse embedded manifest: " + err.Error())
 	}
-}
-
-// Name returns the plugin name.
-func (p *Plugin) Name() string {
-	return "database"
-}
-
-// Version returns the plugin version.
-func (p *Plugin) Version() string {
-	return "1.0.0"
-}
-
-// Manifest returns the plugin manifest.
-func (p *Plugin) Manifest() *core.Manifest {
-	return &core.Manifest{
-		Name:        "database",
-		Version:     "1.0.0",
-		Description: "Database abstraction layer supporting SQLite (zero-CGO) and PostgreSQL with migrations, schema introspection, and connection pooling",
-		Author:      "Aroute Team",
-		License:     "MIT",
-		Engine:      "native",
-		Requires:    []string{},
-		After:       []string{},
-		Provides:    []string{"database.service"},
+	return &Plugin{
+		BasePlugin: core.NewBasePluginFromManifest(manifest),
 	}
 }
 
