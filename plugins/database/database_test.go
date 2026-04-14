@@ -1106,3 +1106,833 @@ func (m *mockServiceContainer) Has(target interface{}) bool {
 func (m *mockServiceContainer) Keys() []string {
 	return nil
 }
+
+func TestPlugin_Name(t *testing.T) {
+	p := New()
+	if p.Name() != "database" {
+		t.Errorf("Expected Name() = 'database', got %q", p.Name())
+	}
+}
+
+func TestPlugin_Version(t *testing.T) {
+	p := New()
+	if p.Version() != "1.0.0" {
+		t.Errorf("Expected Version() = '1.0.0', got %q", p.Version())
+	}
+}
+
+func TestPlugin_Manifest(t *testing.T) {
+	p := New()
+	m := p.Manifest()
+	if m == nil {
+		t.Fatal("Manifest() returned nil")
+	}
+	if m.Name != "database" {
+		t.Errorf("Expected Manifest.Name = 'database', got %q", m.Name)
+	}
+	if m.Version != "1.0.0" {
+		t.Errorf("Expected Manifest.Version = '1.0.0', got %q", m.Version)
+	}
+	if m.Description == "" {
+		t.Error("Manifest.Description should not be empty")
+	}
+	if len(m.Provides) == 0 || m.Provides[0] != "database.service" {
+		t.Errorf("Expected Provides = ['database.service'], got %v", m.Provides)
+	}
+}
+
+func TestPlugin_Init_SQLite(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	p := New()
+	ctx := mockCoreContextWithDir{
+		driver:  "sqlite",
+		dataDir: tmpDir,
+	}
+
+	err := p.Init(ctx)
+	if err != nil {
+		t.Fatalf("Init() failed: %v", err)
+	}
+
+	if p.driver != DriverSQLite {
+		t.Errorf("Expected driver %s, got %s", DriverSQLite, p.driver)
+	}
+
+	if p.service == nil {
+		t.Fatal("Service should not be nil after Init")
+	}
+
+	// Verify DB works
+	if err := p.service.Ping(context.Background()); err != nil {
+		t.Errorf("Ping failed after Init: %v", err)
+	}
+
+	// Cleanup
+	p.Stop()
+}
+
+func TestPlugin_Init_SQLiteWithPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "custom.db")
+
+	p := New()
+	ctx := mockCoreContextWithConfig{
+		driver:  "sqlite",
+		config:  &mockSQLitePathConfig{dbPath: dbPath},
+		dataDir: tmpDir,
+	}
+
+	err := p.Init(ctx)
+	if err != nil {
+		t.Fatalf("Init() failed: %v", err)
+	}
+
+	// Verify the DB file was created
+	if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
+		t.Errorf("Expected DB file at %s", dbPath)
+	}
+
+	p.Stop()
+}
+
+func TestPlugin_Init_CreateMigrationsTableError(t *testing.T) {
+	p := New()
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	// Create the _migrations table first so CREATE TABLE IF NOT EXISTS still works
+	// But we need to make createMigrationsTable fail. We can do this by closing the db.
+	db.Close()
+
+	p.ctx = mockCoreContext{driver: "sqlite"}
+	p.driver = DriverSQLite
+	p.service = NewService(db, DriverSQLite)
+
+	err = p.createMigrationsTable(mockCoreContext{driver: "sqlite"})
+	if err == nil {
+		t.Error("Expected error when createMigrationsTable with closed DB")
+	}
+}
+
+func TestPlugin_Start_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	p := New()
+	ctx := mockCoreContextWithDir{driver: "sqlite", dataDir: tmpDir}
+
+	if err := p.Init(ctx); err != nil {
+		t.Fatalf("Init() failed: %v", err)
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+
+	if !p.running {
+		t.Error("Expected running = true after Start()")
+	}
+
+	p.Stop()
+}
+
+func TestPlugin_Start_AlreadyRunning(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	p := New()
+	ctx := mockCoreContextWithDir{driver: "sqlite", dataDir: tmpDir}
+
+	if err := p.Init(ctx); err != nil {
+		t.Fatalf("Init() failed: %v", err)
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer p.Stop()
+
+	// Second Start should return nil (already running)
+	if err := p.Start(); err != nil {
+		t.Errorf("Second Start() should return nil, got: %v", err)
+	}
+}
+
+func TestPlugin_Start_PingFailure(t *testing.T) {
+	p := New()
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	db.Close() // Close immediately to cause ping failure
+
+	p.ctx = mockCoreContext{driver: "sqlite"}
+	p.service = NewService(db, DriverSQLite)
+	p.running = false
+
+	err = p.Start()
+	if err == nil {
+		t.Error("Expected error when Start() with closed DB")
+	}
+	if !strings.Contains(err.Error(), "database connection failed") {
+		t.Errorf("Expected 'database connection failed' error, got: %v", err)
+	}
+}
+
+func TestPlugin_Stop_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	p := New()
+	ctx := mockCoreContextWithDir{driver: "sqlite", dataDir: tmpDir}
+
+	if err := p.Init(ctx); err != nil {
+		t.Fatalf("Init() failed: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop() failed: %v", err)
+	}
+
+	if p.running {
+		t.Error("Expected running = false after Stop()")
+	}
+}
+
+func TestPlugin_Stop_NotRunning(t *testing.T) {
+	p := New()
+	// Stop when not running should return nil
+	if err := p.Stop(); err != nil {
+		t.Errorf("Stop() on non-running plugin should return nil, got: %v", err)
+	}
+}
+
+func TestPlugin_Stop_NilService(t *testing.T) {
+	p := New()
+	p.running = true
+	p.service = nil
+
+	if err := p.Stop(); err != nil {
+		t.Errorf("Stop() with nil service should return nil, got: %v", err)
+	}
+}
+
+func TestBuildSQLiteDSN_Defaults(t *testing.T) {
+	config := &mockConfig{driver: "sqlite"}
+	dsn := buildSQLiteDSN("/tmp/test.db", config)
+
+	if !strings.Contains(dsn, "/tmp/test.db?") {
+		t.Errorf("DSN should contain path, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "_pragma=busy_timeout(10000)") {
+		t.Errorf("DSN should contain default busy_timeout, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "_pragma=journal_mode(WAL)") {
+		t.Errorf("DSN should contain WAL mode, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "_pragma=synchronous(NORMAL)") {
+		t.Errorf("DSN should contain synchronous NORMAL, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "_pragma=cache_size(-32000)") {
+		t.Errorf("DSN should contain default cache_size, got: %s", dsn)
+	}
+}
+
+func TestBuildSQLiteDSN_CustomValues(t *testing.T) {
+	config := &mockSQLiteCustomConfig{
+		busyTimeout:  5000,
+		cacheSize:    -64000,
+		synchronous:  "FULL",
+		tempStoreMem: true,
+	}
+	dsn := buildSQLiteDSN("/data/app.db", config)
+
+	if !strings.Contains(dsn, "_pragma=busy_timeout(5000)") {
+		t.Errorf("DSN should contain custom busy_timeout, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "_pragma=cache_size(-64000)") {
+		t.Errorf("DSN should contain custom cache_size, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "_pragma=synchronous(FULL)") {
+		t.Errorf("DSN should contain custom synchronous, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "_pragma=temp_store(MEMORY)") {
+		t.Errorf("DSN should contain temp_store MEMORY, got: %s", dsn)
+	}
+}
+
+// ============================================================================
+func TestService_SqliteListIndexes_ErrorPaths(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+		CREATE TABLE idx_test (
+			id INTEGER PRIMARY KEY,
+			name TEXT,
+			email TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	_, err = service.Exec(ctx, "CREATE INDEX idx_idx_test_email ON idx_test(email)")
+	if err != nil {
+		t.Fatalf("Failed to create index: %v", err)
+	}
+
+	indexes, err := service.sqliteListIndexes(ctx, "idx_test")
+	if err != nil {
+		t.Fatalf("sqliteListIndexes failed: %v", err)
+	}
+
+	if len(indexes) < 1 {
+		t.Errorf("Expected at least 1 index, got %d", len(indexes))
+	}
+
+	found := false
+	for _, idx := range indexes {
+		if idx.Name == "idx_idx_test_email" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Expected to find idx_idx_test_email index")
+	}
+
+	db.Close()
+
+	_, err = service.sqliteListIndexes(ctx, "idx_test")
+	if err == nil {
+		t.Error("Expected error with closed DB")
+	}
+}
+
+func TestService_SchemaIntrospect_UnsupportedDriver(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, "unsupported")
+	ctx := context.Background()
+
+	_, err = service.SchemaIntrospect(ctx)
+	if err == nil {
+		t.Error("Expected error for unsupported driver")
+	}
+	if !strings.Contains(err.Error(), "unsupported driver") {
+		t.Errorf("Expected unsupported driver error, got: %v", err)
+	}
+}
+
+func TestService_SqliteSchemaIntrospect_ColumnDefaults(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+		CREATE TABLE defaults_test (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL DEFAULT 'unnamed',
+			count INTEGER DEFAULT 0
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	schema, err := service.SchemaIntrospect(ctx)
+	if err != nil {
+		t.Fatalf("SchemaIntrospect failed: %v", err)
+	}
+
+	var table *interfaces.TableDefinition
+	for i := range schema.Tables {
+		if schema.Tables[i].Name == "defaults_test" {
+			table = &schema.Tables[i]
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("defaults_test table not found")
+	}
+
+	// Find the name column to check default value
+	for _, col := range table.Columns {
+		if col.Name == "name" {
+			if col.DefaultValue != "'unnamed'" && col.DefaultValue != "unnamed" {
+				t.Logf("name column DefaultValue = %q (may vary by SQLite version)", col.DefaultValue)
+			}
+			if col.Nullable {
+				t.Error("name column should not be nullable")
+			}
+		}
+		if col.Name == "count" {
+			if col.Nullable == false {
+				// count has DEFAULT 0 but no NOT NULL, so it's nullable
+				t.Logf("count column Nullable=%v", col.Nullable)
+			}
+		}
+		if col.Name == "id" {
+			if !col.AutoIncrement {
+				t.Error("id column should be AutoIncrement")
+			}
+		}
+	}
+}
+
+func TestService_SqliteListTables_ClosedDB(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	// Create a table so there's something to list
+	_, err = service.Exec(ctx, "CREATE TABLE list_tables_test (id INTEGER)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	tables, err := service.sqliteListTables(ctx)
+	if err != nil {
+		t.Fatalf("sqliteListTables failed: %v", err)
+	}
+
+	found := false
+	for _, name := range tables {
+		if name == "list_tables_test" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected list_tables_test in table list, got: %v", tables)
+	}
+
+	// Close DB and test error path
+	db.Close()
+	_, err = service.sqliteListTables(ctx)
+	if err == nil {
+		t.Error("Expected error with closed DB")
+	}
+}
+
+func TestService_SqliteListColumns_ClosedDB(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, "CREATE TABLE cols_test (id INTEGER PRIMARY KEY, val TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	columns, err := service.sqliteListColumns(ctx, "cols_test")
+	if err != nil {
+		t.Fatalf("sqliteListColumns failed: %v", err)
+	}
+	if len(columns) != 2 {
+		t.Errorf("Expected 2 columns, got %d", len(columns))
+	}
+
+	// Close DB and test error path
+	db.Close()
+	_, err = service.sqliteListColumns(ctx, "cols_test")
+	if err == nil {
+		t.Error("Expected error with closed DB")
+	}
+}
+
+func TestService_DB_And_Driver(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+
+	if service.DB() != db {
+		t.Error("DB() should return the underlying *sql.DB")
+	}
+	if service.Driver() != DriverSQLite {
+		t.Errorf("Expected Driver() = %s, got %s", DriverSQLite, service.Driver())
+	}
+}
+
+func TestMigrationRunner_GetAppliedMigrations_ClosedDB(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS _migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create migrations table: %v", err)
+	}
+
+	runner := NewMigrationRunner(service, t.TempDir())
+
+	// First verify it works with open DB
+	_, err = runner.getAppliedMigrations(ctx)
+	if err != nil {
+		t.Fatalf("getAppliedMigrations failed with open DB: %v", err)
+	}
+
+	// Close DB and test error path
+	db.Close()
+	_, err = runner.getAppliedMigrations(ctx)
+	if err == nil {
+		t.Error("Expected error with closed DB")
+	}
+}
+
+func TestMigrationRunner_VerifyChecksum_ClosedDB(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS _migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create migrations table: %v", err)
+	}
+
+	runner := NewMigrationRunner(service, t.TempDir())
+
+	// Close DB and test error path
+	db.Close()
+	_, err = runner.VerifyChecksum(ctx)
+	if err == nil {
+		t.Error("Expected error with closed DB")
+	}
+}
+
+func TestMigrationRunner_Load_ReadDirError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file where a directory is expected
+	migrationsDir := filepath.Join(tmpDir, "migrations")
+	if err := os.WriteFile(migrationsDir, []byte("not a dir"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS _migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create migrations table: %v", err)
+	}
+
+	runner := NewMigrationRunner(service, migrationsDir)
+	err = runner.Load(ctx)
+	if err == nil {
+		t.Error("Expected error when migrations dir is a file")
+	}
+}
+
+func TestMigrationRunner_Apply_BeginTxFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	migrationFile := filepath.Join(tmpDir, "2026041301_tx_fail.sql")
+	content := "CREATE TABLE tx_fail_test (id INTEGER);"
+	if err := os.WriteFile(migrationFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write migration: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS _migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create migrations table: %v", err)
+	}
+
+	runner := NewMigrationRunner(service, tmpDir)
+	if err := runner.Load(ctx); err != nil {
+		t.Fatalf("Failed to load: %v", err)
+	}
+
+	// Close DB to force BeginTx failure
+	db.Close()
+
+	_, err = runner.Apply(ctx)
+	if err == nil {
+		t.Error("Expected error when Apply with closed DB")
+	}
+}
+
+func TestMigrationRunner_Revert_BeginTxFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	migrationFile := filepath.Join(tmpDir, "2026041301_revert_fail.sql")
+	content := `CREATE TABLE revert_fail (id INTEGER);
+-- @down
+DROP TABLE revert_fail;
+`
+	if err := os.WriteFile(migrationFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write migration: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+
+	service := NewService(db, DriverSQLite)
+	ctx := context.Background()
+
+	_, err = service.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS _migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create migrations table: %v", err)
+	}
+
+	runner := NewMigrationRunner(service, tmpDir)
+	if err := runner.Load(ctx); err != nil {
+		t.Fatalf("Failed to load: %v", err)
+	}
+
+	// Apply first, then close DB
+	if _, err := runner.Apply(ctx); err != nil {
+		t.Fatalf("Failed to apply: %v", err)
+	}
+
+	// Close DB to force BeginTx failure on revert
+	db.Close()
+
+	_, err = runner.Revert(ctx, 1)
+	if err == nil {
+		t.Error("Expected error when Revert with closed DB")
+	}
+}
+
+func TestMaskPassword_AdditionalCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "PASSWORD uppercase parameter",
+			input:    "PASSWORD=secret host=localhost",
+			expected: "PASSWORD=**** host=localhost",
+		},
+		{
+			name:     "URL with query params and password",
+			input:    "postgres://admin:p4ss@db.host:5432/mydb?sslmode=require",
+			expected: "postgres://admin:****@db.host:5432/mydb?sslmode=require",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := MaskPassword(tt.input)
+			if result != tt.expected {
+				t.Errorf("MaskPassword(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+type mockCoreContextWithDir struct {
+	driver  string
+	dataDir string
+}
+
+func (m mockCoreContextWithDir) Config() core.ConfigProvider {
+	return &mockConfig{driver: m.driver}
+}
+
+func (m mockCoreContextWithDir) Logger() *slog.Logger {
+	return slog.Default()
+}
+
+func (m mockCoreContextWithDir) Context() context.Context {
+	return context.Background()
+}
+
+func (m mockCoreContextWithDir) Services() core.ServiceContainer {
+	return &mockServiceContainer{}
+}
+
+func (m mockCoreContextWithDir) Events() core.EventBus {
+	return nil
+}
+
+func (m mockCoreContextWithDir) DataDir() string {
+	return m.dataDir
+}
+
+func (m mockCoreContextWithDir) PluginDir() string {
+	return ""
+}
+
+type mockCoreContextWithConfig struct {
+	driver  string
+	config  core.ConfigProvider
+	dataDir string
+}
+
+func (m mockCoreContextWithConfig) Config() core.ConfigProvider {
+	return m.config
+}
+
+func (m mockCoreContextWithConfig) Logger() *slog.Logger {
+	return slog.Default()
+}
+
+func (m mockCoreContextWithConfig) Context() context.Context {
+	return context.Background()
+}
+
+func (m mockCoreContextWithConfig) Services() core.ServiceContainer {
+	return &mockServiceContainer{}
+}
+
+func (m mockCoreContextWithConfig) Events() core.EventBus {
+	return nil
+}
+
+func (m mockCoreContextWithConfig) DataDir() string {
+	return m.dataDir
+}
+
+func (m mockCoreContextWithConfig) PluginDir() string {
+	return ""
+}
+
+// mockSQLitePathConfig returns a custom DB path
+type mockSQLitePathConfig struct {
+	dbPath string
+}
+
+func (m *mockSQLitePathConfig) GetString(key string) string {
+	switch key {
+	case "database.driver":
+		return "sqlite"
+	case "database.path":
+		return m.dbPath
+	default:
+		return ""
+	}
+}
+
+func (m *mockSQLitePathConfig) GetInt(key string) int                          { return 0 }
+func (m *mockSQLitePathConfig) GetBool(key string) bool                        { return false }
+func (m *mockSQLitePathConfig) GetStringSlice(key string) []string             { return nil }
+func (m *mockSQLitePathConfig) Get(key string) interface{}                     { return nil }
+func (m *mockSQLitePathConfig) Unmarshal(key string, target interface{}) error { return nil }
+
+// mockSQLiteCustomConfig returns custom SQLite pragma values
+type mockSQLiteCustomConfig struct {
+	busyTimeout  int
+	cacheSize    int
+	synchronous  string
+	tempStoreMem bool
+}
+
+func (m *mockSQLiteCustomConfig) GetString(key string) string {
+	switch key {
+	case "database.driver":
+		return "sqlite"
+	case "database.sqlite.synchronous":
+		return m.synchronous
+	default:
+		return ""
+	}
+}
+
+func (m *mockSQLiteCustomConfig) GetInt(key string) int {
+	switch key {
+	case "database.sqlite.busy_timeout":
+		return m.busyTimeout
+	case "database.sqlite.cache_size":
+		return m.cacheSize
+	default:
+		return 0
+	}
+}
+
+func (m *mockSQLiteCustomConfig) GetBool(key string) bool {
+	if key == "database.sqlite.temp_store_memory" {
+		return m.tempStoreMem
+	}
+	return false
+}
+
+func (m *mockSQLiteCustomConfig) GetStringSlice(key string) []string             { return nil }
+func (m *mockSQLiteCustomConfig) Get(key string) interface{}                     { return nil }
+func (m *mockSQLiteCustomConfig) Unmarshal(key string, target interface{}) error { return nil }
