@@ -1394,8 +1394,7 @@ func TestAPIToken_VerifyExpiredToken(t *testing.T) {
 
 	user := createTestUser(t, svc, "apiexpired@example.com", "apiexpireduser", "password123", nil)
 
-	pastTime := time.Now().Add(-1 * time.Hour)
-	apiToken, err := svc.CreateAPIToken(ctx, user.ID, "expired-token", &pastTime)
+	apiToken, err := svc.CreateAPIToken(ctx, user.ID, "expired-token", new(time.Now().Add(-1*time.Hour)))
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
@@ -2598,8 +2597,7 @@ func TestAPIToken_WithExpiry(t *testing.T) {
 
 	user := createTestUser(t, svc, "apiexpiry@example.com", "apiexpiryuser", "password123", nil)
 
-	futureExpiry := time.Now().Add(24 * time.Hour)
-	token, err := svc.CreateAPIToken(ctx, user.ID, "future-token", &futureExpiry)
+	token, err := svc.CreateAPIToken(ctx, user.ID, "future-token", new(time.Now().Add(24*time.Hour)))
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}

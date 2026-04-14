@@ -126,8 +126,7 @@ func TestCycleDetection(t *testing.T) {
 			t.Error("expected cycle detection error for self-reference")
 		}
 
-		var depErr *DependencyError
-		if !errors.As(err, &depErr) {
+		if _, ok := errors.AsType[*DependencyError](err); !ok {
 			t.Errorf("expected DependencyError, got %T", err)
 		}
 	})
@@ -172,8 +171,7 @@ func TestCycleDetection(t *testing.T) {
 			t.Error("expected cycle detection error")
 		}
 
-		var depErr *DependencyError
-		if !errors.As(err, &depErr) {
+		if _, ok := errors.AsType[*DependencyError](err); !ok {
 			t.Errorf("expected DependencyError, got %T", err)
 		}
 	})
@@ -735,8 +733,7 @@ func TestEnableErrorPaths(t *testing.T) {
 			t.Error("expected error when enabling plugin in Registered state")
 		}
 
-		var stateErr *StateError
-		if !errors.As(err, &stateErr) {
+		if _, ok := errors.AsType[*StateError](err); !ok {
 			t.Errorf("expected StateError, got %T", err)
 		}
 	})
@@ -842,8 +839,7 @@ func TestEnableErrorPaths(t *testing.T) {
 			t.Error("expected error when enabling from Failed state")
 		}
 
-		var stateErr *StateError
-		if !errors.As(err, &stateErr) {
+		if _, ok := errors.AsType[*StateError](err); !ok {
 			t.Errorf("expected StateError, got %T", err)
 		}
 	})
@@ -923,8 +919,7 @@ func TestDisableErrorPaths(t *testing.T) {
 			t.Error("expected error when disabling Failed plugin")
 		}
 
-		var stateErr *StateError
-		if !errors.As(err, &stateErr) {
+		if _, ok := errors.AsType[*StateError](err); !ok {
 			t.Errorf("expected StateError, got %T", err)
 		}
 	})

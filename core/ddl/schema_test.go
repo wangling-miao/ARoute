@@ -401,7 +401,7 @@ func TestSchema_Clone_WithConstraints(t *testing.T) {
 	original := &Schema{
 		Name: "posts",
 		Fields: []FieldDefinition{
-			{Name: "title", Type: FieldTypeText, Constraints: &Constraints{Nullable: false, MaxLength: intPtr(100)}},
+			{Name: "title", Type: FieldTypeText, Constraints: &Constraints{Nullable: false, MaxLength: new(100)}},
 		},
 	}
 
