@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/core/events"
 )
 
 type StateChangeEventData struct {
@@ -24,7 +25,10 @@ func (m *ManagerImpl) setState(info *PluginLoadInfo, pluginName string, newState
 			OldState:   oldState,
 			NewState:   newState,
 		}
-		m.eventBus.Emit(context.Background(), "lifecycle.plugin."+pluginName+".stateChanged", eventData)
+		m.eventBus.Emit(context.Background(), events.Event{
+			Topic: "lifecycle.plugin." + pluginName + ".stateChanged",
+			Data:  map[string]interface{}{"data": eventData},
+		})
 	}
 }
 

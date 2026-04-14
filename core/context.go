@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"log/slog"
+
+	"github.com/wangling-miao/aroute/core/events"
 )
 
 // CoreContext provides plugins with access to Core services and resources.
@@ -108,38 +110,30 @@ type ServiceContainer interface {
 
 // EventBus defines the interface for the event system.
 // Supports two modes: Filter (sequential, can abort) and Broadcast (concurrent, fire-and-forget).
+// The interface is satisfied directly by *events.EventBus.
 type EventBus interface {
 	// SubscribeFilter registers a handler for filter-style events.
 	// Filter handlers are called in priority order and can abort the chain.
 	// Returns a handler ID for unsubscribe.
-	SubscribeFilter(event string, priority int, handler FilterHandler) string
+	SubscribeFilter(topic string, priority int, handler events.FilterHandler) string
 
 	// SubscribeBroadcast registers a handler for broadcast-style events.
 	// Broadcast handlers are called concurrently, errors are logged but don't abort.
 	// Returns a handler ID for unsubscribe.
-	SubscribeBroadcast(event string, handler BroadcastHandler) string
+	SubscribeBroadcast(topic string, handler events.BroadcastHandler) string
 
 	// Emit sends a broadcast event to all matching handlers.
 	// Handlers are called concurrently. Errors are logged but don't affect other handlers.
-	Emit(ctx context.Context, event string, data interface{})
+	Emit(ctx context.Context, event events.Event)
 
 	// DispatchFilter sends a filter event through the handler chain.
 	// Handlers are called in priority order. A handler can abort by returning error.
-	// The modified event data is passed through the chain.
-	DispatchFilter(ctx context.Context, event string, data interface{}) (interface{}, error)
+	// The modified event is passed through the chain.
+	DispatchFilter(ctx context.Context, event *events.Event) (*events.Event, error)
 
 	// Unsubscribe removes a handler by ID.
-	Unsubscribe(handlerID string) error
+	Unsubscribe(handlerID string)
 }
-
-// FilterHandler handles filter-style events.
-// Handlers can modify the event data and must call next() to continue the chain.
-// Returning an error aborts the chain.
-type FilterHandler func(ctx context.Context, event string, data interface{}, next func() (interface{}, error)) (interface{}, error)
-
-// BroadcastHandler handles broadcast-style events.
-// Errors are logged but don't abort other handlers.
-type BroadcastHandler func(ctx context.Context, event string, data interface{}) error
 
 // ConfigProvider provides configuration values to plugins.
 type ConfigProvider interface {
@@ -187,3 +181,4 @@ func (p *BasePlugin) Stop() error                { return nil }
 
 // Compile-time interface checks
 var _ Plugin = (*BasePlugin)(nil)
+var _ EventBus = (*events.EventBus)(nil)

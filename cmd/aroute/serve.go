@@ -106,7 +106,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		pluginLogger := logger.With("plugin", pluginName)
 		pluginDataDir := filepath.Join(dataDir, "plugins", pluginName)
 		pluginConfig := core.NewViperConfig(viper.GetViper())
-		return core.NewCoreContext(pluginCtx, container, &eventBusAdapter{eb: eventBus}, pluginConfig, pluginLogger, pluginDataDir, pluginDir)
+		return core.NewCoreContext(pluginCtx, container, eventBus, pluginConfig, pluginLogger, pluginDataDir, pluginDir)
 	}
 
 	// Create native plugin loader and register built-in plugins
@@ -120,13 +120,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},
 		&pluginLoaderAdapter{loader: pluginLoader},
-		&eventBusAdapter{eb: eventBus},
+		eventBus,
 		container,
 		ctxFactory,
 	)
 
 	// Create Aroute engine
-	aroute, err := core.New(ctx, container, &eventBusAdapter{eb: eventBus}, &pluginRegistryAdapter{reg: reg}, lifecycleManager, &dispatcherAdapter{d: dispatcher}, &licenseAdapter{v: licenseValidator},
+	aroute, err := core.New(ctx, container, eventBus, &pluginRegistryAdapter{reg: reg}, lifecycleManager, &dispatcherAdapter{d: dispatcher}, &licenseAdapter{v: licenseValidator},
 		core.WithDataDir(dataDir),
 		core.WithPluginDir(pluginDir),
 		core.WithLogger(logger),
@@ -207,50 +207,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 // Adapter types to bridge between core interfaces and concrete implementations
-
-type eventBusAdapter struct {
-	eb *events.EventBus
-}
-
-func (a *eventBusAdapter) SubscribeFilter(event string, priority int, handler core.FilterHandler) string {
-	return a.eb.SubscribeFilter(event, priority, func(ctx context.Context, e *events.Event) (*events.Event, error) {
-		next := func() (interface{}, error) { return e.Data, nil }
-		result, err := handler(ctx, e.Topic, e.Data, next)
-		if err != nil {
-			return nil, err
-		}
-		if m, ok := result.(map[string]interface{}); ok {
-			e.Data = m
-		}
-		return e, nil
-	})
-}
-
-func (a *eventBusAdapter) SubscribeBroadcast(event string, handler core.BroadcastHandler) string {
-	return a.eb.SubscribeBroadcast(event, func(ctx context.Context, e events.Event) {
-		handler(ctx, e.Topic, e.Data)
-	})
-}
-
-func (a *eventBusAdapter) Emit(ctx context.Context, event string, data interface{}) {
-	if m, ok := data.(map[string]interface{}); ok {
-		a.eb.Emit(ctx, events.Event{Topic: event, Data: m})
-	}
-}
-
-func (a *eventBusAdapter) DispatchFilter(ctx context.Context, event string, data interface{}) (interface{}, error) {
-	m, _ := data.(map[string]interface{})
-	e, err := a.eb.DispatchFilter(ctx, &events.Event{Topic: event, Data: m})
-	if err != nil {
-		return nil, err
-	}
-	return e.Data, nil
-}
-
-func (a *eventBusAdapter) Unsubscribe(handlerID string) error {
-	a.eb.Unsubscribe(handlerID)
-	return nil
-}
 
 type pluginRegistryAdapter struct {
 	reg *registry.BoltRegistry

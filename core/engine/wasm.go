@@ -10,6 +10,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/core/events"
 )
 
 // WasmConfig holds configuration for the Wasm engine.
@@ -253,7 +254,10 @@ func (b *HostModuleBuilder) eventPublish(ctx context.Context, module api.Module,
 		return
 	}
 
-	b.events.Emit(ctx, string(topicBytes), dataBytes)
+	b.events.Emit(ctx, events.Event{
+		Topic: string(topicBytes),
+		Data:  map[string]interface{}{"payload": dataBytes},
+	})
 }
 
 func (b *HostModuleBuilder) memoryAlloc(ctx context.Context, module api.Module, size uint32) uint32 {
