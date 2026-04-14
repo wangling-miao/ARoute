@@ -493,3 +493,100 @@ func TestParseEngine(t *testing.T) {
 		})
 	}
 }
+
+func TestDispatcherError_Error(t *testing.T) {
+	t.Run("with Plugin", func(t *testing.T) {
+		err := &DispatcherError{
+			Op:     "execute",
+			Plugin: "my-plugin",
+			Err:    errors.New("some error"),
+		}
+		msg := err.Error()
+		if msg != "dispatcher execute error for plugin my-plugin: some error" {
+			t.Errorf("unexpected message: %s", msg)
+		}
+	})
+
+	t.Run("with Engine only", func(t *testing.T) {
+		err := &DispatcherError{
+			Op:     "register",
+			Engine: "wasm",
+			Err:    errors.New("already registered"),
+		}
+		msg := err.Error()
+		if msg != "dispatcher register error for engine wasm: already registered" {
+			t.Errorf("unexpected message: %s", msg)
+		}
+	})
+
+	t.Run("with neither Plugin nor Engine", func(t *testing.T) {
+		err := &DispatcherError{
+			Op:  "close",
+			Err: errors.New("failed"),
+		}
+		msg := err.Error()
+		if msg != "dispatcher close error: failed" {
+			t.Errorf("unexpected message: %s", msg)
+		}
+	})
+}
+
+func TestDispatcherError_Unwrap(t *testing.T) {
+	inner := errors.New("inner error")
+	err := &DispatcherError{
+		Op:  "execute",
+		Err: inner,
+	}
+
+	if unwrapped := err.Unwrap(); unwrapped != inner {
+		t.Errorf("Unwrap() = %v, want %v", unwrapped, inner)
+	}
+}
+
+type typeMismatchEngine struct{}
+
+func (e *typeMismatchEngine) Type() core.EngineType              { return core.EngineL3Wasm }
+func (e *typeMismatchEngine) Initialize(_ context.Context) error { return nil }
+func (e *typeMismatchEngine) ExecuteLifecycle(_ context.Context, _ core.Plugin, _ core.CoreContext) error {
+	return nil
+}
+func (e *typeMismatchEngine) Close() error { return nil }
+
+func TestDispatcher_Execute_TypeMismatch(t *testing.T) {
+	dispatcher := NewDispatcher()
+	ctx := context.Background()
+	coreCtx := core.NewCoreContext(ctx, nil, nil, nil, nil, "/data", "/plugins")
+
+	_ = dispatcher.RegisterEngine(core.EngineL1Native, &typeMismatchEngine{})
+
+	plugin := &mockPlugin{name: "test-plugin", version: "1.0.0"}
+	manifest := &core.Manifest{
+		Name:    "test-plugin",
+		Version: "1.0.0",
+		Engine:  "native",
+	}
+
+	err := dispatcher.Execute(ctx, plugin, manifest, coreCtx)
+	if err == nil {
+		t.Error("Expected error for type mismatch")
+	}
+}
+
+type closeErrorEngine struct{}
+
+func (e *closeErrorEngine) Type() core.EngineType              { return core.EngineL1Native }
+func (e *closeErrorEngine) Initialize(_ context.Context) error { return nil }
+func (e *closeErrorEngine) ExecuteLifecycle(_ context.Context, _ core.Plugin, _ core.CoreContext) error {
+	return nil
+}
+func (e *closeErrorEngine) Close() error { return errors.New("close failed") }
+
+func TestDispatcher_CloseWithEngineError(t *testing.T) {
+	dispatcher := NewDispatcher()
+	_ = dispatcher.RegisterEngine(core.EngineL1Native, &closeErrorEngine{})
+
+	err := dispatcher.Close()
+	if err == nil {
+		t.Error("Expected error when engine Close fails")
+	}
+}
