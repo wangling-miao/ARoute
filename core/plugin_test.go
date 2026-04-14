@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -302,6 +303,167 @@ func TestCoreContext(t *testing.T) {
 
 	if coreCtx.PluginDir() != "/plugins" {
 		t.Errorf("PluginDir() = %v, want /plugins", coreCtx.PluginDir())
+	}
+}
+
+func TestEngineType_String(t *testing.T) {
+	tests := []struct {
+		engine EngineType
+		want   string
+	}{
+		{EngineL1Native, "native"},
+		{EngineL3Wasm, "wasm"},
+		{EngineType(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.engine.String(); got != tt.want {
+				t.Errorf("EngineType(%d).String() = %q, want %q", tt.engine, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseEngine(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    EngineType
+		wantErr bool
+	}{
+		{"native", EngineL1Native, false},
+		{"l1", EngineL1Native, false},
+		{"wasm", EngineL3Wasm, false},
+		{"l3", EngineL3Wasm, false},
+		{"invalid", EngineType(0), true},
+		{"", EngineType(0), true},
+		{"WASM", EngineType(0), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ParseEngine(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseEngine(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("ParseEngine(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCoreContext_Logger(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	coreCtx := NewCoreContext(ctx, nil, nil, nil, logger, "/data", "/plugins")
+
+	if coreCtx.Logger() != logger {
+		t.Error("Logger() should return the provided logger")
+	}
+}
+
+func TestCoreContext_NilLogger(t *testing.T) {
+	ctx := context.Background()
+	coreCtx := NewCoreContext(ctx, nil, nil, nil, nil, "/data", "/plugins")
+
+	if coreCtx.Logger() != nil {
+		t.Error("Logger() should return nil when nil is provided")
+	}
+}
+
+func TestValidateSemver_AdditionalCases(t *testing.T) {
+	tests := []struct {
+		version string
+		wantErr bool
+	}{
+		{"", true},
+		{"1.0.0+build", false},
+		{"1.0.0-alpha+build", false},
+		{"1.0.0-beta.1", false},
+		{"1.0.0-rc.1", false},
+		{"v1.0.0", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			err := validateSemver(tt.version)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateSemver(%q) error = %v, wantErr %v", tt.version, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateDependencyConstraint(t *testing.T) {
+	tests := []struct {
+		input   string
+		wantErr bool
+	}{
+		{"http@^1.0.0", false},
+		{"http@~1.2.3", false},
+		{"http@>=1.0.0", false},
+		{"http@1.2.3", false},
+		{"http", false},
+		{"", true},
+		{"http@", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			err := validateDependencyConstraint(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateDependencyConstraint(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsValidConstraint(t *testing.T) {
+	tests := []struct {
+		constraint string
+		want       bool
+	}{
+		{"^1.2.3", true},
+		{"~1.2.3", true},
+		{">=1.0.0", true},
+		{">1.0.0", true},
+		{"<=1.0.0", true},
+		{"<1.0.0", true},
+		{"1.2.3", true},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.constraint, func(t *testing.T) {
+			if got := isValidConstraint(tt.constraint); got != tt.want {
+				t.Errorf("isValidConstraint(%q) = %v, want %v", tt.constraint, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestManifest_Validate_InvalidName(t *testing.T) {
+	manifest := &Manifest{
+		Name:    "INVALID",
+		Version: "1.0.0",
+		Engine:  "native",
+	}
+	if err := manifest.Validate(); err == nil {
+		t.Error("Validate() should fail for uppercase name")
+	}
+}
+
+func TestManifest_Validate_DuplicateProvides(t *testing.T) {
+	manifest := &Manifest{
+		Name:     "test-plugin",
+		Version:  "1.0.0",
+		Engine:   "native",
+		Provides: []string{"http", "http"},
+	}
+	if err := manifest.Validate(); err == nil {
+		t.Error("Validate() should fail for duplicate provides")
 	}
 }
 

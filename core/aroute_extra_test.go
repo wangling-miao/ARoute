@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 type errorMockLifecycleManager struct {
@@ -1803,5 +1805,265 @@ func TestDefaultCoreContextFactory(t *testing.T) {
 	}
 	if coreCtx.PluginDir() == "" {
 		t.Error("PluginDir() should not be empty")
+	}
+}
+
+// ============================================
+// ViperConfig Tests
+// ============================================
+
+func TestNewViperConfig(t *testing.T) {
+	v := viper.New()
+	config := NewViperConfig(v)
+	if config == nil {
+		t.Fatal("NewViperConfig() returned nil")
+	}
+}
+
+func TestViperConfig_GetString(t *testing.T) {
+	v := viper.New()
+	v.Set("key1", "value1")
+	v.Set("key2", 123)
+	config := NewViperConfig(v)
+
+	if config.GetString("key1") != "value1" {
+		t.Errorf("GetString(key1) = %q, want %q", config.GetString("key1"), "value1")
+	}
+	if config.GetString("key2") != "123" {
+		t.Errorf("GetString(key2) = %q, want %q", config.GetString("key2"), "123")
+	}
+	if config.GetString("nonexistent") != "" {
+		t.Error("GetString(nonexistent) should return empty string")
+	}
+}
+
+func TestViperConfig_GetInt(t *testing.T) {
+	v := viper.New()
+	v.Set("port", 8080)
+	v.Set("invalid", "not-a-number")
+	config := NewViperConfig(v)
+
+	if config.GetInt("port") != 8080 {
+		t.Errorf("GetInt(port) = %d, want 8080", config.GetInt("port"))
+	}
+	if config.GetInt("nonexistent") != 0 {
+		t.Error("GetInt(nonexistent) should return 0")
+	}
+}
+
+func TestViperConfig_GetBool(t *testing.T) {
+	v := viper.New()
+	v.Set("enabled", true)
+	v.Set("disabled", false)
+	config := NewViperConfig(v)
+
+	if !config.GetBool("enabled") {
+		t.Error("GetBool(enabled) should be true")
+	}
+	if config.GetBool("disabled") {
+		t.Error("GetBool(disabled) should be false")
+	}
+	if config.GetBool("nonexistent") {
+		t.Error("GetBool(nonexistent) should be false")
+	}
+}
+
+func TestViperConfig_GetStringSlice(t *testing.T) {
+	v := viper.New()
+	v.Set("tags", []string{"a", "b", "c"})
+	config := NewViperConfig(v)
+
+	slice := config.GetStringSlice("tags")
+	if len(slice) != 3 || slice[0] != "a" || slice[1] != "b" || slice[2] != "c" {
+		t.Errorf("GetStringSlice(tags) = %v, want [a b c]", slice)
+	}
+	if config.GetStringSlice("nonexistent") != nil {
+		t.Error("GetStringSlice(nonexistent) should return nil/empty")
+	}
+}
+
+func TestViperConfig_Get(t *testing.T) {
+	v := viper.New()
+	v.Set("raw_key", "raw_value")
+	config := NewViperConfig(v)
+
+	if config.Get("raw_key") != "raw_value" {
+		t.Errorf("Get(raw_key) = %v, want raw_value", config.Get("raw_key"))
+	}
+	if config.Get("nonexistent") != nil {
+		t.Error("Get(nonexistent) should return nil")
+	}
+}
+
+func TestViperConfig_Unmarshal(t *testing.T) {
+	v := viper.New()
+	v.Set("server.host", "localhost")
+	v.Set("server.port", 3000)
+	config := NewViperConfig(v)
+
+	var target struct {
+		Host string
+		Port int
+	}
+	err := config.Unmarshal("server", &target)
+	if err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if target.Host != "localhost" {
+		t.Errorf("target.Host = %q, want %q", target.Host, "localhost")
+	}
+	if target.Port != 3000 {
+		t.Errorf("target.Port = %d, want 3000", target.Port)
+	}
+}
+
+// ============================================
+// BuildWithFactories Additional Error Path Tests
+// ============================================
+
+func TestBuilder_BuildWithFactories_EventBusFactoryError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir, err := os.MkdirTemp("", "aroute-test-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	factories := &Factories{
+		NewEventBus: func() (EventBus, error) { return nil, errors.New("event bus factory error") },
+	}
+
+	aroute, err := NewBuilder().
+		WithDataDir(filepath.Join(tmpDir, "data")).
+		WithPluginDir(filepath.Join(tmpDir, "plugins")).
+		BuildWithFactories(ctx, factories)
+
+	if err == nil {
+		t.Error("BuildWithFactories() should fail when event bus factory returns error")
+		if aroute != nil {
+			aroute.Stop(ctx)
+		}
+	}
+}
+
+func TestBuilder_BuildWithFactories_RegistryFactoryError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir, err := os.MkdirTemp("", "aroute-test-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	factories := &Factories{
+		NewRegistry: func(dataDir string) (PluginRegistry, error) { return nil, errors.New("registry factory error") },
+	}
+
+	aroute, err := NewBuilder().
+		WithDataDir(filepath.Join(tmpDir, "data")).
+		WithPluginDir(filepath.Join(tmpDir, "plugins")).
+		BuildWithFactories(ctx, factories)
+
+	if err == nil {
+		t.Error("BuildWithFactories() should fail when registry factory returns error")
+		if aroute != nil {
+			aroute.Stop(ctx)
+		}
+	}
+}
+
+func TestBuilder_BuildWithFactories_DispatcherFactoryError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir, err := os.MkdirTemp("", "aroute-test-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	factories := &Factories{
+		NewDispatcher: func() (EngineDispatcher, error) { return nil, errors.New("dispatcher factory error") },
+	}
+
+	aroute, err := NewBuilder().
+		WithDataDir(filepath.Join(tmpDir, "data")).
+		WithPluginDir(filepath.Join(tmpDir, "plugins")).
+		BuildWithFactories(ctx, factories)
+
+	if err == nil {
+		t.Error("BuildWithFactories() should fail when dispatcher factory returns error")
+		if aroute != nil {
+			aroute.Stop(ctx)
+		}
+	}
+}
+
+func TestBuilder_BuildWithFactories_LicenseFactoryError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir, err := os.MkdirTemp("", "aroute-test-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	factories := &Factories{
+		NewLicense: func(licensePath string, pubKey *ecdsa.PublicKey) (LicenseValidator, error) {
+			return nil, errors.New("license factory error")
+		},
+	}
+
+	aroute, err := NewBuilder().
+		WithDataDir(filepath.Join(tmpDir, "data")).
+		WithPluginDir(filepath.Join(tmpDir, "plugins")).
+		BuildWithFactories(ctx, factories)
+
+	if err == nil {
+		t.Error("BuildWithFactories() should fail when license factory returns error")
+		if aroute != nil {
+			aroute.Stop(ctx)
+		}
+	}
+}
+
+func TestBuilder_BuildWithFactories_LifecycleFactoryError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir, err := os.MkdirTemp("", "aroute-test-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	factories := &Factories{
+		NewLifecycle: func(registry PluginRegistry, container ServiceContainer, eventBus EventBus, logger *slog.Logger, dataDir, pluginDir string) (LifecycleManager, error) {
+			return nil, errors.New("lifecycle factory error")
+		},
+	}
+
+	aroute, err := NewBuilder().
+		WithDataDir(filepath.Join(tmpDir, "data")).
+		WithPluginDir(filepath.Join(tmpDir, "plugins")).
+		BuildWithFactories(ctx, factories)
+
+	if err == nil {
+		t.Error("BuildWithFactories() should fail when lifecycle factory returns error")
+		if aroute != nil {
+			aroute.Stop(ctx)
+		}
+	}
+}
+
+func TestBuilder_BuildWithFactories_PluginDirError(t *testing.T) {
+	ctx := context.Background()
+
+	factories := &Factories{}
+
+	aroute, err := NewBuilder().
+		WithDataDir("/tmp/aroute-test-data").
+		WithPluginDir("/proc/nonexistent/aroute/plugins").
+		BuildWithFactories(ctx, factories)
+
+	if err == nil {
+		t.Error("BuildWithFactories() should fail when plugin directory cannot be created")
+		if aroute != nil {
+			aroute.Stop(ctx)
+		}
 	}
 }

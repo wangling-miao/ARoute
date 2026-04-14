@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/wangling-miao/aroute/core/events"
 )
 
 // mockPlugin implements Plugin for testing.
@@ -115,34 +117,33 @@ func newMockEventBus() *mockEventBus {
 	}
 }
 
-func (b *mockEventBus) SubscribeFilter(event string, priority int, handler FilterHandler) string {
+func (b *mockEventBus) SubscribeFilter(topic string, priority int, handler events.FilterHandler) string {
 	return "filter-handler-id"
 }
 
-func (b *mockEventBus) SubscribeBroadcast(event string, handler BroadcastHandler) string {
+func (b *mockEventBus) SubscribeBroadcast(topic string, handler events.BroadcastHandler) string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.handlers[event] = append(b.handlers[event], handler)
+	b.handlers[topic] = append(b.handlers[topic], handler)
 	return "broadcast-handler-id"
 }
 
-func (b *mockEventBus) Emit(ctx context.Context, event string, data interface{}) {
+func (b *mockEventBus) Emit(ctx context.Context, event events.Event) {
 	b.mu.RLock()
-	handlers := b.handlers[event]
+	handlers := b.handlers[event.Topic]
 	b.mu.RUnlock()
 	for _, h := range handlers {
-		if handler, ok := h.(BroadcastHandler); ok {
-			go handler(ctx, event, data)
+		if handler, ok := h.(events.BroadcastHandler); ok {
+			go handler(ctx, event)
 		}
 	}
 }
 
-func (b *mockEventBus) DispatchFilter(ctx context.Context, event string, data interface{}) (interface{}, error) {
-	return data, nil
+func (b *mockEventBus) DispatchFilter(ctx context.Context, event *events.Event) (*events.Event, error) {
+	return event, nil
 }
 
-func (b *mockEventBus) Unsubscribe(handlerID string) error {
-	return nil
+func (b *mockEventBus) Unsubscribe(handlerID string) {
 }
 
 // mockPluginRegistry implements PluginRegistry for testing.
@@ -605,13 +606,12 @@ func TestAroute_EventDispatch(t *testing.T) {
 
 	// Subscribe to an event
 	received := make(chan bool, 1)
-	eventBus.SubscribeBroadcast("test.event", func(ctx context.Context, event string, data interface{}) error {
+	eventBus.SubscribeBroadcast("test.event", func(ctx context.Context, event events.Event) {
 		received <- true
-		return nil
 	})
 
 	// Emit event
-	aroute.Events().Emit(ctx, "test.event", map[string]interface{}{"key": "value"})
+	aroute.Events().Emit(ctx, events.Event{Topic: "test.event", Data: map[string]interface{}{"key": "value"}})
 
 	// Wait for event
 	select {
