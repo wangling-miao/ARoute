@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/core/events"
 )
 
 // mockPlugin implements core.Plugin for testing.
@@ -426,33 +427,26 @@ func indexOf(slice []string, item string) int {
 
 // mockEventBus implements core.EventBus for testing.
 type mockEventBus struct {
-	emitted []struct {
-		event string
-		data  interface{}
-	}
+	emitted []events.Event
 }
 
-func (m *mockEventBus) SubscribeFilter(event string, priority int, handler core.FilterHandler) string {
+func (m *mockEventBus) SubscribeFilter(topic string, priority int, handler events.FilterHandler) string {
 	return ""
 }
 
-func (m *mockEventBus) SubscribeBroadcast(event string, handler core.BroadcastHandler) string {
+func (m *mockEventBus) SubscribeBroadcast(topic string, handler events.BroadcastHandler) string {
 	return ""
 }
 
-func (m *mockEventBus) Emit(ctx context.Context, event string, data interface{}) {
-	m.emitted = append(m.emitted, struct {
-		event string
-		data  interface{}
-	}{event: event, data: data})
+func (m *mockEventBus) Emit(ctx context.Context, event events.Event) {
+	m.emitted = append(m.emitted, event)
 }
 
-func (m *mockEventBus) DispatchFilter(ctx context.Context, event string, data interface{}) (interface{}, error) {
+func (m *mockEventBus) DispatchFilter(ctx context.Context, event *events.Event) (*events.Event, error) {
 	return nil, nil
 }
 
-func (m *mockEventBus) Unsubscribe(handlerID string) error {
-	return nil
+func (m *mockEventBus) Unsubscribe(handlerID string) {
 }
 
 // TestRetry tests the Retry method for recovering from Failed state.
@@ -527,7 +521,7 @@ func TestStateChangeEvents(t *testing.T) {
 
 		var stateChanges []StateChangeEventData
 		for _, e := range eventBus.emitted {
-			data, ok := e.data.(StateChangeEventData)
+			data, ok := e.Data["data"].(StateChangeEventData)
 			if ok {
 				stateChanges = append(stateChanges, data)
 			}

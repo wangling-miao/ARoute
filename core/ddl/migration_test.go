@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/wangling-miao/aroute/sdk/interfaces"
@@ -648,5 +649,259 @@ func TestMigrationTracker_GetAllMigrations_Empty(t *testing.T) {
 
 	if len(records) != 0 {
 		t.Errorf("len(records) = %d, want 0 for empty database", len(records))
+	}
+}
+
+type migrationFailDB struct {
+	*sql.DB
+	failAfterExec int
+	execCount     int
+	queryRowErr   error
+}
+
+func (f *migrationFailDB) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	f.execCount++
+	if f.execCount > f.failAfterExec {
+		return nil, fmt.Errorf("injected exec failure")
+	}
+	return f.DB.ExecContext(ctx, query, args...)
+}
+
+func (f *migrationFailDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return f.DB.QueryContext(ctx, query, args...)
+}
+
+func (f *migrationFailDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	if f.queryRowErr != nil {
+		return nil
+	}
+	return f.DB.QueryRowContext(ctx, query, args...)
+}
+
+func (f *migrationFailDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return f.DB.BeginTx(ctx, opts)
+}
+
+func (f *migrationFailDB) Ping(ctx context.Context) error {
+	return f.DB.PingContext(ctx)
+}
+
+func (f *migrationFailDB) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return f.DB.PrepareContext(ctx, query)
+}
+
+func (f *migrationFailDB) Close() error {
+	return f.DB.Close()
+}
+
+func (f *migrationFailDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+type migrationQueryRowFailDB struct {
+	*sql.DB
+	failQueryRow bool
+}
+
+func (f *migrationQueryRowFailDB) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return f.DB.ExecContext(ctx, query, args...)
+}
+
+func (f *migrationQueryRowFailDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return f.DB.QueryContext(ctx, query, args...)
+}
+
+func (f *migrationQueryRowFailDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	if f.failQueryRow {
+		return f.DB.QueryRowContext(ctx, "SELECT MAX(schema_version) FROM _nonexistent_table WHERE content_type = ?", args...)
+	}
+	return f.DB.QueryRowContext(ctx, query, args...)
+}
+
+func (f *migrationQueryRowFailDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return f.DB.BeginTx(ctx, opts)
+}
+
+func (f *migrationQueryRowFailDB) Ping(ctx context.Context) error {
+	return f.DB.PingContext(ctx)
+}
+
+func (f *migrationQueryRowFailDB) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return f.DB.PrepareContext(ctx, query)
+}
+
+func (f *migrationQueryRowFailDB) Close() error {
+	return f.DB.Close()
+}
+
+func (f *migrationQueryRowFailDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+type migrationQueryFailDB struct {
+	*sql.DB
+	failQuery bool
+}
+
+func (f *migrationQueryFailDB) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return f.DB.ExecContext(ctx, query, args...)
+}
+
+func (f *migrationQueryFailDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	if f.failQuery {
+		return nil, fmt.Errorf("injected query failure")
+	}
+	return f.DB.QueryContext(ctx, query, args...)
+}
+
+func (f *migrationQueryFailDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return f.DB.QueryRowContext(ctx, query, args...)
+}
+
+func (f *migrationQueryFailDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return f.DB.BeginTx(ctx, opts)
+}
+
+func (f *migrationQueryFailDB) Ping(ctx context.Context) error {
+	return f.DB.PingContext(ctx)
+}
+
+func (f *migrationQueryFailDB) Prepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	return f.DB.PrepareContext(ctx, query)
+}
+
+func (f *migrationQueryFailDB) Close() error {
+	return f.DB.Close()
+}
+
+func (f *migrationQueryFailDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func TestMigrationTracker_Init_ExecFail_TableCreate(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	failDB := &migrationFailDB{DB: db, failAfterExec: 0}
+	tracker := NewMigrationTracker(failDB)
+
+	err = tracker.Init(context.Background())
+	if err == nil {
+		t.Fatal("expected error when Exec fails for table creation, got nil")
+	}
+	if !strings.Contains(err.Error(), "creating _schema_migrations table") {
+		t.Errorf("error should mention table creation, got: %v", err)
+	}
+}
+
+func TestMigrationTracker_Init_ExecFail_IndexCreate(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	failDB := &migrationFailDB{DB: db, failAfterExec: 1}
+	tracker := NewMigrationTracker(failDB)
+
+	err = tracker.Init(context.Background())
+	if err == nil {
+		t.Fatal("expected error when Exec fails for index creation, got nil")
+	}
+	if !strings.Contains(err.Error(), "creating migration index") {
+		t.Errorf("error should mention index creation, got: %v", err)
+	}
+}
+
+func TestMigrationTracker_Record_GetNextVersionFail(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	realDB := &migrationTestDB{db: db}
+	tracker := NewMigrationTracker(realDB)
+	if err := tracker.Init(context.Background()); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	failDB := &migrationQueryRowFailDB{DB: db, failQueryRow: true}
+	failTracker := NewMigrationTracker(failDB)
+
+	err = failTracker.Record(context.Background(), "posts", "create", "SQL", true, "")
+	if err == nil {
+		t.Fatal("expected error when GetNextVersion fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "getting next version") {
+		t.Errorf("error should mention getting next version, got: %v", err)
+	}
+}
+
+func TestMigrationTracker_Record_ExecFail(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	realDB := &migrationTestDB{db: db}
+	tracker := NewMigrationTracker(realDB)
+	if err := tracker.Init(context.Background()); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	_, _ = realDB.Exec(context.Background(), "INSERT INTO _schema_migrations (content_type, operation, sql_executed, schema_version, executed_at, success, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)", "posts", "create", "SQL", 1, "2024-01-01", true, "")
+
+	failDB := &migrationFailDB{DB: db, failAfterExec: 0}
+	failTracker := NewMigrationTracker(failDB)
+
+	err = failTracker.Record(context.Background(), "posts", "alter", "SQL2", true, "")
+	if err == nil {
+		t.Fatal("expected error when INSERT fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "recording migration") {
+		t.Errorf("error should mention recording migration, got: %v", err)
+	}
+}
+
+func TestMigrationTracker_GetMigrationHistory_QueryFail(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	failDB := &migrationQueryFailDB{DB: db, failQuery: true}
+	tracker := NewMigrationTracker(failDB)
+
+	_, err = tracker.GetMigrationHistory(context.Background(), "posts")
+	if err == nil {
+		t.Fatal("expected error when Query fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "querying migration history") {
+		t.Errorf("error should mention querying migration history, got: %v", err)
+	}
+}
+
+func TestMigrationTracker_GetAllMigrations_QueryFail(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	failDB := &migrationQueryFailDB{DB: db, failQuery: true}
+	tracker := NewMigrationTracker(failDB)
+
+	_, err = tracker.GetAllMigrations(context.Background())
+	if err == nil {
+		t.Fatal("expected error when Query fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "querying all migrations") {
+		t.Errorf("error should mention querying all migrations, got: %v", err)
 	}
 }

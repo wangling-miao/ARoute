@@ -627,7 +627,7 @@ func TestRetryFunctionality(t *testing.T) {
 		// Check state transition events
 		var stateChanges []StateChangeEventData
 		for _, e := range eventBus.emitted {
-			data, ok := e.data.(StateChangeEventData)
+			data, ok := e.Data["data"].(StateChangeEventData)
 			if ok {
 				stateChanges = append(stateChanges, data)
 			}
@@ -1325,6 +1325,92 @@ func TestStartPluginWithNilCtxFactory(t *testing.T) {
 	if !pluginA.initCalled {
 		t.Error("expected Init to be called even with nil ctxFactory")
 	}
+}
+
+// TestErrorTypes tests the Error() methods of StateError and DependencyError.
+func TestStateError_Error(t *testing.T) {
+	err := &StateError{
+		PluginName:   "test-plugin",
+		CurrentState: core.StateRegistered,
+		TargetState:  core.StateActive,
+		Message:      "invalid transition",
+	}
+
+	msg := err.Error()
+	if !containsString(msg, "test-plugin") {
+		t.Errorf("Error() should contain plugin name: %s", msg)
+	}
+	if !containsString(msg, "registered") {
+		t.Errorf("Error() should contain current state: %s", msg)
+	}
+	if !containsString(msg, "active") {
+		t.Errorf("Error() should contain target state: %s", msg)
+	}
+	if !containsString(msg, "invalid transition") {
+		t.Errorf("Error() should contain message: %s", msg)
+	}
+}
+
+func TestDependencyError_Error_WithCyclePath(t *testing.T) {
+	err := &DependencyError{
+		PluginName: "plugin-a",
+		Dependency: "plugin-b",
+		Message:    "cycle found",
+		CyclePath:  []string{"plugin-a", "plugin-b", "plugin-a"},
+	}
+
+	msg := err.Error()
+	if !containsString(msg, "cycle detected") {
+		t.Errorf("Error() should mention cycle: %s", msg)
+	}
+	if !containsString(msg, "plugin-a") {
+		t.Errorf("Error() should contain cycle path: %s", msg)
+	}
+}
+
+func TestDependencyError_Error_WithoutCyclePath(t *testing.T) {
+	err := &DependencyError{
+		PluginName: "plugin-a",
+		Dependency: "plugin-b",
+		Message:    "not active",
+	}
+
+	msg := err.Error()
+	if !containsString(msg, "plugin-a") {
+		t.Errorf("Error() should contain plugin name: %s", msg)
+	}
+	if !containsString(msg, "plugin-b") {
+		t.Errorf("Error() should contain dependency name: %s", msg)
+	}
+	if !containsString(msg, "not active") {
+		t.Errorf("Error() should contain message: %s", msg)
+	}
+	if containsString(msg, "cycle detected") {
+		t.Errorf("Error() should not mention 'cycle detected' without CyclePath: %s", msg)
+	}
+}
+
+func TestLoadAll_RegistryListError(t *testing.T) {
+	registry := &errorListRegistry{listErr: errors.New("registry unavailable")}
+	loader := newMockLoader()
+
+	manager := newTestManager(registry, loader)
+	err := manager.LoadAll(context.Background())
+	if err == nil {
+		t.Error("LoadAll should fail when registry.List() fails")
+	}
+	if !containsString(err.Error(), "registry unavailable") {
+		t.Errorf("Error should wrap registry error: %v", err)
+	}
+}
+
+type errorListRegistry struct {
+	mockRegistry
+	listErr error
+}
+
+func (r *errorListRegistry) List() ([]core.Manifest, error) {
+	return nil, r.listErr
 }
 
 // Helper function to check if string contains substring.

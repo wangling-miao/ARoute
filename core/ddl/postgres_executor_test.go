@@ -1160,3 +1160,344 @@ func TestPostgreSQL_ExecuteOp_AllTypes(t *testing.T) {
 		})
 	}
 }
+
+func pgSetupRealTx(t *testing.T) (*PostgreSQLExecutor, *sql.DB, *sql.Tx, func()) {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	executor := NewPostgreSQLExecutor(&pgRealDB{db: db})
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		db.Close()
+		t.Fatalf("BeginTx: %v", err)
+	}
+	cleanup := func() {
+		tx.Rollback()
+		db.Close()
+	}
+	return executor, db, tx, cleanup
+}
+
+type pgRealDB struct {
+	db *sql.DB
+}
+
+func (p *pgRealDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return p.db.QueryContext(ctx, query, args...)
+}
+func (p *pgRealDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return p.db.QueryRowContext(ctx, query, args...)
+}
+func (p *pgRealDB) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return p.db.ExecContext(ctx, query, args...)
+}
+func (p *pgRealDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return p.db.BeginTx(ctx, opts)
+}
+func (p *pgRealDB) Ping(ctx context.Context) error { return p.db.PingContext(ctx) }
+func (p *pgRealDB) Prepare(ctx context.Context, q string) (*sql.Stmt, error) {
+	return p.db.PrepareContext(ctx, q)
+}
+func (p *pgRealDB) Close() error { return p.db.Close() }
+func (p *pgRealDB) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func TestPostgreSQL_ExecuteOp_WithRealTx_TableCreate(t *testing.T) {
+	executor, db, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	err := executor.executeOp(context.Background(), tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "name", Type: FieldTypeText},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("executeOp(tableCreate): %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	var count int
+	if err := db.QueryRowContext(context.Background(),
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='test_tbl'").Scan(&count); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("table not created, count=%d", count)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_WithRealTx_ColumnAdd(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}}},
+	}); err != nil {
+		t.Fatalf("createTable: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpColumnAdd, TableName: "test_tbl", ColumnName: "title", ColumnType: "text",
+		Constraints: &Constraints{Nullable: false},
+	}); err != nil {
+		t.Fatalf("addColumn: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_WithRealTx_ColumnDrop(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber}, {Name: "name", Type: FieldTypeText},
+		}},
+	}); err != nil {
+		t.Fatalf("createTable: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpColumnDrop, TableName: "test_tbl", ColumnName: "name",
+	}); err != nil {
+		t.Fatalf("dropColumn: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_WithRealTx_IndexAdd(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber}, {Name: "name", Type: FieldTypeText},
+		}},
+	}); err != nil {
+		t.Fatalf("createTable: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpIndexAdd, TableName: "test_tbl", IndexName: "idx_test_name",
+		IndexColumns: []string{"name"}, IndexUnique: true,
+	}); err != nil {
+		t.Fatalf("addIndex: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_WithRealTx_DropIndex(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber}, {Name: "name", Type: FieldTypeText},
+		}},
+	}); err != nil {
+		t.Fatalf("createTable: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpIndexAdd, TableName: "test_tbl", IndexName: "idx_test_name",
+		IndexColumns: []string{"name"},
+	}); err != nil {
+		t.Fatalf("addIndex: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpIndexDrop, TableName: "test_tbl", IndexName: "idx_test_name",
+	}); err != nil {
+		t.Fatalf("dropIndex: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_ExecuteOp_WithRealTx_UnsupportedOp(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	err := executor.executeOp(context.Background(), tx, DiffOperation{
+		Type: DiffOperationType("unknown_op_type"), TableName: "test_tbl",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported op type")
+	}
+	if !strings.Contains(err.Error(), "unsupported operation type") {
+		t.Errorf("error = %v, want unsupported operation type", err)
+	}
+}
+
+func TestPostgreSQL_BuildColumnDef_RelationWithFK(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "authors",
+		Schema: &Schema{Name: "authors", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+		}},
+	}); err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "books",
+		Schema: &Schema{Name: "books", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "author_id", Type: FieldTypeRelation, Constraints: &Constraints{Nullable: false},
+				ForeignKey: &ForeignKeyReference{Table: "authors", Column: "id", OnDelete: "CASCADE", OnUpdate: "NO ACTION"}},
+		}},
+	}); err != nil {
+		t.Fatalf("create child with FK: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_BuildColumnDef_RelationDefaultRefColumn(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "categories",
+		Schema: &Schema{Name: "categories", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+		}},
+	}); err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "products",
+		Schema: &Schema{Name: "products", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "category_id", Type: FieldTypeRelation,
+				ForeignKey: &ForeignKeyReference{Table: "categories", Column: ""}},
+		}},
+	}); err != nil {
+		t.Fatalf("create child with default ref column: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_AddColumn_WithRelationFK(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}}},
+	}); err != nil {
+		t.Fatalf("createTable: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "ref_tbl",
+		Schema: &Schema{Name: "ref_tbl", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}}},
+	}); err != nil {
+		t.Fatalf("create ref: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpColumnAdd, TableName: "test_tbl", ColumnName: "ref_id", ColumnType: "relation",
+		Constraints: &Constraints{Nullable: true},
+		ForeignKey:  &ForeignKeyReference{Table: "ref_tbl", Column: "id", OnDelete: "SET NULL", OnUpdate: "CASCADE"},
+	}); err != nil {
+		t.Fatalf("addColumn with FK: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_AddColumn_WithRelationDefaultRef(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}}},
+	}); err != nil {
+		t.Fatalf("createTable: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "ref_tbl",
+		Schema: &Schema{Name: "ref_tbl", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}}},
+	}); err != nil {
+		t.Fatalf("create ref: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpColumnAdd, TableName: "test_tbl", ColumnName: "ref_id", ColumnType: "relation",
+		ForeignKey: &ForeignKeyReference{Table: "ref_tbl"},
+	}); err != nil {
+		t.Fatalf("addColumn with default ref: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_AddColumn_WithDefault(t *testing.T) {
+	executor, _, tx, cleanup := pgSetupRealTx(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpTableCreate, TableName: "test_tbl",
+		Schema: &Schema{Name: "test_tbl", Fields: []FieldDefinition{{Name: "id", Type: FieldTypeNumber}}},
+	}); err != nil {
+		t.Fatalf("createTable: %v", err)
+	}
+	if err := executor.executeOp(ctx, tx, DiffOperation{
+		Type: OpColumnAdd, TableName: "test_tbl", ColumnName: "status", ColumnType: "text",
+		Constraints: &Constraints{Nullable: false, Default: "active"},
+	}); err != nil {
+		t.Fatalf("addColumn with default: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestPostgreSQL_Execute_WithRealTx(t *testing.T) {
+	pgDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer pgDB.Close()
+	executor := NewPostgreSQLExecutor(&pgRealDB{db: pgDB})
+	ctx := context.Background()
+	ops := []DiffOperation{{
+		Type: OpTableCreate, TableName: "users",
+		Schema: &Schema{Name: "users", Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber}, {Name: "name", Type: FieldTypeText},
+		}},
+	}}
+	if err := executor.Execute(ctx, ops, false); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestPostgreSQL_Execute_BeginTxFail(t *testing.T) {
+	db := &mockDB{beginTxFail: true}
+	executor := NewPostgreSQLExecutor(db)
+	err := executor.Execute(context.Background(), []DiffOperation{
+		{Type: OpColumnAdd, TableName: "t", ColumnName: "c", ColumnType: "text"},
+	}, false)
+	if err == nil {
+		t.Fatal("expected error when BeginTx fails")
+	}
+	if !strings.Contains(err.Error(), "beginning transaction") {
+		t.Errorf("error = %v, want beginning transaction", err)
+	}
+}

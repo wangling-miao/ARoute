@@ -1530,3 +1530,155 @@ func TestManifestsEqual_DifferentLicense(t *testing.T) {
 		t.Error("manifestsEqual should return false for different licenses")
 	}
 }
+
+func TestNewBoltRegistry_MkdirAllError(t *testing.T) {
+	_, err := NewBoltRegistry("/proc/nonexistent/registry/test.db")
+	if err == nil {
+		t.Error("NewBoltRegistry should fail when directory creation fails")
+	}
+}
+
+func TestBoltRegistry_List_Empty(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	registry, err := NewBoltRegistry(dbPath)
+	if err != nil {
+		t.Fatalf("NewBoltRegistry() error = %v", err)
+	}
+	defer registry.Close()
+
+	entries, err := registry.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("List() should return empty slice for empty registry, got %d", len(entries))
+	}
+}
+
+func TestBoltRegistry_Update_InvalidManifest(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	registry, err := NewBoltRegistry(dbPath)
+	if err != nil {
+		t.Fatalf("NewBoltRegistry() error = %v", err)
+	}
+	defer registry.Close()
+
+	entry := &PluginEntry{
+		Manifest: core.Manifest{
+			Name:    "test-plugin",
+			Version: "1.0.0",
+			Engine:  "native",
+		},
+	}
+	if err := registry.Register(entry); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	invalidManifest := core.Manifest{
+		Name:    "test-plugin",
+		Version: "invalid-version",
+		Engine:  "native",
+	}
+	err = registry.Update("test-plugin", invalidManifest)
+	if err == nil {
+		t.Error("Update() should fail with invalid manifest")
+	}
+}
+
+func TestBoltRegistry_Enable_NotFound(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	registry, err := NewBoltRegistry(dbPath)
+	if err != nil {
+		t.Fatalf("NewBoltRegistry() error = %v", err)
+	}
+	defer registry.Close()
+
+	err = registry.Enable("nonexistent")
+	if err == nil {
+		t.Error("Enable() should fail for nonexistent plugin")
+	}
+}
+
+func TestBoltRegistry_Disable_NotFound(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	registry, err := NewBoltRegistry(dbPath)
+	if err != nil {
+		t.Fatalf("NewBoltRegistry() error = %v", err)
+	}
+	defer registry.Close()
+
+	err = registry.Disable("nonexistent")
+	if err == nil {
+		t.Error("Disable() should fail for nonexistent plugin")
+	}
+}
+
+func TestBoltRegistry_Get_DeserializeError(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	registry, err := NewBoltRegistry(dbPath)
+	if err != nil {
+		t.Fatalf("NewBoltRegistry() error = %v", err)
+	}
+	defer registry.Close()
+
+	registry.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(BucketName))
+		bucket.Put([]byte("bad-plugin"), []byte("not valid json"))
+		return nil
+	})
+
+	_, err = registry.Get("bad-plugin")
+	if err == nil {
+		t.Error("Get() should fail for corrupted data")
+	}
+}
+
+func TestBoltRegistry_List_DeserializeError(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	registry, err := NewBoltRegistry(dbPath)
+	if err != nil {
+		t.Fatalf("NewBoltRegistry() error = %v", err)
+	}
+	defer registry.Close()
+
+	registry.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(BucketName))
+		bucket.Put([]byte("bad-plugin"), []byte("not valid json"))
+		return nil
+	})
+
+	_, err = registry.List()
+	if err == nil {
+		t.Error("List() should fail for corrupted data")
+	}
+}
+
+func TestLoadAndRegister_DiscoverError(t *testing.T) {
+	mockDisc := &mockDiscovery{err: errors.New("discover failed")}
+	registry := &mockRegistryForLoadAndRegister{}
+
+	count, err := LoadAndRegister(registry, mockDisc)
+	if err == nil {
+		t.Error("LoadAndRegister should fail when discovery fails")
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0", count)
+	}
+}
+
+type mockRegistryForLoadAndRegister struct{}
+
+func (m *mockRegistryForLoadAndRegister) Register(entry *PluginEntry) error { return nil }
+func (m *mockRegistryForLoadAndRegister) Get(name string) (*PluginEntry, error) {
+	return nil, errors.New("not found")
+}
+func (m *mockRegistryForLoadAndRegister) Update(name string, manifest core.Manifest) error {
+	return nil
+}
+func (m *mockRegistryForLoadAndRegister) Remove(name string) error { return nil }
+func (m *mockRegistryForLoadAndRegister) List() ([]*PluginEntry, error) {
+	return nil, nil
+}
+func (m *mockRegistryForLoadAndRegister) Enable(name string) error  { return nil }
+func (m *mockRegistryForLoadAndRegister) Disable(name string) error { return nil }
+func (m *mockRegistryForLoadAndRegister) Close() error              { return nil }

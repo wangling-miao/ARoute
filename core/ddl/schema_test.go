@@ -305,3 +305,152 @@ func TestTypeMapper_MapColumnType(t *testing.T) {
 func intPtr(i int) *int {
 	return &i
 }
+
+func TestFromJSON_InvalidJSON(t *testing.T) {
+	_, err := FromJSON([]byte(`{invalid json`))
+	if err == nil {
+		t.Error("FromJSON() should return error for invalid JSON")
+	}
+}
+
+func TestFromJSON_InvalidSchema(t *testing.T) {
+	_, err := FromJSON([]byte(`{"name": "", "fields": []}`))
+	if err == nil {
+		t.Error("FromJSON() should return error for empty name")
+	}
+
+	_, err = FromJSON([]byte(`{"name": "test", "fields": []}`))
+	if err == nil {
+		t.Error("FromJSON() should return error for empty fields")
+	}
+
+	_, err = FromJSON([]byte(`{"name": "test", "fields": [{"name": "f1", "type": "bad_type"}]}`))
+	if err == nil {
+		t.Error("FromJSON() should return error for invalid field type")
+	}
+}
+
+func TestFromJSON_ValidFullSchema(t *testing.T) {
+	data := []byte(`{
+		"name": "articles",
+		"fields": [
+			{"name": "id", "type": "number", "constraints": {"nullable": false}},
+			{"name": "title", "type": "text", "constraints": {"nullable": false, "max_length": 200}},
+			{"name": "tags", "type": "json"},
+			{"name": "author_id", "type": "relation", "foreign_key": {"table": "users", "column": "id", "on_delete": "CASCADE"}}
+		],
+		"indexes": [
+			{"name": "idx_articles_title", "columns": ["title"], "unique": true}
+		],
+		"table_name": "cms_articles"
+	}`)
+
+	schema, err := FromJSON(data)
+	if err != nil {
+		t.Fatalf("FromJSON() error = %v", err)
+	}
+	if schema.Name != "articles" {
+		t.Errorf("Name = %q, want %q", schema.Name, "articles")
+	}
+	if len(schema.Fields) != 4 {
+		t.Errorf("len(Fields) = %d, want 4", len(schema.Fields))
+	}
+	if len(schema.Indexes) != 1 {
+		t.Errorf("len(Indexes) = %d, want 1", len(schema.Indexes))
+	}
+	if schema.TableName != "cms_articles" {
+		t.Errorf("TableName = %q, want %q", schema.TableName, "cms_articles")
+	}
+	if schema.GetTableName() != "cms_articles" {
+		t.Errorf("GetTableName() = %q, want %q", schema.GetTableName(), "cms_articles")
+	}
+}
+
+func TestSchema_GetTableName_Default(t *testing.T) {
+	schema := &Schema{Name: "posts"}
+	if schema.GetTableName() != "posts" {
+		t.Errorf("GetTableName() = %q, want %q", schema.GetTableName(), "posts")
+	}
+}
+
+func TestSchema_Clone_WithIndexes(t *testing.T) {
+	original := &Schema{
+		Name: "posts",
+		Fields: []FieldDefinition{
+			{Name: "id", Type: FieldTypeNumber, Constraints: &Constraints{Nullable: false}},
+			{Name: "title", Type: FieldTypeText},
+		},
+		Indexes: []IndexDefinition{
+			{Name: "idx_posts_title", Columns: []string{"title"}, Unique: true},
+		},
+	}
+
+	clone := original.Clone()
+
+	if len(clone.Indexes) != len(original.Indexes) {
+		t.Fatalf("clone has %d indexes, want %d", len(clone.Indexes), len(original.Indexes))
+	}
+
+	clone.Indexes[0].Name = "modified_idx"
+	if original.Indexes[0].Name == "modified_idx" {
+		t.Error("modifying clone indexes should not affect original")
+	}
+}
+
+func TestSchema_Clone_WithConstraints(t *testing.T) {
+	original := &Schema{
+		Name: "posts",
+		Fields: []FieldDefinition{
+			{Name: "title", Type: FieldTypeText, Constraints: &Constraints{Nullable: false, MaxLength: intPtr(100)}},
+		},
+	}
+
+	clone := original.Clone()
+
+	if clone.Fields[0].Constraints.MaxLength == nil {
+		t.Fatal("cloned constraint MaxLength should not be nil")
+	}
+
+	*clone.Fields[0].Constraints.MaxLength = 200
+	if *original.Fields[0].Constraints.MaxLength == 200 {
+		t.Error("modifying cloned constraints should not affect original")
+	}
+}
+
+func TestSchema_Validate_MissingFieldName(t *testing.T) {
+	schema := &Schema{
+		Name: "posts",
+		Fields: []FieldDefinition{
+			{Name: "", Type: FieldTypeText},
+		},
+	}
+	if err := schema.Validate(); err == nil {
+		t.Error("Validate() should return error for empty field name")
+	}
+}
+
+func TestSchema_Validate_IndexEmptyName(t *testing.T) {
+	schema := &Schema{
+		Name:   "posts",
+		Fields: []FieldDefinition{{Name: "title", Type: FieldTypeText}},
+		Indexes: []IndexDefinition{
+			{Name: "", Columns: []string{"title"}},
+		},
+	}
+	if err := schema.Validate(); err == nil {
+		t.Error("Validate() should return error for index with empty name")
+	}
+}
+
+func TestSchema_Validate_IndexEmptyColumns(t *testing.T) {
+	schema := &Schema{
+		Name:   "posts",
+		Fields: []FieldDefinition{{Name: "title", Type: FieldTypeText}},
+		Indexes: []IndexDefinition{
+			{Name: "idx_posts", Columns: []string{}},
+		},
+	}
+	if err := schema.Validate(); err == nil {
+		t.Error("Validate() should return error for index with empty columns")
+	}
+}
