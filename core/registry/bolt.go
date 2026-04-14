@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/wangling-miao/aroute/core"
 	bolt "go.etcd.io/bbolt"
@@ -32,30 +33,44 @@ type BoltRegistry struct {
 // NewBoltRegistry creates a new registry backed by bbolt.
 // The database file will be created if it doesn't exist.
 // The bucket will be created on first use.
-//
-// Thread safety: Safe to call from multiple goroutines.
 func NewBoltRegistry(dbPath string) (*BoltRegistry, error) {
+	return newBoltRegistry(dbPath, false)
+}
+
+// NewReadOnlyBoltRegistry opens the registry in read-only mode.
+// Reads can proceed even when another process holds the database open in read-write mode.
+// Write operations will return an error.
+func NewReadOnlyBoltRegistry(dbPath string) (*BoltRegistry, error) {
+	return newBoltRegistry(dbPath, true)
+}
+
+func newBoltRegistry(dbPath string, readOnly bool) (*BoltRegistry, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return nil, fmt.Errorf("create registry directory: %w", err)
 	}
 
-	db, err := bolt.Open(dbPath, 0600, nil)
+	opts := &bolt.Options{
+		ReadOnly: readOnly,
+		Timeout:  5 * time.Second,
+	}
+
+	db, err := bolt.Open(dbPath, 0600, opts)
 	if err != nil {
 		return nil, fmt.Errorf("open bbolt database: %w", err)
 	}
 
-	// Create bucket if it doesn't exist
-	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(BucketName))
+	if !readOnly {
+		err = db.Update(func(tx *bolt.Tx) error {
+			_, err := tx.CreateBucketIfNotExists([]byte(BucketName))
+			if err != nil {
+				return fmt.Errorf("create bucket: %w", err)
+			}
+			return nil
+		})
 		if err != nil {
-			return fmt.Errorf("create bucket: %w", err)
+			db.Close()
+			return nil, err
 		}
-		return nil
-	})
-
-	if err != nil {
-		db.Close()
-		return nil, err
 	}
 
 	return &BoltRegistry{

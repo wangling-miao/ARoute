@@ -79,9 +79,9 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 	dataDir := getDataDir()
 	registryPath := filepath.Join(dataDir, "registry.db")
 
-	reg, err := registry.NewBoltRegistry(registryPath)
+	reg, err := registry.NewReadOnlyBoltRegistry(registryPath)
 	if err != nil {
-		return fmt.Errorf("open registry: %w", err)
+		return listFromManifests()
 	}
 	defer reg.Close()
 
@@ -95,7 +95,43 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Print table
+	printPluginTable(entries)
+	return nil
+}
+
+func listFromManifests() error {
+	pluginDir := getPluginDir()
+	discovery := registry.NewFSDiscovery(pluginDir)
+	paths, err := discovery.Discover()
+	if err != nil {
+		return fmt.Errorf("discover plugins: %w", err)
+	}
+
+	if len(paths) == 0 {
+		fmt.Println("No plugins installed.")
+		return nil
+	}
+
+	var entries []*registry.PluginEntry
+	for name, manifestPath := range paths {
+		manifest, err := core.LoadManifest(manifestPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: invalid manifest for %s: %v\n", name, err)
+			continue
+		}
+		entries = append(entries, &registry.PluginEntry{
+			Manifest:       *manifest,
+			Enabled:        true,
+			DiscoveredPath: manifestPath,
+		})
+	}
+
+	fmt.Fprintln(os.Stderr, "(registry locked — showing manifests from disk, status always 'enabled')")
+	printPluginTable(entries)
+	return nil
+}
+
+func printPluginTable(entries []*registry.PluginEntry) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tVERSION\tSTATUS\tAUTHOR")
 	fmt.Fprintln(w, "----\t-------\t------\t------")
@@ -117,8 +153,6 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 		)
 	}
 	w.Flush()
-
-	return nil
 }
 
 func installPluginFromURL(url, pluginDir, registryPath string) error {
