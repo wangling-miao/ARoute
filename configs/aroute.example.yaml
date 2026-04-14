@@ -29,6 +29,9 @@ auth:
   # JWT signing secret (CHANGE THIS in production!)
   jwt_secret: "change-me-to-a-random-string"
   jwt_algorithm: "HS256"
+  # RS256 key paths (required when jwt_algorithm is RS256/RS384/RS512):
+  # jwt_private_key_path: "configs/keys/jwt_private.pem"
+  # jwt_public_key_path: "configs/keys/jwt_public.pem"
   access_token_ttl: "15m"
   refresh_token_ttl: "7d"
   rotate_refresh_tokens: true

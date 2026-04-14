@@ -2,7 +2,11 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -13,6 +17,8 @@ import (
 // JWTManager handles JWT token generation and verification.
 type JWTManager struct {
 	secretKey           []byte
+	privateKey          *rsa.PrivateKey
+	publicKey           *rsa.PublicKey
 	algorithm           string
 	accessTokenTTL      time.Duration
 	refreshTokenTTL     time.Duration
@@ -28,15 +34,38 @@ type jwtClaims struct {
 }
 
 // NewJWTManager creates a new JWTManager from configuration.
-// It reads auth.jwt.* config keys for customization.
-func NewJWTManager(config authConfig) *JWTManager {
-	return &JWTManager{
+// For RSA algorithms (RS256/RS384/RS512), it loads the key pair from PEM files.
+func NewJWTManager(config authConfig) (*JWTManager, error) {
+	m := &JWTManager{
 		secretKey:           []byte(config.jwtSecret),
 		algorithm:           config.jwtAlgorithm,
 		accessTokenTTL:      config.accessTokenTTL,
 		refreshTokenTTL:     config.refreshTokenTTL,
 		rotateRefreshTokens: config.rotateRefreshTokens,
 	}
+
+	if isRSAAlgorithm(config.jwtAlgorithm) {
+		if config.jwtPrivateKeyPath == "" {
+			return nil, fmt.Errorf("auth: jwt_private_key_path is required for algorithm %q", config.jwtAlgorithm)
+		}
+		if config.jwtPublicKeyPath == "" {
+			return nil, fmt.Errorf("auth: jwt_public_key_path is required for algorithm %q", config.jwtAlgorithm)
+		}
+
+		privKey, err := loadPrivateKey(config.jwtPrivateKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("auth: load private key: %w", err)
+		}
+		m.privateKey = privKey
+
+		pubKey, err := loadPublicKey(config.jwtPublicKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("auth: load public key: %w", err)
+		}
+		m.publicKey = pubKey
+	}
+
+	return m, nil
 }
 
 // GenerateAccessToken creates a new JWT access token for the given user.
@@ -58,10 +87,8 @@ func (m *JWTManager) GenerateAccessToken(_ context.Context, user *interfaces.Use
 		Roles:    roleNames,
 	}
 
-	// TODO(future): Support RS256 signing by checking config.algorithm and loading
-	// a private key from file. Currently only HS256 is supported.
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(m.secretKey)
+	token := jwt.NewWithClaims(m.signingMethod(), claims)
+	tokenString, err := token.SignedString(m.signKey())
 	if err != nil {
 		return "", "", fmt.Errorf("sign access token: %w", err)
 	}
@@ -87,8 +114,8 @@ func (m *JWTManager) GenerateRefreshToken(_ context.Context, user *interfaces.Us
 		Username: user.Username,
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(m.secretKey)
+	token := jwt.NewWithClaims(m.signingMethod(), claims)
+	tokenString, err := token.SignedString(m.signKey())
 	if err != nil {
 		return "", "", fmt.Errorf("sign refresh token: %w", err)
 	}
@@ -99,11 +126,17 @@ func (m *JWTManager) GenerateRefreshToken(_ context.Context, user *interfaces.Us
 // VerifyToken parses and verifies a JWT token string, returning the user claims.
 func (m *JWTManager) VerifyToken(tokenString string) (*interfaces.UserClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwtClaims{}, func(token *jwt.Token) (interface{}, error) {
-		// Verify the signing method matches expectations.
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		switch token.Method.(type) {
+		case *jwt.SigningMethodRSA:
+			if m.publicKey == nil {
+				return nil, fmt.Errorf("RSA public key not configured")
+			}
+			return m.publicKey, nil
+		case *jwt.SigningMethodHMAC:
+			return m.secretKey, nil
+		default:
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return m.secretKey, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("parse token: %w", err)
@@ -137,4 +170,76 @@ func (m *JWTManager) RotateRefreshTokens() bool {
 // RefreshTTL returns the configured refresh token TTL.
 func (m *JWTManager) RefreshTTL() time.Duration {
 	return m.refreshTokenTTL
+}
+
+// signingMethod returns the jwt.SigningMethod matching the configured algorithm.
+func (m *JWTManager) signingMethod() jwt.SigningMethod {
+	switch m.algorithm {
+	case "RS256":
+		return jwt.SigningMethodRS256
+	case "RS384":
+		return jwt.SigningMethodRS384
+	case "RS512":
+		return jwt.SigningMethodRS512
+	case "HS384":
+		return jwt.SigningMethodHS384
+	case "HS512":
+		return jwt.SigningMethodHS512
+	default:
+		return jwt.SigningMethodHS256
+	}
+}
+
+// signKey returns the key used for signing tokens.
+func (m *JWTManager) signKey() interface{} {
+	if m.privateKey != nil {
+		return m.privateKey
+	}
+	return m.secretKey
+}
+
+func isRSAAlgorithm(alg string) bool {
+	return alg == "RS256" || alg == "RS384" || alg == "RS512"
+}
+
+func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	key, err := jwt.ParseRSAPrivateKeyFromPEM(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse RSA private key from %s: %w", path, err)
+	}
+	return key, nil
+}
+
+func loadPublicKey(path string) (*rsa.PublicKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	key, err := jwt.ParseRSAPublicKeyFromPEM(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse RSA public key from %s: %w", path, err)
+	}
+	return key, nil
+}
+
+func rsaPrivateKeyToPEM(key *rsa.PrivateKey, w *os.File) error {
+	return pem.Encode(w, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+}
+
+func rsaPublicKeyToPEM(key *rsa.PublicKey, w *os.File) error {
+	pubBytes, err := x509.MarshalPKIXPublicKey(key)
+	if err != nil {
+		return err
+	}
+	return pem.Encode(w, &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubBytes,
+	})
 }

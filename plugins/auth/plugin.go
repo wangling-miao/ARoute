@@ -22,6 +22,8 @@ var manifestData []byte
 type authConfig struct {
 	jwtSecret           string
 	jwtAlgorithm        string
+	jwtPrivateKeyPath   string // PEM file path for RS256/RS512 private key.
+	jwtPublicKeyPath    string // PEM file path for RS256/RS512 public key.
 	accessTokenTTL      time.Duration
 	refreshTokenTTL     time.Duration
 	rotateRefreshTokens bool
@@ -84,7 +86,10 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	authCfg := p.readConfig(config)
 
 	// 4. Create JWTManager.
-	jwtManager := NewJWTManager(authCfg)
+	jwtManager, err := NewJWTManager(authCfg)
+	if err != nil {
+		return fmt.Errorf("create JWT manager: %w", err)
+	}
 	logger.Info("JWT manager configured",
 		"algorithm", authCfg.jwtAlgorithm,
 		"access_ttl", authCfg.accessTokenTTL,
@@ -172,6 +177,8 @@ func (p *Plugin) readConfig(config core.ConfigProvider) authConfig {
 	cfg := authConfig{
 		jwtSecret:           config.GetString("auth.jwt_secret"),
 		jwtAlgorithm:        config.GetString("auth.jwt_algorithm"),
+		jwtPrivateKeyPath:   config.GetString("auth.jwt_private_key_path"),
+		jwtPublicKeyPath:    config.GetString("auth.jwt_public_key_path"),
 		rotateRefreshTokens: config.GetBool("auth.rotate_refresh_tokens"),
 		rateLimitAttempts:   config.GetInt("auth.rate_limit.max_attempts"),
 		bcryptCost:          config.GetInt("auth.bcrypt_cost"),

@@ -2,12 +2,16 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -157,13 +161,16 @@ func setupTestServiceWithRotate(t *testing.T, rotate bool) *Service {
 		t.Fatalf("create tables: %v", err)
 	}
 
-	jwtMgr := NewJWTManager(authConfig{
+	jwtMgr, err := NewJWTManager(authConfig{
 		jwtSecret:           "test-secret-key-for-testing",
 		jwtAlgorithm:        "HS256",
 		accessTokenTTL:      15 * time.Minute,
 		refreshTokenTTL:     24 * time.Hour,
 		rotateRefreshTokens: rotate,
 	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
 
 	logger := slog.Default()
 	rbacMgr := NewRBACManager(store, logger)
@@ -537,10 +544,13 @@ func TestAuthenticate_RateLimitExceeded(t *testing.T) {
 		t.Fatalf("create tables: %v", err)
 	}
 
-	jwtMgr := NewJWTManager(authConfig{
+	jwtMgr, err := NewJWTManager(authConfig{
 		jwtSecret: "test-secret", jwtAlgorithm: "HS256",
 		accessTokenTTL: 15 * time.Minute, refreshTokenTTL: 24 * time.Hour,
 	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
 	logger := slog.Default()
 	rbacMgr := NewRBACManager(store, logger)
 	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
@@ -621,11 +631,14 @@ func TestJWT_VerifyExpiredToken(t *testing.T) {
 		t.Fatalf("create tables: %v", err)
 	}
 
-	jwtMgr := NewJWTManager(authConfig{
+	jwtMgr, err := NewJWTManager(authConfig{
 		jwtSecret: "test-secret", jwtAlgorithm: "HS256",
 		accessTokenTTL:  -1 * time.Second, // Already expired.
 		refreshTokenTTL: 24 * time.Hour,
 	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
 	rbacMgr := NewRBACManager(store, slog.Default())
 	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
 		t.Fatalf("init roles: %v", err)
@@ -663,10 +676,13 @@ func TestJWT_VerifyInvalidSignature(t *testing.T) {
 	}
 
 	// Verify with a different secret.
-	wrongJWT := NewJWTManager(authConfig{
+	wrongJWT, err := NewJWTManager(authConfig{
 		jwtSecret: "wrong-secret", jwtAlgorithm: "HS256",
 		accessTokenTTL: 15 * time.Minute, refreshTokenTTL: 24 * time.Hour,
 	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
 
 	_, err = wrongJWT.VerifyToken(token)
 	if err == nil {
@@ -701,6 +717,182 @@ func TestJWT_RefreshTTL(t *testing.T) {
 	ttl := svc.jwt.RefreshTTL()
 	if ttl != 24*time.Hour {
 		t.Errorf("RefreshTTL = %v, want %v", ttl, 24*time.Hour)
+	}
+}
+
+// =============================================================================
+// RS256 Signing Tests
+// =============================================================================
+
+// writeRSAKeyPEM generates an RSA key pair and writes PEM files to a temp dir.
+// Returns the private key and the directory (caller should clean up).
+func writeRSAKeyPEM(t *testing.T) (*rsa.PrivateKey, string) {
+	t.Helper()
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+
+	dir := t.TempDir()
+
+	privPEM := filepath.Join(dir, "private.pem")
+	privFile, err := os.Create(privPEM)
+	if err != nil {
+		t.Fatalf("create private key file: %v", err)
+	}
+	if err := rsaPrivateKeyToPEM(privKey, privFile); err != nil {
+		privFile.Close()
+		t.Fatalf("write private key PEM: %v", err)
+	}
+	privFile.Close()
+
+	pubPEM := filepath.Join(dir, "public.pem")
+	pubFile, err := os.Create(pubPEM)
+	if err != nil {
+		t.Fatalf("create public key file: %v", err)
+	}
+	if err := rsaPublicKeyToPEM(&privKey.PublicKey, pubFile); err != nil {
+		pubFile.Close()
+		t.Fatalf("write public key PEM: %v", err)
+	}
+	pubFile.Close()
+
+	return privKey, dir
+}
+
+func TestJWT_RS256_SignAndVerify(t *testing.T) {
+	_, keyDir := writeRSAKeyPEM(t)
+
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtAlgorithm:      "RS256",
+		jwtPrivateKeyPath: filepath.Join(keyDir, "private.pem"),
+		jwtPublicKeyPath:  filepath.Join(keyDir, "public.pem"),
+		accessTokenTTL:    15 * time.Minute,
+		refreshTokenTTL:   24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager RS256: %v", err)
+	}
+
+	user := &interfaces.User{ID: "user-1", Email: "rs256@example.com", Username: "rs256user"}
+	token, jti, err := jwtMgr.GenerateAccessToken(context.Background(), user, []string{"admin"})
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+	if token == "" {
+		t.Fatal("token is empty")
+	}
+	if jti == "" {
+		t.Fatal("jti is empty")
+	}
+
+	claims, err := jwtMgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != "user-1" {
+		t.Errorf("UserID = %q, want %q", claims.UserID, "user-1")
+	}
+	if claims.Email != "rs256@example.com" {
+		t.Errorf("Email = %q, want %q", claims.Email, "rs256@example.com")
+	}
+}
+
+func TestJWT_RS256_RefreshToken(t *testing.T) {
+	_, keyDir := writeRSAKeyPEM(t)
+
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtAlgorithm:      "RS256",
+		jwtPrivateKeyPath: filepath.Join(keyDir, "private.pem"),
+		jwtPublicKeyPath:  filepath.Join(keyDir, "public.pem"),
+		accessTokenTTL:    15 * time.Minute,
+		refreshTokenTTL:   24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager RS256: %v", err)
+	}
+
+	user := &interfaces.User{ID: "user-2", Email: "refresh@example.com", Username: "refreshuser"}
+	token, jti, err := jwtMgr.GenerateRefreshToken(context.Background(), user)
+	if err != nil {
+		t.Fatalf("GenerateRefreshToken: %v", err)
+	}
+	if token == "" || jti == "" {
+		t.Fatal("token or jti is empty")
+	}
+
+	claims, err := jwtMgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != "user-2" {
+		t.Errorf("UserID = %q, want %q", claims.UserID, "user-2")
+	}
+}
+
+func TestJWT_RS256_RejectsHS256Token(t *testing.T) {
+	_, keyDir := writeRSAKeyPEM(t)
+
+	rsaMgr, err := NewJWTManager(authConfig{
+		jwtAlgorithm:      "RS256",
+		jwtPrivateKeyPath: filepath.Join(keyDir, "private.pem"),
+		jwtPublicKeyPath:  filepath.Join(keyDir, "public.pem"),
+		accessTokenTTL:    15 * time.Minute,
+		refreshTokenTTL:   24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager RS256: %v", err)
+	}
+
+	hmacMgr, err := NewJWTManager(authConfig{
+		jwtSecret:       "hmac-secret",
+		jwtAlgorithm:    "HS256",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager HS256: %v", err)
+	}
+
+	user := &interfaces.User{ID: "user-3", Email: "cross@example.com", Username: "crossuser"}
+	hmacToken, _, err := hmacMgr.GenerateAccessToken(context.Background(), user, nil)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken HS256: %v", err)
+	}
+
+	_, err = rsaMgr.VerifyToken(hmacToken)
+	if err == nil {
+		t.Fatal("RSA manager should reject HS256 token")
+	}
+}
+
+func TestJWT_RS256_MissingKeyPath(t *testing.T) {
+	_, err := NewJWTManager(authConfig{
+		jwtAlgorithm:    "RS256",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err == nil {
+		t.Fatal("expected error when RS256 selected without key paths")
+	}
+}
+
+func TestJWT_RS256_InvalidKeyFile(t *testing.T) {
+	dir := t.TempDir()
+	badKey := filepath.Join(dir, "bad.pem")
+	if err := os.WriteFile(badKey, []byte("not-a-valid-pem"), 0o644); err != nil {
+		t.Fatalf("write bad key file: %v", err)
+	}
+
+	_, err := NewJWTManager(authConfig{
+		jwtAlgorithm:      "RS256",
+		jwtPrivateKeyPath: badKey,
+		jwtPublicKeyPath:  badKey,
+		accessTokenTTL:    15 * time.Minute,
+		refreshTokenTTL:   24 * time.Hour,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid PEM file")
 	}
 }
 
@@ -913,12 +1105,15 @@ func TestRefreshToken_ExpiredRefreshToken(t *testing.T) {
 		t.Fatalf("create tables: %v", err)
 	}
 
-	jwtMgr := NewJWTManager(authConfig{
+	jwtMgr, err := NewJWTManager(authConfig{
 		jwtSecret: "test-secret", jwtAlgorithm: "HS256",
 		accessTokenTTL:      15 * time.Minute,
 		refreshTokenTTL:     -1 * time.Second, // Already expired.
 		rotateRefreshTokens: false,
 	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
 	rbacMgr := NewRBACManager(store, slog.Default())
 	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
 		t.Fatalf("init roles: %v", err)
