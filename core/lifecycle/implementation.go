@@ -130,7 +130,16 @@ func (m *ManagerImpl) Start(ctx context.Context) error {
 	}
 
 	if len(failedPlugins) > 0 {
-		return fmt.Errorf("plugins failed to start: %s", strings.Join(failedPlugins, ", "))
+		var parts []string
+		for _, name := range failedPlugins {
+			info := m.plugins[name]
+			if info != nil && info.LoadError != nil {
+				parts = append(parts, fmt.Sprintf("%s: %v", name, info.LoadError))
+			} else {
+				parts = append(parts, name)
+			}
+		}
+		return fmt.Errorf("plugins failed to start: %s", strings.Join(parts, "; "))
 	}
 
 	return nil

@@ -28,10 +28,17 @@ database:
 auth:
   # JWT signing secret (CHANGE THIS in production!)
   jwt_secret: "change-me-to-a-random-string"
-  # Access token lifetime
+  jwt_algorithm: "HS256"
   access_token_ttl: "15m"
-  # Refresh token lifetime
   refresh_token_ttl: "7d"
+  rotate_refresh_tokens: true
+  bcrypt_cost: 10
+  rate_limit:
+    max_attempts: 5
+    window: "1m"
+  admin:
+    email: "admin@localhost"
+    password: "changeme"
 
 # Media storage
 media:

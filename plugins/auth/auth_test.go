@@ -1,0 +1,2814 @@
+package auth
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/core/events"
+	"github.com/wangling-miao/aroute/plugins/database"
+	"github.com/wangling-miao/aroute/sdk/interfaces"
+)
+
+// mockConfigProvider implements core.ConfigProvider for tests.
+type mockConfigProvider struct {
+	data map[string]interface{}
+}
+
+func newMockConfig() *mockConfigProvider {
+	return &mockConfigProvider{data: make(map[string]interface{})}
+}
+
+func (m *mockConfigProvider) GetString(key string) string {
+	if v, ok := m.data[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func (m *mockConfigProvider) GetInt(key string) int {
+	if v, ok := m.data[key]; ok {
+		if i, ok := v.(int); ok {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m *mockConfigProvider) GetBool(key string) bool {
+	if v, ok := m.data[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+func (m *mockConfigProvider) GetStringSlice(key string) []string {
+	if v, ok := m.data[key]; ok {
+		if s, ok := v.([]string); ok {
+			return s
+		}
+	}
+	return nil
+}
+
+func (m *mockConfigProvider) Get(key string) interface{} {
+	return m.data[key]
+}
+
+func (m *mockConfigProvider) Unmarshal(key string, target interface{}) error {
+	return nil
+}
+
+// mockServiceContainer implements core.ServiceContainer for tests.
+type mockServiceContainer struct {
+	dbSvc interfaces.DatabaseService
+}
+
+func (m *mockServiceContainer) Get(target interface{}) error {
+	rv := reflect.ValueOf(target)
+	if rv.Kind() != reflect.Ptr {
+		return fmt.Errorf("target must be a pointer")
+	}
+	rv.Elem().Set(reflect.ValueOf(m.dbSvc))
+	return nil
+}
+
+func (m *mockServiceContainer) Provide(provider interface{}) error { return nil }
+func (m *mockServiceContainer) GetNamed(name string, target interface{}) error {
+	return m.Get(target)
+}
+func (m *mockServiceContainer) Unregister(target interface{}) error { return nil }
+func (m *mockServiceContainer) Has(target interface{}) bool         { return true }
+func (m *mockServiceContainer) Keys() []string                      { return nil }
+
+// mockServiceContainerEmpty returns errors on Get (no database service).
+type mockServiceContainerEmpty struct{}
+
+func (m *mockServiceContainerEmpty) Get(target interface{}) error {
+	return fmt.Errorf("service not found")
+}
+func (m *mockServiceContainerEmpty) Provide(provider interface{}) error { return nil }
+func (m *mockServiceContainerEmpty) GetNamed(name string, target interface{}) error {
+	return fmt.Errorf("service not found")
+}
+func (m *mockServiceContainerEmpty) Unregister(target interface{}) error { return nil }
+func (m *mockServiceContainerEmpty) Has(target interface{}) bool         { return false }
+func (m *mockServiceContainerEmpty) Keys() []string                      { return nil }
+
+// mockEventBus implements core.EventBus for tests.
+type mockEventBus struct{}
+
+func (m *mockEventBus) SubscribeFilter(topic string, priority int, handler events.FilterHandler) string {
+	return ""
+}
+func (m *mockEventBus) SubscribeBroadcast(topic string, handler events.BroadcastHandler) string {
+	return ""
+}
+func (m *mockEventBus) Emit(ctx context.Context, event events.Event) {}
+func (m *mockEventBus) DispatchFilter(ctx context.Context, event *events.Event) (*events.Event, error) {
+	return event, nil
+}
+func (m *mockEventBus) Unsubscribe(handlerID string) {}
+
+// newMockCoreContext creates a core.CoreContext with the given database service and config.
+func newMockCoreContext(dbSvc interfaces.DatabaseService, config core.ConfigProvider) core.CoreContext {
+	return core.NewCoreContext(
+		context.Background(),
+		&mockServiceContainer{dbSvc: dbSvc},
+		&mockEventBus{},
+		config,
+		slog.Default(),
+		"",
+		"",
+	)
+}
+
+// setupTestService creates a fully initialized auth Service for testing.
+func setupTestService(t *testing.T) *Service {
+	return setupTestServiceWithRotate(t, false)
+}
+
+func setupTestServiceWithRotate(t *testing.T, rotate bool) *Service {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", "file:auth_test?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+	store := NewStore(dbSvc)
+
+	ctx := context.Background()
+	if err := store.CreateTables(ctx); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	jwtMgr := NewJWTManager(authConfig{
+		jwtSecret:           "test-secret-key-for-testing",
+		jwtAlgorithm:        "HS256",
+		accessTokenTTL:      15 * time.Minute,
+		refreshTokenTTL:     24 * time.Hour,
+		rotateRefreshTokens: rotate,
+	})
+
+	logger := slog.Default()
+	rbacMgr := NewRBACManager(store, logger)
+	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("init default roles: %v", err)
+	}
+
+	rateLimiter := NewRateLimiter(5, 15*time.Minute)
+	config := newMockConfig()
+
+	svc := NewService(store, jwtMgr, rbacMgr, rateLimiter, logger, config, authConfig{
+		bcryptCost:    10,
+		adminEmail:    "admin@localhost",
+		adminPassword: "changeme",
+	})
+
+	t.Cleanup(func() {
+		rateLimiter.Stop()
+		db.Close()
+	})
+
+	return svc
+}
+
+// helper: create a test user and return it.
+func createTestUser(t *testing.T, svc *Service, email, username, password string, roles []string) *interfaces.User {
+	t.Helper()
+	ctx := context.Background()
+	user, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email:    email,
+		Username: username,
+		Password: password,
+		Roles:    roles,
+	})
+	if err != nil {
+		t.Fatalf("create test user %s: %v", email, err)
+	}
+	return user
+}
+
+// =============================================================================
+// User Registration
+// =============================================================================
+
+func TestCreateUser_Success(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email:    "test@example.com",
+		Username: "testuser",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if user.ID == "" {
+		t.Error("expected non-empty user ID")
+	}
+	if user.Email != "test@example.com" {
+		t.Errorf("email = %q, want %q", user.Email, "test@example.com")
+	}
+	if user.Username != "testuser" {
+		t.Errorf("username = %q, want %q", user.Username, "testuser")
+	}
+	if user.PasswordHash != "" {
+		t.Error("expected password hash to be stripped from response")
+	}
+	if user.Status != "active" {
+		t.Errorf("status = %q, want %q", user.Status, "active")
+	}
+}
+
+func TestCreateUser_DuplicateEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "dup@example.com", Username: "user1", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+
+	_, err = svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "dup@example.com", Username: "user2", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate email")
+	}
+	if !errors.Is(err, interfaces.ErrConflict) {
+		t.Errorf("error = %v, want wrapping ErrConflict", err)
+	}
+}
+
+func TestCreateUser_DuplicateUsername(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "a@example.com", Username: "sameuser", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+
+	_, err = svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "b@example.com", Username: "sameuser", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate username")
+	}
+	if !errors.Is(err, interfaces.ErrConflict) {
+		t.Errorf("error = %v, want wrapping ErrConflict", err)
+	}
+}
+
+func TestCreateUser_InvalidEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "not-an-email", Username: "user1", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid email")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestCreateUser_ShortPassword(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "user@example.com", Username: "user1", Password: "short",
+	})
+	if err == nil {
+		t.Fatal("expected error for short password")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestCreateUser_MissingEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Username: "user1", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing email")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestCreateUser_MissingUsername(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "user@example.com", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing username")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestCreateUser_MissingPassword(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "user@example.com", Username: "user1",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing password")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestCreateUser_ShortUsername(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "user@example.com", Username: "ab", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for short username")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestCreateUser_DefaultRoleAssignment(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "viewer@example.com", Username: "viewer", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if len(user.Roles) != 1 || user.Roles[0] != "viewer" {
+		t.Errorf("roles = %v, want [viewer]", user.Roles)
+	}
+}
+
+func TestCreateUser_CustomRoleAssignment(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user, err := svc.CreateUser(ctx, &interfaces.CreateUserRequest{
+		Email: "admin@example.com", Username: "admin", Password: "password123", Roles: []string{"admin"},
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if len(user.Roles) != 1 || user.Roles[0] != "admin" {
+		t.Errorf("roles = %v, want [admin]", user.Roles)
+	}
+}
+
+// =============================================================================
+// User Authentication
+// =============================================================================
+
+func TestAuthenticate_Success(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "auth@example.com", "authuser", "password123", nil)
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "auth@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if result.AccessToken == "" {
+		t.Error("expected non-empty access token")
+	}
+	if result.RefreshToken == "" {
+		t.Error("expected non-empty refresh token")
+	}
+	if result.TokenType != "Bearer" {
+		t.Errorf("TokenType = %q, want %q", result.TokenType, "Bearer")
+	}
+	if result.User == nil {
+		t.Fatal("expected non-nil user")
+	}
+	if result.User.Email != "auth@example.com" {
+		t.Errorf("user email = %q, want %q", result.User.Email, "auth@example.com")
+	}
+	if len(result.User.Roles) == 0 {
+		t.Error("expected user to have roles")
+	}
+}
+
+func TestAuthenticate_WrongPassword(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "wrong@example.com", "wronguser", "password123", nil)
+
+	_, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "wrong@example.com", Password: "wrongpassword",
+	})
+	if err == nil {
+		t.Fatal("expected error for wrong password")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+func TestAuthenticate_NonexistentEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "noone@example.com", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent email")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+func TestAuthenticate_DisabledUser(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "disabled@example.com", "disableduser", "password123", nil)
+
+	// Disable the user by updating status.
+	dbUser, err := svc.store.GetUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	dbUser.Status = "suspended"
+	dbUser.UpdatedAt = time.Now().UTC()
+	if err := svc.store.UpdateUser(ctx, dbUser); err != nil {
+		t.Fatalf("update user: %v", err)
+	}
+
+	_, err = svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "disabled@example.com", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for disabled user")
+	}
+	if !errors.Is(err, interfaces.ErrForbidden) {
+		t.Errorf("error = %v, want wrapping ErrForbidden", err)
+	}
+}
+
+func TestAuthenticate_MissingCredentials(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing email")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+
+	_, err = svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "test@example.com", Password: "",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing password")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestAuthenticate_RateLimitExceeded(t *testing.T) {
+	// Create a service with a very low rate limit.
+	db, err := sql.Open("sqlite", "file:auth_ratelimit?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+	store := NewStore(dbSvc)
+	ctx := context.Background()
+	if err := store.CreateTables(ctx); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	jwtMgr := NewJWTManager(authConfig{
+		jwtSecret: "test-secret", jwtAlgorithm: "HS256",
+		accessTokenTTL: 15 * time.Minute, refreshTokenTTL: 24 * time.Hour,
+	})
+	logger := slog.Default()
+	rbacMgr := NewRBACManager(store, logger)
+	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("init roles: %v", err)
+	}
+
+	rateLimiter := NewRateLimiter(2, 15*time.Minute)
+	defer rateLimiter.Stop()
+
+	svc := NewService(store, jwtMgr, rbacMgr, rateLimiter, logger, newMockConfig(), authConfig{
+		bcryptCost:    10,
+		adminEmail:    "admin@localhost",
+		adminPassword: "changeme",
+	})
+
+	createTestUser(t, svc, "rl@example.com", "rluser", "password123", nil)
+
+	// Exhaust the rate limit with wrong passwords.
+	for i := 0; i < 3; i++ {
+		svc.Authenticate(ctx, &interfaces.AuthRequest{
+			Email: "rl@example.com", Password: "wrong",
+		})
+	}
+
+	// The next attempt should be rate-limited.
+	_, err = svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "rl@example.com", Password: "password123",
+	})
+	if err == nil {
+		t.Fatal("expected rate limit error")
+	}
+	if !strings.Contains(err.Error(), "rate limit") {
+		t.Errorf("error = %v, want rate limit error", err)
+	}
+}
+
+// =============================================================================
+// JWT Token
+// =============================================================================
+
+func TestJWT_GenerateAndVerifyAccessToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "jwt@example.com", "jwtuser", "password123", []string{"admin"})
+
+	token, _, err := svc.jwt.GenerateAccessToken(ctx, user, []string{"admin"})
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+
+	claims, err := svc.jwt.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != user.ID {
+		t.Errorf("UserID = %q, want %q", claims.UserID, user.ID)
+	}
+	if claims.Email != "jwt@example.com" {
+		t.Errorf("Email = %q, want %q", claims.Email, "jwt@example.com")
+	}
+	if len(claims.Roles) != 1 || claims.Roles[0] != "admin" {
+		t.Errorf("Roles = %v, want [admin]", claims.Roles)
+	}
+}
+
+func TestJWT_VerifyExpiredToken(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:jwt_expired?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+	store := NewStore(dbSvc)
+	ctx := context.Background()
+	if err := store.CreateTables(ctx); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	jwtMgr := NewJWTManager(authConfig{
+		jwtSecret: "test-secret", jwtAlgorithm: "HS256",
+		accessTokenTTL:  -1 * time.Second, // Already expired.
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	rbacMgr := NewRBACManager(store, slog.Default())
+	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("init roles: %v", err)
+	}
+	rl := NewRateLimiter(5, 15*time.Minute)
+	defer rl.Stop()
+	svc := NewService(store, jwtMgr, rbacMgr, rl, slog.Default(), newMockConfig(), authConfig{
+		bcryptCost:    10,
+		adminEmail:    "admin@localhost",
+		adminPassword: "changeme",
+	})
+
+	user := createTestUser(t, svc, "expired@example.com", "expireduser", "password123", nil)
+
+	token, _, err := svc.jwt.GenerateAccessToken(ctx, user, []string{"viewer"})
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+
+	_, err = svc.jwt.VerifyToken(token)
+	if err == nil {
+		t.Fatal("expected error for expired token")
+	}
+}
+
+func TestJWT_VerifyInvalidSignature(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "sig@example.com", "siguser", "password123", nil)
+
+	token, _, err := svc.jwt.GenerateAccessToken(ctx, user, []string{"viewer"})
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+
+	// Verify with a different secret.
+	wrongJWT := NewJWTManager(authConfig{
+		jwtSecret: "wrong-secret", jwtAlgorithm: "HS256",
+		accessTokenTTL: 15 * time.Minute, refreshTokenTTL: 24 * time.Hour,
+	})
+
+	_, err = wrongJWT.VerifyToken(token)
+	if err == nil {
+		t.Fatal("expected error for invalid signature")
+	}
+}
+
+func TestJWT_VerifyMalformedToken(t *testing.T) {
+	svc := setupTestService(t)
+
+	_, err := svc.jwt.VerifyToken("not.a.valid.token.string")
+	if err == nil {
+		t.Fatal("expected error for malformed token")
+	}
+
+	_, err = svc.jwt.VerifyToken("")
+	if err == nil {
+		t.Fatal("expected error for empty token")
+	}
+}
+
+func TestJWT_AccessTTL(t *testing.T) {
+	svc := setupTestService(t)
+	ttl := svc.jwt.AccessTTL()
+	if ttl != 15*time.Minute {
+		t.Errorf("AccessTTL = %v, want %v", ttl, 15*time.Minute)
+	}
+}
+
+func TestJWT_RefreshTTL(t *testing.T) {
+	svc := setupTestService(t)
+	ttl := svc.jwt.RefreshTTL()
+	if ttl != 24*time.Hour {
+		t.Errorf("RefreshTTL = %v, want %v", ttl, 24*time.Hour)
+	}
+}
+
+// =============================================================================
+// Token Verification (Service-level)
+// =============================================================================
+
+func TestVerifyToken_ValidToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "verify@example.com", "verifyuser", "password123", []string{"editor"})
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "verify@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	claims, err := svc.VerifyToken(ctx, result.AccessToken)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != user.ID {
+		t.Errorf("UserID = %q, want %q", claims.UserID, user.ID)
+	}
+	if claims.Email != "verify@example.com" {
+		t.Errorf("Email = %q, want %q", claims.Email, "verify@example.com")
+	}
+	if len(claims.Roles) == 0 || claims.Roles[0] != "editor" {
+		t.Errorf("Roles = %v, want [editor]", claims.Roles)
+	}
+}
+
+func TestVerifyToken_BlacklistedToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "bl@example.com", "bluser", "password123", nil)
+
+	token, tokenID, err := svc.jwt.GenerateAccessToken(ctx, user, []string{"viewer"})
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+
+	// Blacklist the token.
+	expiresAt := time.Now().Add(15 * time.Minute)
+	if err := svc.store.BlacklistToken(ctx, tokenID, user.ID, expiresAt); err != nil {
+		t.Fatalf("BlacklistToken: %v", err)
+	}
+
+	_, err = svc.VerifyToken(ctx, token)
+	if err == nil {
+		t.Fatal("expected error for blacklisted token")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+func TestVerifyToken_UserRevocation(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "rev@example.com", "revuser", "password123", nil)
+
+	token, _, err := svc.jwt.GenerateAccessToken(ctx, user, []string{"viewer"})
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+
+	// Set user revocation after token was issued (use future time).
+	futureTime := time.Now().Add(1 * time.Hour)
+	if err := svc.store.SetUserRevocation(ctx, user.ID, futureTime); err != nil {
+		t.Fatalf("SetUserRevocation: %v", err)
+	}
+
+	_, err = svc.VerifyToken(ctx, token)
+	if err == nil {
+		t.Fatal("expected error for user-revoked token")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+func TestVerifyToken_IssuedAfterUserRevocation(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "revafter@example.com", "revafteruser", "password123", nil)
+
+	// Set revocation in the past.
+	pastTime := time.Now().Add(-1 * time.Hour)
+	if err := svc.store.SetUserRevocation(ctx, user.ID, pastTime); err != nil {
+		t.Fatalf("SetUserRevocation: %v", err)
+	}
+
+	// Generate token after revocation — should succeed.
+	token, _, err := svc.jwt.GenerateAccessToken(ctx, user, []string{"viewer"})
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+
+	claims, err := svc.VerifyToken(ctx, token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != user.ID {
+		t.Errorf("UserID = %q, want %q", claims.UserID, user.ID)
+	}
+}
+
+// =============================================================================
+// Refresh Token Flow
+// =============================================================================
+
+func TestRefreshToken_Success(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "refresh@example.com", "refreshuser", "password123", nil)
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "refresh@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	pair, err := svc.RefreshToken(ctx, result.RefreshToken)
+	if err != nil {
+		t.Fatalf("RefreshToken: %v", err)
+	}
+	if pair.AccessToken == "" {
+		t.Error("expected non-empty access token")
+	}
+	if pair.RefreshToken == "" {
+		t.Error("expected non-empty refresh token")
+	}
+	if pair.ExpiresIn <= 0 {
+		t.Errorf("ExpiresIn = %d, want > 0", pair.ExpiresIn)
+	}
+}
+
+func TestRefreshToken_WithRotation(t *testing.T) {
+	svc := setupTestServiceWithRotate(t, true)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "rotate@example.com", "rotateuser", "password123", nil)
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "rotate@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	oldRefresh := result.RefreshToken
+	pair, err := svc.RefreshToken(ctx, oldRefresh)
+	if err != nil {
+		t.Fatalf("RefreshToken: %v", err)
+	}
+	if pair.RefreshToken == oldRefresh {
+		t.Error("with rotation, new refresh token should differ from old")
+	}
+
+	// Old refresh token should be blacklisted.
+	_, err = svc.RefreshToken(ctx, oldRefresh)
+	if err == nil {
+		t.Fatal("expected error when reusing old refresh token with rotation")
+	}
+}
+
+func TestRefreshToken_WithoutRotation(t *testing.T) {
+	svc := setupTestServiceWithRotate(t, false)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "norotate@example.com", "norotateuser", "password123", nil)
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "norotate@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	oldRefresh := result.RefreshToken
+	pair, err := svc.RefreshToken(ctx, oldRefresh)
+	if err != nil {
+		t.Fatalf("RefreshToken: %v", err)
+	}
+	if pair.RefreshToken != oldRefresh {
+		t.Error("without rotation, refresh token should remain the same")
+	}
+}
+
+func TestRefreshToken_ExpiredRefreshToken(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:refresh_exp?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+	store := NewStore(dbSvc)
+	ctx := context.Background()
+	if err := store.CreateTables(ctx); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	jwtMgr := NewJWTManager(authConfig{
+		jwtSecret: "test-secret", jwtAlgorithm: "HS256",
+		accessTokenTTL:      15 * time.Minute,
+		refreshTokenTTL:     -1 * time.Second, // Already expired.
+		rotateRefreshTokens: false,
+	})
+	rbacMgr := NewRBACManager(store, slog.Default())
+	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("init roles: %v", err)
+	}
+	rl := NewRateLimiter(5, 15*time.Minute)
+	defer rl.Stop()
+	svc := NewService(store, jwtMgr, rbacMgr, rl, slog.Default(), newMockConfig(), authConfig{
+		bcryptCost:    10,
+		adminEmail:    "admin@localhost",
+		adminPassword: "changeme",
+	})
+
+	user := createTestUser(t, svc, "refexp@example.com", "refexpuser", "password123", nil)
+
+	refreshToken, _, err := svc.jwt.GenerateRefreshToken(ctx, user)
+	if err != nil {
+		t.Fatalf("GenerateRefreshToken: %v", err)
+	}
+
+	_, err = svc.RefreshToken(ctx, refreshToken)
+	if err == nil {
+		t.Fatal("expected error for expired refresh token")
+	}
+}
+
+func TestRefreshToken_BlacklistedRefreshToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "blrefresh@example.com", "blrefreshuser", "password123", nil)
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "blrefresh@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Blacklist the refresh token.
+	claims, _ := svc.jwt.VerifyToken(result.RefreshToken)
+	expiresAt := time.Now().Add(24 * time.Hour)
+	svc.store.BlacklistToken(ctx, claims.TokenID, claims.UserID, expiresAt)
+
+	_, err = svc.RefreshToken(ctx, result.RefreshToken)
+	if err == nil {
+		t.Fatal("expected error for blacklisted refresh token")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+// =============================================================================
+// Token Revocation
+// =============================================================================
+
+func TestTokenRevocation_BlacklistAndCheck(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	jti := "test-jti-123"
+	userID := "user-123"
+	expiresAt := time.Now().Add(1 * time.Hour)
+
+	blacklisted, err := svc.store.IsTokenBlacklisted(ctx, jti)
+	if err != nil {
+		t.Fatalf("IsTokenBlacklisted before: %v", err)
+	}
+	if blacklisted {
+		t.Error("token should not be blacklisted yet")
+	}
+
+	if err := svc.store.BlacklistToken(ctx, jti, userID, expiresAt); err != nil {
+		t.Fatalf("BlacklistToken: %v", err)
+	}
+
+	blacklisted, err = svc.store.IsTokenBlacklisted(ctx, jti)
+	if err != nil {
+		t.Fatalf("IsTokenBlacklisted after: %v", err)
+	}
+	if !blacklisted {
+		t.Error("token should be blacklisted")
+	}
+}
+
+func TestTokenRevocation_CleanupBlacklist(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	jti := "expired-jti"
+	userID := "user-456"
+	pastExpiry := time.Now().Add(-1 * time.Hour) // Already expired.
+
+	if err := svc.store.BlacklistToken(ctx, jti, userID, pastExpiry); err != nil {
+		t.Fatalf("BlacklistToken: %v", err)
+	}
+
+	if err := svc.store.CleanupBlacklist(ctx, time.Now()); err != nil {
+		t.Fatalf("CleanupBlacklist: %v", err)
+	}
+
+	blacklisted, err := svc.store.IsTokenBlacklisted(ctx, jti)
+	if err != nil {
+		t.Fatalf("IsTokenBlacklisted: %v", err)
+	}
+	if blacklisted {
+		t.Error("expired blacklist entry should have been cleaned up")
+	}
+}
+
+func TestTokenRevocation_UserRevocation(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	userID := "user-rev-789"
+	revTime := time.Now().Truncate(time.Second)
+
+	// No revocation initially.
+	rev, err := svc.store.GetUserRevocation(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetUserRevocation before: %v", err)
+	}
+	if rev != nil {
+		t.Error("expected nil revocation initially")
+	}
+
+	if err := svc.store.SetUserRevocation(ctx, userID, revTime); err != nil {
+		t.Fatalf("SetUserRevocation: %v", err)
+	}
+
+	rev, err = svc.store.GetUserRevocation(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetUserRevocation after: %v", err)
+	}
+	if rev == nil {
+		t.Fatal("expected non-nil revocation")
+	}
+	// Compare within 1 second tolerance.
+	if rev.Sub(revTime).Abs() > time.Second {
+		t.Errorf("revocation time = %v, want ~%v", *rev, revTime)
+	}
+}
+
+// =============================================================================
+// RBAC
+// =============================================================================
+
+func TestRBAC_DefaultRolesExist(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	expectedRoles := []string{"admin", "author", "editor", "viewer"}
+	for _, name := range expectedRoles {
+		role, err := svc.store.GetRoleByName(ctx, name)
+		if err != nil {
+			t.Errorf("role %q should exist: %v", name, err)
+			continue
+		}
+		if role.Name != name {
+			t.Errorf("role name = %q, want %q", role.Name, name)
+		}
+	}
+}
+
+func TestRBAC_AdminWildcardPermission(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "admintest@example.com", "admintest", "password123", []string{"admin"})
+
+	tests := []struct {
+		resource string
+		action   string
+	}{
+		{"content", "read"},
+		{"content", "delete"},
+		{"users", "manage"},
+		{"anything", "anyaction"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s:%s", tt.resource, tt.action), func(t *testing.T) {
+			ok, err := svc.HasPermission(ctx, user.ID, tt.resource, tt.action)
+			if err != nil {
+				t.Fatalf("HasPermission(%s,%s): %v", tt.resource, tt.action, err)
+			}
+			if !ok {
+				t.Errorf("admin should have permission %s:%s", tt.resource, tt.action)
+			}
+		})
+	}
+}
+
+func TestRBAC_EditorPermissions(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "editor@example.com", "editoruser", "password123", []string{"editor"})
+
+	// Editor should have content CRUD + media read/upload.
+	allowedPerms := [][2]string{
+		{"content", "create"}, {"content", "read"}, {"content", "update"}, {"content", "delete"},
+		{"media", "read"}, {"media", "upload"},
+	}
+	for _, p := range allowedPerms {
+		ok, err := svc.HasPermission(ctx, user.ID, p[0], p[1])
+		if err != nil {
+			t.Fatalf("HasPermission(%s,%s): %v", p[0], p[1], err)
+		}
+		if !ok {
+			t.Errorf("editor should have %s:%s", p[0], p[1])
+		}
+	}
+
+	// Editor should NOT have wildcard or user management.
+	ok, _ := svc.HasPermission(ctx, user.ID, "users", "manage")
+	if ok {
+		t.Error("editor should not have users:manage")
+	}
+}
+
+func TestRBAC_AuthorPermissions(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "author@example.com", "authoruser", "password123", []string{"author"})
+
+	allowedPerms := [][2]string{
+		{"content", "create"}, {"content", "read"}, {"content", "update_own"},
+		{"media", "upload"},
+	}
+	for _, p := range allowedPerms {
+		ok, err := svc.HasPermission(ctx, user.ID, p[0], p[1])
+		if err != nil {
+			t.Fatalf("HasPermission(%s,%s): %v", p[0], p[1], err)
+		}
+		if !ok {
+			t.Errorf("author should have %s:%s", p[0], p[1])
+		}
+	}
+
+	// Author should NOT have content:delete.
+	ok, _ := svc.HasPermission(ctx, user.ID, "content", "delete")
+	if ok {
+		t.Error("author should not have content:delete")
+	}
+}
+
+func TestRBAC_ViewerPermissions(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "viewertest@example.com", "vieweruser", "password123", []string{"viewer"})
+
+	allowedPerms := [][2]string{
+		{"content", "read"}, {"media", "read"},
+	}
+	for _, p := range allowedPerms {
+		ok, err := svc.HasPermission(ctx, user.ID, p[0], p[1])
+		if err != nil {
+			t.Fatalf("HasPermission(%s,%s): %v", p[0], p[1], err)
+		}
+		if !ok {
+			t.Errorf("viewer should have %s:%s", p[0], p[1])
+		}
+	}
+
+	// Viewer should NOT have content:create.
+	ok, _ := svc.HasPermission(ctx, user.ID, "content", "create")
+	if ok {
+		t.Error("viewer should not have content:create")
+	}
+}
+
+func TestRBAC_CreateCustomRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	role, err := svc.rbac.CreateRole(ctx, "moderator", "Moderator", "Can moderate content")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if role.Name != "moderator" {
+		t.Errorf("role name = %q, want %q", role.Name, "moderator")
+	}
+	if role.DisplayName != "Moderator" {
+		t.Errorf("display name = %q, want %q", role.DisplayName, "Moderator")
+	}
+}
+
+func TestRBAC_DeleteCustomRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.rbac.CreateRole(ctx, "temp_role", "Temp", "Temporary role")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+
+	if err := svc.rbac.DeleteRole(ctx, "temp_role"); err != nil {
+		t.Fatalf("DeleteRole: %v", err)
+	}
+
+	_, err = svc.store.GetRoleByName(ctx, "temp_role")
+	if err == nil {
+		t.Error("role should be deleted")
+	}
+}
+
+func TestRBAC_DeleteBuiltinRoleFails(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.rbac.DeleteRole(ctx, "admin")
+	if err == nil {
+		t.Fatal("expected error deleting builtin role")
+	}
+	if !strings.Contains(err.Error(), "builtin") {
+		t.Errorf("error = %v, want builtin role error", err)
+	}
+}
+
+func TestRBAC_DeleteAssignedRoleFails(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.rbac.CreateRole(ctx, "custom_assigned", "Custom", "Custom role")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+
+	// Create a user and assign the custom role.
+	user := createTestUser(t, svc, "delrole@example.com", "delroleuser", "password123", nil)
+	if err := svc.rbac.AssignRole(ctx, user.ID, "custom_assigned"); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+
+	err = svc.rbac.DeleteRole(ctx, "custom_assigned")
+	if err == nil {
+		t.Fatal("expected error deleting assigned role")
+	}
+	if !strings.Contains(err.Error(), "assigned") {
+		t.Errorf("error = %v, want assigned role error", err)
+	}
+}
+
+func TestRBAC_AssignAndRevokePermission(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.rbac.CreateRole(ctx, "custom_perm", "Custom", "Custom role")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+
+	if err := svc.rbac.AssignPermission(ctx, "custom_perm", "widgets", "manage"); err != nil {
+		t.Fatalf("AssignPermission: %v", err)
+	}
+
+	perms, err := svc.rbac.ListPermissionsForRole(ctx, "custom_perm")
+	if err != nil {
+		t.Fatalf("ListPermissionsForRole: %v", err)
+	}
+	found := false
+	for _, p := range perms {
+		if p == "widgets.manage" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("permissions = %v, want widgets.manage included", perms)
+	}
+
+	if err := svc.rbac.RevokePermission(ctx, "custom_perm", "widgets", "manage"); err != nil {
+		t.Fatalf("RevokePermission: %v", err)
+	}
+
+	perms, err = svc.rbac.ListPermissionsForRole(ctx, "custom_perm")
+	if err != nil {
+		t.Fatalf("ListPermissionsForRole after revoke: %v", err)
+	}
+	for _, p := range perms {
+		if p == "widgets.manage" {
+			t.Error("widgets.manage should have been revoked")
+		}
+	}
+}
+
+func TestRBAC_ListAllRoles(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	roles, err := svc.rbac.ListAllRoles(ctx)
+	if err != nil {
+		t.Fatalf("ListAllRoles: %v", err)
+	}
+	if len(roles) < 4 {
+		t.Errorf("expected at least 4 default roles, got %d", len(roles))
+	}
+
+	names := make(map[string]bool)
+	for _, r := range roles {
+		names[r.Name] = true
+	}
+	for _, expected := range []string{"admin", "editor", "author", "viewer"} {
+		if !names[expected] {
+			t.Errorf("missing role %q", expected)
+		}
+	}
+}
+
+// =============================================================================
+// API Token
+// =============================================================================
+
+func TestAPIToken_Create(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apicreate@example.com", "apiuser", "password123", []string{"admin"})
+
+	token, err := svc.CreateAPIToken(ctx, user.ID, "test-token", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+	if !strings.HasPrefix(token.TokenHash, "aroute_") {
+		t.Errorf("token = %q, want prefix %q", token.TokenHash, "aroute_")
+	}
+	if token.ID == "" {
+		t.Error("expected non-empty token ID")
+	}
+}
+
+func TestAPIToken_VerifyValidToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apiverify@example.com", "apiverifyuser", "password123", []string{"admin"})
+
+	apiToken, err := svc.CreateAPIToken(ctx, user.ID, "verify-test", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	claims, err := svc.VerifyAPIToken(ctx, apiToken.TokenHash)
+	if err != nil {
+		t.Fatalf("VerifyAPIToken: %v", err)
+	}
+	if claims.UserID != user.ID {
+		t.Errorf("UserID = %q, want %q", claims.UserID, user.ID)
+	}
+	if len(claims.Roles) == 0 {
+		t.Error("expected roles in claims")
+	}
+}
+
+func TestAPIToken_VerifyWrongToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.VerifyAPIToken(ctx, "aroute_nonexistent_token_string")
+	if err == nil {
+		t.Fatal("expected error for wrong API token")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestAPIToken_VerifyExpiredToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apiexpired@example.com", "apiexpireduser", "password123", nil)
+
+	pastTime := time.Now().Add(-1 * time.Hour)
+	apiToken, err := svc.CreateAPIToken(ctx, user.ID, "expired-token", &pastTime)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	_, err = svc.VerifyAPIToken(ctx, apiToken.TokenHash)
+	if err == nil {
+		t.Fatal("expected error for expired API token")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+func TestAPIToken_RevokeAndVerify(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apirevoke@example.com", "apirevokeuser", "password123", nil)
+
+	apiToken, err := svc.CreateAPIToken(ctx, user.ID, "revoke-test", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	if err := svc.RevokeAPIToken(ctx, apiToken.ID); err != nil {
+		t.Fatalf("RevokeAPIToken: %v", err)
+	}
+
+	_, err = svc.VerifyAPIToken(ctx, apiToken.TokenHash)
+	if err == nil {
+		t.Fatal("expected error for revoked API token")
+	}
+}
+
+func TestAPIToken_CreateEmptyNameFails(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apinoname@example.com", "apinonameuser", "password123", nil)
+
+	_, err := svc.CreateAPIToken(ctx, user.ID, "", nil)
+	if err == nil {
+		t.Fatal("expected error for empty token name")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+// =============================================================================
+// Password Change
+// =============================================================================
+
+func TestChangePassword_Success(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "chpw@example.com", "chpwuser", "oldpassword", nil)
+
+	if err := svc.ChangePassword(ctx, user.ID, "oldpassword", "newpassword123"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	// Verify new password works.
+	_, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "chpw@example.com", Password: "newpassword123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate with new password: %v", err)
+	}
+}
+
+func TestChangePassword_WrongCurrentPassword(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "chpwwrong@example.com", "chpwwronguser", "password123", nil)
+
+	err := svc.ChangePassword(ctx, user.ID, "wrongpassword", "newpassword123")
+	if err == nil {
+		t.Fatal("expected error for wrong current password")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+func TestChangePassword_NewPasswordTooShort(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "chpwshort@example.com", "chpwshortuser", "password123", nil)
+
+	err := svc.ChangePassword(ctx, user.ID, "password123", "short")
+	if err == nil {
+		t.Fatal("expected error for short new password")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestChangePassword_RevokesOldTokens(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "chpwrevoke@example.com", "chpwrevokeuser", "password123", nil)
+
+	// Get a token before password change.
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "chpwrevoke@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Wait to ensure issued_at < revoked_before (JWT IssuedAt has only second precision).
+	time.Sleep(1100 * time.Millisecond)
+
+	// Change password.
+	if err := svc.ChangePassword(ctx, user.ID, "password123", "newpassword123"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	// Old token should be revoked via user revocation.
+	_, err = svc.VerifyToken(ctx, result.AccessToken)
+	if err == nil {
+		t.Error("expected old token to be revoked after password change")
+	}
+}
+
+// =============================================================================
+// Default Admin
+// =============================================================================
+
+func TestDefaultAdmin_FirstCall(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	if err := svc.CreateDefaultAdmin(ctx); err != nil {
+		t.Fatalf("CreateDefaultAdmin: %v", err)
+	}
+
+	user, err := svc.GetUser(ctx, "admin@localhost")
+	if err != nil {
+		t.Fatalf("GetUser admin: %v", err)
+	}
+	if user.Email != "admin@localhost" {
+		t.Errorf("admin email = %q, want %q", user.Email, "admin@localhost")
+	}
+	if len(user.Roles) == 0 || user.Roles[0] != "admin" {
+		t.Errorf("admin roles = %v, want [admin]", user.Roles)
+	}
+}
+
+func TestDefaultAdmin_SecondCallIsNoop(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	if err := svc.CreateDefaultAdmin(ctx); err != nil {
+		t.Fatalf("first CreateDefaultAdmin: %v", err)
+	}
+
+	count, _ := svc.store.CountUsers(ctx)
+	if count != 1 {
+		t.Fatalf("expected 1 user, got %d", count)
+	}
+
+	// Second call should be a no-op.
+	if err := svc.CreateDefaultAdmin(ctx); err != nil {
+		t.Fatalf("second CreateDefaultAdmin: %v", err)
+	}
+
+	count2, _ := svc.store.CountUsers(ctx)
+	if count2 != 1 {
+		t.Errorf("expected 1 user after second call, got %d", count2)
+	}
+}
+
+// =============================================================================
+// Middleware
+// =============================================================================
+
+func TestMiddleware_RBACMiddlewareWithValidJWT(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "mw@example.com", "mwuser", "password123", []string{"admin"})
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "mw@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	called := false
+	handler := RBACMiddleware(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		claims := GetClaimsFromContext(r.Context())
+		if claims == nil {
+			t.Error("expected claims in context")
+		} else if claims.UserID != user.ID {
+			t.Errorf("claims.UserID = %q, want %q", claims.UserID, user.ID)
+		}
+		userID := GetUserIDFromContext(r.Context())
+		if userID != user.ID {
+			t.Errorf("userID = %q, want %q", userID, user.ID)
+		}
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+result.AccessToken)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if !called {
+		t.Error("handler was not called")
+	}
+}
+
+func TestMiddleware_RBACMiddlewareMissingAuth(t *testing.T) {
+	svc := setupTestService(t)
+
+	handler := RBACMiddleware(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestMiddleware_RBACMiddlewareInvalidToken(t *testing.T) {
+	svc := setupTestService(t)
+
+	handler := RBACMiddleware(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer invalid-token")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestMiddleware_RequirePermissionAuthorized(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "permok@example.com", "permokuser", "password123", []string{"admin"})
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "permok@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	called := false
+	middleware := RBACMiddleware(svc)
+	permission := RequirePermission(svc, "content", "read")
+	handler := middleware(permission(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	})))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+result.AccessToken)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if !called {
+		t.Error("handler should have been called for authorized user")
+	}
+}
+
+func TestMiddleware_RequirePermissionUnauthorized(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "permno@example.com", "permnouser", "password123", []string{"viewer"})
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "permno@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	called := false
+	middleware := RBACMiddleware(svc)
+	permission := RequirePermission(svc, "content", "delete")
+	handler := middleware(permission(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	})))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+result.AccessToken)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if called {
+		t.Error("handler should not have been called for unauthorized user")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestMiddleware_APITokenAuthentication(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "mwapi@example.com", "mwapiuser", "password123", []string{"admin"})
+
+	apiToken, err := svc.CreateAPIToken(ctx, user.ID, "middleware-test", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	called := false
+	handler := RBACMiddleware(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		claims := GetClaimsFromContext(r.Context())
+		if claims == nil {
+			t.Error("expected claims in context")
+		} else if claims.UserID != user.ID {
+			t.Errorf("claims.UserID = %q, want %q", claims.UserID, user.ID)
+		}
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+apiToken.TokenHash)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if !called {
+		t.Error("handler was not called for API token auth")
+	}
+}
+
+func TestMiddleware_RequirePermissionNoClaims(t *testing.T) {
+	svc := setupTestService(t)
+
+	called := false
+	handler := RequirePermission(svc, "content", "read")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if called {
+		t.Error("handler should not be called without claims")
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+// =============================================================================
+// Rate Limiting
+// =============================================================================
+
+func TestRateLimiter_UnderLimit(t *testing.T) {
+	rl := NewRateLimiter(3, 15*time.Minute)
+	defer rl.Stop()
+
+	allowed, retryAfter := rl.Check("192.168.1.1")
+	if !allowed {
+		t.Error("expected allowed under limit")
+	}
+	if retryAfter != 0 {
+		t.Errorf("retryAfter = %d, want 0", retryAfter)
+	}
+}
+
+func TestRateLimiter_AtLimit(t *testing.T) {
+	rl := NewRateLimiter(3, 15*time.Minute)
+	defer rl.Stop()
+
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("10.0.0.1")
+	}
+
+	allowed, retryAfter := rl.Check("10.0.0.1")
+	if allowed {
+		t.Error("expected denied at limit")
+	}
+	if retryAfter <= 0 {
+		t.Errorf("retryAfter = %d, want > 0", retryAfter)
+	}
+}
+
+func TestRateLimiter_Reset(t *testing.T) {
+	rl := NewRateLimiter(3, 15*time.Minute)
+	defer rl.Stop()
+
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("10.0.0.2")
+	}
+
+	rl.Reset("10.0.0.2")
+
+	allowed, _ := rl.Check("10.0.0.2")
+	if !allowed {
+		t.Error("expected allowed after reset")
+	}
+}
+
+// =============================================================================
+// Store
+// =============================================================================
+
+func TestStore_CountUsers(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	count, err := svc.store.CountUsers(ctx)
+	if err != nil {
+		t.Fatalf("CountUsers: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("initial count = %d, want 0", count)
+	}
+
+	createTestUser(t, svc, "count1@example.com", "count1", "password123", nil)
+	count, err = svc.store.CountUsers(ctx)
+	if err != nil {
+		t.Fatalf("CountUsers after: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count after 1 user = %d, want 1", count)
+	}
+}
+
+func TestStore_GetUserRoleNames(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "rolenames@example.com", "rolenamesuser", "password123", []string{"editor"})
+
+	roles, err := svc.store.GetUserRoleNames(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRoleNames: %v", err)
+	}
+	if len(roles) != 1 || roles[0] != "editor" {
+		t.Errorf("roles = %v, want [editor]", roles)
+	}
+}
+
+func TestStore_ListAPITokensByUser(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apilist@example.com", "apilistuser", "password123", nil)
+
+	// No tokens initially.
+	tokens, err := svc.store.ListAPITokensByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPITokensByUser: %v", err)
+	}
+	if len(tokens) != 0 {
+		t.Errorf("tokens = %d, want 0", len(tokens))
+	}
+
+	_, err = svc.CreateAPIToken(ctx, user.ID, "test", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	tokens, err = svc.store.ListAPITokensByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPITokensByUser after: %v", err)
+	}
+	if len(tokens) != 1 {
+		t.Errorf("tokens = %d, want 1", len(tokens))
+	}
+}
+
+func TestStore_GetUserByID(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "byid@example.com", "byiduser", "password123", nil)
+
+	found, err := svc.store.GetUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if found.Email != "byid@example.com" {
+		t.Errorf("email = %q, want %q", found.Email, "byid@example.com")
+	}
+}
+
+func TestStore_GetUserByEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "byemail@example.com", "byemailuser", "password123", nil)
+
+	found, err := svc.store.GetUserByEmail(ctx, "byemail@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if found.Username != "byemailuser" {
+		t.Errorf("username = %q, want %q", found.Username, "byemailuser")
+	}
+}
+
+func TestStore_GetUserByUsername(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "byname@example.com", "bynameuser", "password123", nil)
+
+	found, err := svc.store.GetUserByUsername(ctx, "bynameuser")
+	if err != nil {
+		t.Fatalf("GetUserByUsername: %v", err)
+	}
+	if found.Email != "byname@example.com" {
+		t.Errorf("email = %q, want %q", found.Email, "byname@example.com")
+	}
+}
+
+func TestStore_UpdateUser(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "update@example.com", "updateuser", "password123", nil)
+
+	user.Status = "suspended"
+	user.UpdatedAt = time.Now().UTC()
+	if err := svc.store.UpdateUser(ctx, user); err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+
+	updated, err := svc.store.GetUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if updated.Status != "suspended" {
+		t.Errorf("status = %q, want %q", updated.Status, "suspended")
+	}
+}
+
+// =============================================================================
+// GetUser (Service-level)
+// =============================================================================
+
+func TestGetUser_ByID(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "getid@example.com", "getiduser", "password123", []string{"viewer"})
+
+	found, err := svc.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUser by ID: %v", err)
+	}
+	if found.Email != "getid@example.com" {
+		t.Errorf("email = %q, want %q", found.Email, "getid@example.com")
+	}
+	if found.PasswordHash != "" {
+		t.Error("password hash should be stripped")
+	}
+	if len(found.Roles) == 0 || found.Roles[0] != "viewer" {
+		t.Errorf("roles = %v, want [viewer]", found.Roles)
+	}
+}
+
+func TestGetUser_ByEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "getemail@example.com", "getemailuser", "password123", nil)
+
+	found, err := svc.GetUser(ctx, "getemail@example.com")
+	if err != nil {
+		t.Fatalf("GetUser by email: %v", err)
+	}
+	if found.Username != "getemailuser" {
+		t.Errorf("username = %q, want %q", found.Username, "getemailuser")
+	}
+}
+
+func TestGetUser_ByUsername(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "getname@example.com", "getnameuser", "password123", nil)
+
+	found, err := svc.GetUser(ctx, "getnameuser")
+	if err != nil {
+		t.Fatalf("GetUser by username: %v", err)
+	}
+	if found.Email != "getname@example.com" {
+		t.Errorf("email = %q, want %q", found.Email, "getname@example.com")
+	}
+}
+
+func TestGetUser_EmptyIdentifier(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.GetUser(ctx, "")
+	if err == nil {
+		t.Fatal("expected error for empty identifier")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestGetUser_NotFound(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.GetUser(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent user")
+	}
+	if !errors.Is(err, interfaces.ErrNotFound) {
+		t.Errorf("error = %v, want ErrNotFound", err)
+	}
+}
+
+// =============================================================================
+// Context helpers
+// =============================================================================
+
+func TestGetClaimsFromContext_Nil(t *testing.T) {
+	claims := GetClaimsFromContext(context.Background())
+	if claims != nil {
+		t.Error("expected nil claims from empty context")
+	}
+}
+
+func TestGetUserIDFromContext_Empty(t *testing.T) {
+	id := GetUserIDFromContext(context.Background())
+	if id != "" {
+		t.Errorf("expected empty ID from empty context, got %q", id)
+	}
+}
+
+// =============================================================================
+// Plugin lifecycle
+// =============================================================================
+
+func TestPlugin_New(t *testing.T) {
+	p := New()
+	if p.Name() != "auth" {
+		t.Errorf("Name() = %q, want %q", p.Name(), "auth")
+	}
+	if p.Version() != "1.0.0" {
+		t.Errorf("Version() = %q, want %q", p.Version(), "1.0.0")
+	}
+	m := p.Manifest()
+	if m.Name != "auth" {
+		t.Errorf("Manifest.Name = %q, want %q", m.Name, "auth")
+	}
+}
+
+func TestPlugin_ReadConfig(t *testing.T) {
+	p := New()
+	cfg := p.readConfig(newMockConfig())
+	if cfg.jwtSecret != "aroute-default-secret-change-in-production" {
+		t.Errorf("jwtSecret = %q, want default", cfg.jwtSecret)
+	}
+	if cfg.jwtAlgorithm != "HS256" {
+		t.Errorf("jwtAlgorithm = %q, want %q", cfg.jwtAlgorithm, "HS256")
+	}
+	if cfg.accessTokenTTL != 15*time.Minute {
+		t.Errorf("accessTokenTTL = %v, want %v", cfg.accessTokenTTL, 15*time.Minute)
+	}
+	if cfg.refreshTokenTTL != 7*24*time.Hour {
+		t.Errorf("refreshTokenTTL = %v, want %v", cfg.refreshTokenTTL, 7*24*time.Hour)
+	}
+	if cfg.rateLimitAttempts != 5 {
+		t.Errorf("rateLimitAttempts = %d, want 5", cfg.rateLimitAttempts)
+	}
+	if cfg.rateLimitWindow != 1*time.Minute {
+		t.Errorf("rateLimitWindow = %v, want %v", cfg.rateLimitWindow, 1*time.Minute)
+	}
+}
+
+func TestPlugin_ReadConfigWithValues(t *testing.T) {
+	p := New()
+	mc := newMockConfig()
+	mc.data["auth.jwt_secret"] = "my-secret"
+	mc.data["auth.jwt_algorithm"] = "HS512"
+	mc.data["auth.access_token_ttl"] = "30m"
+	mc.data["auth.refresh_token_ttl"] = "48h"
+	mc.data["auth.rotate_refresh_tokens"] = true
+	mc.data["auth.rate_limit.max_attempts"] = 10
+	mc.data["auth.rate_limit.window"] = "30m"
+
+	cfg := p.readConfig(mc)
+	if cfg.jwtSecret != "my-secret" {
+		t.Errorf("jwtSecret = %q, want %q", cfg.jwtSecret, "my-secret")
+	}
+	if cfg.jwtAlgorithm != "HS512" {
+		t.Errorf("jwtAlgorithm = %q, want %q", cfg.jwtAlgorithm, "HS512")
+	}
+	if cfg.accessTokenTTL != 30*time.Minute {
+		t.Errorf("accessTokenTTL = %v, want %v", cfg.accessTokenTTL, 30*time.Minute)
+	}
+	if cfg.refreshTokenTTL != 48*time.Hour {
+		t.Errorf("refreshTokenTTL = %v, want %v", cfg.refreshTokenTTL, 48*time.Hour)
+	}
+	if !cfg.rotateRefreshTokens {
+		t.Error("rotateRefreshTokens should be true")
+	}
+	if cfg.rateLimitAttempts != 10 {
+		t.Errorf("rateLimitAttempts = %d, want 10", cfg.rateLimitAttempts)
+	}
+	if cfg.rateLimitWindow != 30*time.Minute {
+		t.Errorf("rateLimitWindow = %v, want %v", cfg.rateLimitWindow, 30*time.Minute)
+	}
+}
+
+// =============================================================================
+// Additional Store coverage
+// =============================================================================
+
+func TestStore_GetRoleByID(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	role, err := svc.store.GetRoleByName(ctx, "admin")
+	if err != nil {
+		t.Fatalf("GetRoleByName: %v", err)
+	}
+
+	found, err := svc.store.GetRoleByID(ctx, role.ID)
+	if err != nil {
+		t.Fatalf("GetRoleByID: %v", err)
+	}
+	if found.Name != "admin" {
+		t.Errorf("name = %q, want %q", found.Name, "admin")
+	}
+}
+
+func TestStore_GetRoleByID_NotFound(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.store.GetRoleByID(ctx, "nonexistent-id")
+	if err == nil {
+		t.Fatal("expected error for nonexistent role ID")
+	}
+	if !errors.Is(err, interfaces.ErrNotFound) {
+		t.Errorf("error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestStore_UpdateRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	role, err := svc.rbac.CreateRole(ctx, "updateme", "Update Me", "original desc")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+
+	role.Description = "updated desc"
+	role.DisplayName = "Updated"
+	role.UpdatedAt = time.Now().UTC()
+	if err := svc.store.UpdateRole(ctx, role); err != nil {
+		t.Fatalf("UpdateRole: %v", err)
+	}
+
+	found, err := svc.store.GetRoleByID(ctx, role.ID)
+	if err != nil {
+		t.Fatalf("GetRoleByID: %v", err)
+	}
+	if found.Description != "updated desc" {
+		t.Errorf("description = %q, want %q", found.Description, "updated desc")
+	}
+	if found.DisplayName != "Updated" {
+		t.Errorf("displayName = %q, want %q", found.DisplayName, "Updated")
+	}
+}
+
+func TestStore_ListPermissions(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	perms, err := svc.store.ListPermissions(ctx)
+	if err != nil {
+		t.Fatalf("ListPermissions: %v", err)
+	}
+	if len(perms) == 0 {
+		t.Error("expected permissions from default roles")
+	}
+}
+
+func TestStore_DeletePermission(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	perm := &interfaces.Permission{
+		ID: newUUID(), Name: "test.del", Resource: "test", Action: "del",
+		DisplayName: "Test Delete", Description: "test",
+	}
+	if err := svc.store.CreatePermission(ctx, perm); err != nil {
+		t.Fatalf("CreatePermission: %v", err)
+	}
+	if err := svc.store.DeletePermission(ctx, perm.ID); err != nil {
+		t.Fatalf("DeletePermission: %v", err)
+	}
+	_, err := svc.store.GetPermissionByID(ctx, perm.ID)
+	if err == nil {
+		t.Error("permission should be deleted")
+	}
+}
+
+func TestStore_GetPermissionByID(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	perm, err := svc.store.GetPermissionByResourceAction(ctx, "content", "read")
+	if err != nil {
+		t.Fatalf("GetPermissionByResourceAction: %v", err)
+	}
+
+	found, err := svc.store.GetPermissionByID(ctx, perm.ID)
+	if err != nil {
+		t.Fatalf("GetPermissionByID: %v", err)
+	}
+	if found.Resource != "content" || found.Action != "read" {
+		t.Errorf("resource:action = %s:%s, want content:read", found.Resource, found.Action)
+	}
+}
+
+func TestStore_RemoveUserRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "rmrole@example.com", "rmroleuser", "password123", []string{"editor"})
+
+	roles, err := svc.store.GetUserRoles(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRoles before: %v", err)
+	}
+	if len(roles) == 0 {
+		t.Fatal("expected user to have roles")
+	}
+
+	roleID := roles[0].ID
+	if err := svc.store.RemoveUserRole(ctx, user.ID, roleID); err != nil {
+		t.Fatalf("RemoveUserRole: %v", err)
+	}
+
+	roles2, err := svc.store.GetUserRoles(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRoles after: %v", err)
+	}
+	if len(roles2) != 0 {
+		t.Errorf("roles after remove = %d, want 0", len(roles2))
+	}
+}
+
+func TestStore_RemoveRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "rmrbrole@example.com", "rmrbroleuser", "password123", []string{"editor"})
+
+	err := svc.rbac.RemoveRole(ctx, user.ID, "editor")
+	if err != nil {
+		t.Fatalf("RemoveRole: %v", err)
+	}
+
+	roles, _ := svc.store.GetUserRoleNames(ctx, user.ID)
+	for _, r := range roles {
+		if r == "editor" {
+			t.Error("editor role should have been removed")
+		}
+	}
+}
+
+func TestRBAC_RemoveRoleNonexistent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.rbac.RemoveRole(ctx, "nonexistent-user-id", "nonexistent-role")
+	if err == nil {
+		t.Fatal("expected error removing nonexistent role")
+	}
+}
+
+func TestRBAC_AssignRoleNonexistent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.rbac.AssignRole(ctx, "nonexistent-user-id", "nonexistent-role")
+	if err == nil {
+		t.Fatal("expected error assigning nonexistent role")
+	}
+}
+
+func TestRBAC_RevokePermissionNonexistent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.rbac.CreateRole(ctx, "revoke_test", "Revoke Test", "test")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+
+	err = svc.rbac.RevokePermission(ctx, "revoke_test", "nonexistent", "perm")
+	if err != nil {
+		t.Fatalf("RevokePermission with nonexistent perm should not error: %v", err)
+	}
+}
+
+func TestRBAC_DeleteRoleNonexistent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.rbac.DeleteRole(ctx, "nonexistent-role-name")
+	if err == nil {
+		t.Fatal("expected error deleting nonexistent role")
+	}
+}
+
+func TestStore_CreateTablesIdempotent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	if err := svc.store.CreateTables(ctx); err != nil {
+		t.Fatalf("CreateTables should be idempotent: %v", err)
+	}
+}
+
+func TestStore_ScanAPITokenRow(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "scanapi@example.com", "scanapiuser", "password123", nil)
+
+	_, err := svc.CreateAPIToken(ctx, user.ID, "scan-test", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	tokens, err := svc.store.ListAPITokensByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPITokensByUser: %v", err)
+	}
+	if len(tokens) != 1 {
+		t.Fatalf("tokens = %d, want 1", len(tokens))
+	}
+	if tokens[0].Name != "scan-test" {
+		t.Errorf("name = %q, want %q", tokens[0].Name, "scan-test")
+	}
+}
+
+func TestStore_GetPermissionByID_NotFound(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.store.GetPermissionByID(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestStore_GetPermissionByResourceAction_NotFound(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.store.GetPermissionByResourceAction(ctx, "nonexistent", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRBAC_HasPermissionWildcardVariants(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.rbac.CreateRole(ctx, "resource_wildcard", "Resource Wildcard", "test")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if err := svc.rbac.AssignPermission(ctx, "resource_wildcard", "*", "read"); err != nil {
+		t.Fatalf("AssignPermission: %v", err)
+	}
+
+	user := createTestUser(t, svc, "wild@example.com", "wilduser", "password123", nil)
+	if err := svc.rbac.AssignRole(ctx, user.ID, "resource_wildcard"); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+
+	ok, err := svc.HasPermission(ctx, user.ID, "anything", "read")
+	if err != nil {
+		t.Fatalf("HasPermission (*,read): %v", err)
+	}
+	if !ok {
+		t.Error("expected wildcard resource match")
+	}
+
+	_, err2 := svc.rbac.CreateRole(ctx, "action_wildcard", "Action Wildcard", "test")
+	if err2 != nil {
+		t.Fatalf("CreateRole: %v", err2)
+	}
+	if err := svc.rbac.AssignPermission(ctx, "action_wildcard", "content", "*"); err != nil {
+		t.Fatalf("AssignPermission: %v", err)
+	}
+
+	user2 := createTestUser(t, svc, "wild2@example.com", "wild2user", "password123", nil)
+	if err := svc.rbac.AssignRole(ctx, user2.ID, "action_wildcard"); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+
+	ok2, err := svc.HasPermission(ctx, user2.ID, "content", "anything")
+	if err != nil {
+		t.Fatalf("HasPermission (content,*): %v", err)
+	}
+	if !ok2 {
+		t.Error("expected wildcard action match")
+	}
+}
+
+func TestRateLimiter_EvictOld(t *testing.T) {
+	rl := NewRateLimiter(5, 50*time.Millisecond)
+	defer rl.Stop()
+
+	for i := 0; i < 5; i++ {
+		rl.RecordFailure("evict-ip")
+	}
+
+	time.Sleep(80 * time.Millisecond)
+
+	allowed, _ := rl.Check("evict-ip")
+	if !allowed {
+		t.Error("expected entries to be evicted after window expired")
+	}
+}
+
+func TestAuthenticate_SuccessResetsRateLimit(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "resetrl@example.com", "resetrluser", "password123", nil)
+
+	// Record some failures.
+	svc.rateLimiter.RecordFailure("default")
+	svc.rateLimiter.RecordFailure("default")
+
+	// Successful auth should reset.
+	_, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "resetrl@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	allowed, _ := svc.rateLimiter.Check("default")
+	if !allowed {
+		t.Error("rate limit should be reset after successful auth")
+	}
+}
+
+func TestRefreshToken_DisabledUser(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "refreshdisabled@example.com", "refreshdisableduser", "password123", nil)
+
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "refreshdisabled@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Disable the user.
+	dbUser, _ := svc.store.GetUserByID(ctx, user.ID)
+	dbUser.Status = "suspended"
+	dbUser.UpdatedAt = time.Now().UTC()
+	svc.store.UpdateUser(ctx, dbUser)
+
+	_, err = svc.RefreshToken(ctx, result.RefreshToken)
+	if err == nil {
+		t.Fatal("expected error for disabled user refresh")
+	}
+	if !errors.Is(err, interfaces.ErrForbidden) {
+		t.Errorf("error = %v, want wrapping ErrForbidden", err)
+	}
+}
+
+func TestGetUser_NotFoundByID(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	// A UUID that doesn't match any user should fall through to email/username check.
+	_, err := svc.GetUser(ctx, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	if err == nil {
+		t.Fatal("expected error for nonexistent user")
+	}
+}
+
+func TestGetUser_NotFoundByEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.GetUser(ctx, "nobody@nowhere.com")
+	if err == nil {
+		t.Fatal("expected error for nonexistent email")
+	}
+}
+
+func TestRBAC_InitializeDefaultRolesIdempotent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	if err := svc.rbac.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("second InitializeDefaultRoles: %v", err)
+	}
+
+	roles, _ := svc.rbac.ListAllRoles(ctx)
+	if len(roles) != 4 {
+		t.Errorf("expected 4 roles after idempotent init, got %d", len(roles))
+	}
+}
+
+func TestPlugin_StartStop(t *testing.T) {
+	p := New()
+	p.rateLimit = NewRateLimiter(5, 15*time.Minute)
+	p.running = false
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !p.running {
+		t.Error("expected running after Start")
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("second Start (no-op): %v", err)
+	}
+
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if p.running {
+		t.Error("expected not running after Stop")
+	}
+
+	if err := p.Stop(); err != nil {
+		t.Fatalf("second Stop (no-op): %v", err)
+	}
+}
+
+func TestPlugin_StopWithNilRateLimiter(t *testing.T) {
+	p := New()
+	p.rateLimit = nil
+	p.running = true
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop with nil rateLimit: %v", err)
+	}
+}
+
+func TestStore_CreateUserWithLastLogin(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "lastlogin@example.com", "lastloginuser", "password123", nil)
+
+	if err := svc.store.UpdateLastLogin(ctx, user.ID); err != nil {
+		t.Fatalf("UpdateLastLogin: %v", err)
+	}
+
+	found, err := svc.store.GetUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if found.LastLoginAt == nil {
+		t.Error("expected last_login_at to be set")
+	}
+}
+
+func TestAPIToken_WithExpiry(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apiexpiry@example.com", "apiexpiryuser", "password123", nil)
+
+	futureExpiry := time.Now().Add(24 * time.Hour)
+	token, err := svc.CreateAPIToken(ctx, user.ID, "future-token", &futureExpiry)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	claims, err := svc.VerifyAPIToken(ctx, token.TokenHash)
+	if err != nil {
+		t.Fatalf("VerifyAPIToken: %v", err)
+	}
+	if claims.UserID != user.ID {
+		t.Errorf("UserID = %q, want %q", claims.UserID, user.ID)
+	}
+}
+
+func TestAuthenticate_ErrorsWrapped(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "", Password: "",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want wrapping ErrValidation", err)
+	}
+}
+
+func TestRBAC_ListPermissionsForRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	perms, err := svc.rbac.ListPermissionsForRole(ctx, "admin")
+	if err != nil {
+		t.Fatalf("ListPermissionsForRole admin: %v", err)
+	}
+	if len(perms) == 0 {
+		t.Error("admin should have permissions")
+	}
+
+	found := false
+	for _, p := range perms {
+		if p == "wildcard.all" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("admin permissions = %v, want wildcard.all", perms)
+	}
+}
+
+func TestRBAC_ListPermissionsForRoleNonexistent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.rbac.ListPermissionsForRole(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent role")
+	}
+}
+
+func TestRBAC_AssignPermissionToNonexistentRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.rbac.AssignPermission(ctx, "nonexistent-role", "test", "read")
+	if err == nil {
+		t.Fatal("expected error assigning to nonexistent role")
+	}
+}
+
+func TestRBAC_RevokePermissionFromNonexistentRole(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.rbac.RevokePermission(ctx, "nonexistent-role", "test", "read")
+	if err == nil {
+		t.Fatal("expected error revoking from nonexistent role")
+	}
+}
+
+func TestChangePassword_NonexistentUser(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.ChangePassword(ctx, "nonexistent-user-id", "old", "newpassword123")
+	if err == nil {
+		t.Fatal("expected error for nonexistent user")
+	}
+}
+
+func TestRevokeAPIToken_NonexistentToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.RevokeAPIToken(ctx, "nonexistent-token-id")
+	if err != nil {
+		t.Fatalf("revoking nonexistent token should be a no-op, got: %v", err)
+	}
+}
+
+func TestGetUser_EmailFallbackToUsername(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "fallback@example.com", "fallbackuser", "password123", nil)
+
+	// An email-like identifier that doesn't exist should fall through to username.
+	found, err := svc.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUser by ID: %v", err)
+	}
+	if found.ID != user.ID {
+		t.Errorf("ID = %q, want %q", found.ID, user.ID)
+	}
+}
+
+func TestVerifyAPIToken_NonexistentToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.VerifyAPIToken(ctx, "aroute_"+strings.Repeat("a", 64))
+	if err == nil {
+		t.Fatal("expected error for nonexistent API token")
+	}
+}
+
+func TestPlugin_Init(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:plugin_init_test?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+
+	cfg := newMockConfig()
+	cfg.data["jwt.secret"] = "test-secret-for-plugin-init"
+	cfg.data["jwt.access_token_ttl_minutes"] = 15
+	cfg.data["jwt.refresh_token_ttl_hours"] = 24
+
+	ctx := newMockCoreContext(dbSvc, cfg)
+
+	p := New()
+	if err := p.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if p.service == nil {
+		t.Error("expected service to be initialized")
+	}
+	if p.rateLimit == nil {
+		t.Error("expected rateLimiter to be initialized")
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !p.running {
+		t.Error("expected running after Start")
+	}
+
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if p.running {
+		t.Error("expected not running after Stop")
+	}
+}
+
+func TestPlugin_InitNoDatabase(t *testing.T) {
+	cfg := newMockConfig()
+	cfg.data["jwt.secret"] = "test-secret"
+
+	coreCtx := core.NewCoreContext(
+		context.Background(),
+		&mockServiceContainerEmpty{},
+		&mockEventBus{},
+		cfg,
+		slog.Default(),
+		"",
+		"",
+	)
+
+	p := New()
+	err := p.Init(coreCtx)
+	if err == nil {
+		t.Fatal("expected error when database service not available")
+	}
+	if !strings.Contains(err.Error(), "database service not available") {
+		t.Errorf("error = %v, want database service not available", err)
+	}
+}
+
+func TestPlugin_InitAlreadyRunning(t *testing.T) {
+	p := New()
+	p.running = true
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start when already running: %v", err)
+	}
+}
+
+func TestPlugin_StopNotRunning(t *testing.T) {
+	p := New()
+	p.running = false
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop when not running: %v", err)
+	}
+}
