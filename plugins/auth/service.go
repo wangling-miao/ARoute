@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,6 +35,7 @@ type Service struct {
 	bcryptCost  int
 	adminEmail  string
 	adminPass   string
+	hmacKey     [32]byte
 }
 
 // NewService creates a new auth Service.
@@ -43,6 +45,7 @@ func NewService(store *Store, jwt *JWTManager, rbac *RBACManager, rateLimiter *R
 		logger.Warn("bcrypt cost below minimum, using 10", "configured", cost)
 		cost = 10
 	}
+	hmacKey := sha256.Sum256([]byte("aroute-hmac-" + authCfg.jwtSecret))
 	return &Service{
 		store:       store,
 		jwt:         jwt,
@@ -53,6 +56,7 @@ func NewService(store *Store, jwt *JWTManager, rbac *RBACManager, rateLimiter *R
 		bcryptCost:  cost,
 		adminEmail:  authCfg.adminEmail,
 		adminPass:   authCfg.adminPassword,
+		hmacKey:     hmacKey,
 	}
 }
 
@@ -358,9 +362,10 @@ func (s *Service) CreateAPIToken(ctx context.Context, userID, name string, expir
 	}
 	tokenStr := apiTokenPrefix + hex.EncodeToString(tokenBytes)
 
-	// Hash the token for storage.
-	h := sha256.Sum256([]byte(tokenStr))
-	tokenHash := hex.EncodeToString(h[:])
+	// Hash the token for storage using HMAC-SHA256.
+	mac := hmac.New(sha256.New, s.hmacKey[:])
+	mac.Write([]byte(tokenStr))
+	tokenHash := hex.EncodeToString(mac.Sum(nil))
 
 	now := time.Now().UTC()
 	apiToken := &interfaces.APIToken{
@@ -469,9 +474,10 @@ func (s *Service) CreateDefaultAdmin(ctx context.Context) error {
 
 // VerifyAPIToken verifies an API token string and returns synthetic user claims.
 func (s *Service) VerifyAPIToken(ctx context.Context, tokenString string) (*interfaces.UserClaims, error) {
-	// Hash the token to look it up.
-	h := sha256.Sum256([]byte(tokenString))
-	tokenHash := hex.EncodeToString(h[:])
+	// Hash the token using HMAC-SHA256 to look it up.
+	mac := hmac.New(sha256.New, s.hmacKey[:])
+	mac.Write([]byte(tokenString))
+	tokenHash := hex.EncodeToString(mac.Sum(nil))
 
 	apiToken, err := s.store.GetAPITokenByHash(ctx, tokenHash)
 	if err != nil {
@@ -533,9 +539,9 @@ func validateCreateUser(req *interfaces.CreateUserRequest) error {
 	return nil
 }
 
-// extractIP extracts an IP address from context or returns a default.
-func extractIP(_ context.Context) string {
-	// In a real implementation, extract from request context.
-	// For now, return a placeholder — the middleware will set the real IP.
-	return "default"
+func extractIP(ctx context.Context) string {
+	if ip, ok := ctx.Value(ContextKeyRemoteIP).(string); ok && ip != "" {
+		return ip
+	}
+	return "unknown"
 }

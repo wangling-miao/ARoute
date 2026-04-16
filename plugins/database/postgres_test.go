@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,20 +15,22 @@ import (
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
-// PostgreSQL connection parameters from configs/aroute.yaml
-const (
-	pgHost     = "localhost"
-	pgPort     = 5432
-	pgUser     = "aroute"
-	pgPassword = "aroute_dev_password"
-	pgDBName   = "aroute"
-	pgSSLMode  = "disable"
-)
+// pgTestConnString returns the PostgreSQL connection string from the environment.
+func pgTestConnString(t *testing.T) string {
+	t.Helper()
+	connStr := os.Getenv("PG_TEST_CONN_STRING")
+	if connStr == "" {
+		t.Skip("PG_TEST_CONN_STRING not set, skipping PostgreSQL tests")
+	}
+	return connStr
+}
 
 // Helper to check if PostgreSQL is available
 func postgresAvailable() bool {
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		pgUser, pgPassword, pgHost, pgPort, pgDBName, pgSSLMode)
+	connStr := os.Getenv("PG_TEST_CONN_STRING")
+	if connStr == "" {
+		return false
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -44,12 +47,11 @@ func postgresAvailable() bool {
 
 // Create PostgreSQL service for testing
 func createPostgresTestService(t *testing.T) (*Service, func()) {
-	if !postgresAvailable() {
-		t.Skip("PostgreSQL not available at localhost:5432")
-	}
+	connStr := pgTestConnString(t)
 
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		pgUser, pgPassword, pgHost, pgPort, pgDBName, pgSSLMode)
+	if !postgresAvailable() {
+		t.Skip("PostgreSQL not available")
+	}
 
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, connStr)
@@ -971,19 +973,13 @@ type mockPostgresConfig struct {
 }
 
 func (m *mockPostgresConfig) GetString(key string) string {
+	connStr := os.Getenv("PG_TEST_CONN_STRING")
+	if connStr == "" {
+		return ""
+	}
 	switch key {
 	case "database.driver":
 		return "postgres"
-	case "database.postgres.host":
-		return pgHost
-	case "database.postgres.user":
-		return pgUser
-	case "database.postgres.password":
-		return pgPassword
-	case "database.postgres.dbname":
-		return pgDBName
-	case "database.postgres.sslmode":
-		return pgSSLMode
 	default:
 		return ""
 	}
@@ -991,8 +987,6 @@ func (m *mockPostgresConfig) GetString(key string) string {
 
 func (m *mockPostgresConfig) GetInt(key string) int {
 	switch key {
-	case "database.postgres.port":
-		return pgPort
 	case "database.pool.max_conns":
 		return 5
 	case "database.pool.min_conns":

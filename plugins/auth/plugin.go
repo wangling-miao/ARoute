@@ -4,7 +4,9 @@
 package auth
 
 import (
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -83,7 +85,10 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	logger.Info("Auth tables created or verified")
 
 	// 3. Read auth configuration.
-	authCfg := p.readConfig(config)
+	authCfg, err := p.readConfig(config)
+	if err != nil {
+		return fmt.Errorf("read auth config: %w", err)
+	}
 
 	// 4. Create JWTManager.
 	jwtManager, err := NewJWTManager(authCfg)
@@ -173,7 +178,7 @@ func (p *Plugin) Stop() error {
 }
 
 // readConfig reads auth plugin configuration from the ConfigProvider.
-func (p *Plugin) readConfig(config core.ConfigProvider) authConfig {
+func (p *Plugin) readConfig(config core.ConfigProvider) (authConfig, error) {
 	cfg := authConfig{
 		jwtSecret:           config.GetString("auth.jwt_secret"),
 		jwtAlgorithm:        config.GetString("auth.jwt_algorithm"),
@@ -211,7 +216,12 @@ func (p *Plugin) readConfig(config core.ConfigProvider) authConfig {
 
 	// Apply defaults.
 	if cfg.jwtSecret == "" {
-		cfg.jwtSecret = "aroute-default-secret-change-in-production"
+		secretBytes := make([]byte, 32)
+		if _, err := rand.Read(secretBytes); err != nil {
+			return authConfig{}, fmt.Errorf("generate jwt secret: %w", err)
+		}
+		cfg.jwtSecret = hex.EncodeToString(secretBytes)
+		p.ctx.Logger().Warn("jwt_secret not configured; using random secret (will not persist across restarts)")
 	}
 	if cfg.jwtAlgorithm == "" {
 		cfg.jwtAlgorithm = "HS256"
@@ -235,10 +245,15 @@ func (p *Plugin) readConfig(config core.ConfigProvider) authConfig {
 		cfg.adminEmail = "admin@localhost"
 	}
 	if cfg.adminPassword == "" {
-		cfg.adminPassword = "changeme"
+		passBytes := make([]byte, 16)
+		if _, err := rand.Read(passBytes); err != nil {
+			return authConfig{}, fmt.Errorf("generate admin password: %w", err)
+		}
+		cfg.adminPassword = hex.EncodeToString(passBytes)
+		p.ctx.Logger().Warn("admin password not configured; using random password (check logs)", "admin_email", cfg.adminEmail)
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // parseDurationWithDays parses a duration string that may contain a "d" suffix

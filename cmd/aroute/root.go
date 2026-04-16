@@ -112,8 +112,7 @@ func setDefaults() {
 	viper.SetDefault("database.driver", "sqlite")
 	viper.SetDefault("database.sqlite.path", "data/aroute.db")
 
-	// Auth defaults
-	viper.SetDefault("auth.jwt_secret", "change-me-to-a-random-string")
+	// Auth defaults (jwt_secret intentionally omitted — auto-generated if not set)
 	viper.SetDefault("auth.access_token_ttl", "15m")
 	viper.SetDefault("auth.refresh_token_ttl", "7d")
 

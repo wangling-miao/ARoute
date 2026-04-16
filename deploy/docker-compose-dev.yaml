@@ -1,12 +1,19 @@
+# Development Docker Compose configuration
+# Override credentials via .env file or environment variables before deploying.
+# Example .env:
+#   POSTGRES_USER=aroute
+#   POSTGRES_PASSWORD=your_secure_password
+#   POSTGRES_DB=aroute
+#   REDIS_PASSWORD=your_redis_password
 services:
   postgres:
     image: postgres:16-alpine
     container_name: aroute-postgres-dev
     restart: unless-stopped
     environment:
-      POSTGRES_USER: aroute
-      POSTGRES_PASSWORD: aroute_dev_password
-      POSTGRES_DB: aroute
+      POSTGRES_USER: ${POSTGRES_USER:-aroute}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_only_password}
+      POSTGRES_DB: ${POSTGRES_DB:-aroute}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
@@ -27,13 +34,13 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     environment:
-      REDIS_PASSWORD: aroute_dev_redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-dev_only_redis}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "aroute_dev_redis", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-dev_only_redis}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

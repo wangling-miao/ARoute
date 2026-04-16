@@ -23,7 +23,7 @@ func newPGTestDB(t *testing.T) *pgTestDB {
 
 	connStr := os.Getenv("PG_TEST_CONN_STRING")
 	if connStr == "" {
-		connStr = "postgres://aroute:aroute_dev_password@localhost:5432/aroute?sslmode=disable"
+		t.Skip("PG_TEST_CONN_STRING not set, skipping PostgreSQL integration tests")
 	}
 
 	db, err := sql.Open("pgx", connStr)

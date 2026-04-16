@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -36,7 +37,7 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 		}
 		sslmode := config.GetString("database.postgres.sslmode")
 		if sslmode == "" {
-			sslmode = "disable"
+			sslmode = "prefer"
 		}
 
 		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
@@ -91,7 +92,14 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		statementTimeout := config.GetString("database.statement_timeout")
 		if statementTimeout != "" {
-			_, err := conn.Exec(ctx, fmt.Sprintf("SET statement_timeout = %s", statementTimeout))
+			timeoutMs, err := strconv.Atoi(statementTimeout)
+			if err != nil {
+				return fmt.Errorf("invalid statement_timeout %q: %w", statementTimeout, err)
+			}
+			if timeoutMs <= 0 {
+				return fmt.Errorf("statement_timeout must be positive, got %d", timeoutMs)
+			}
+			_, err = conn.Exec(ctx, fmt.Sprintf("SET statement_timeout = %d", timeoutMs))
 			if err != nil {
 				return err
 			}
@@ -99,6 +107,9 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 
 		timezone := config.GetString("database.timezone")
 		if timezone != "" {
+			if _, err := time.LoadLocation(timezone); err != nil {
+				return fmt.Errorf("invalid timezone %q: %w", timezone, err)
+			}
 			_, err := conn.Exec(ctx, fmt.Sprintf("SET timezone = '%s'", timezone))
 			if err != nil {
 				return err

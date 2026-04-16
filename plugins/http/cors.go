@@ -16,7 +16,8 @@ func (p *Plugin) setupCORS(ctx core.CoreContext) {
 	// Get CORS configuration
 	allowedOrigins := config.GetStringSlice("http.cors.allowed_origins")
 	if len(allowedOrigins) == 0 {
-		allowedOrigins = []string{"*"} // Default: allow all origins
+		allowedOrigins = []string{"http://localhost:1337"}
+		logger.Warn("CORS allowed_origins not configured; using localhost default. Set http.cors.allowed_origins in config for production.")
 	}
 
 	allowedMethods := config.GetStringSlice("http.cors.allowed_methods")

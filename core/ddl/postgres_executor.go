@@ -29,6 +29,12 @@ func (e *PostgreSQLExecutor) Execute(ctx context.Context, ops []DiffOperation, f
 		}
 	}
 
+	for _, op := range ops {
+		if err := validateOperation(op); err != nil {
+			return fmt.Errorf("invalid operation: %w", err)
+		}
+	}
+
 	tx, err := e.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
@@ -173,15 +179,15 @@ func (e *PostgreSQLExecutor) modifyColumn(ctx context.Context, tx *sql.Tx, op Di
 	if op.Constraints != nil {
 		if op.Constraints.Nullable {
 			_, err := tx.ExecContext(ctx,
-				"ALTER TABLE \"%s\" ALTER COLUMN \"%s\" DROP NOT NULL",
-				op.TableName, op.ColumnName)
+				fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" DROP NOT NULL",
+					op.TableName, op.ColumnName))
 			if err != nil {
 				return err
 			}
 		} else {
 			_, err := tx.ExecContext(ctx,
-				"ALTER TABLE \"%s\" ALTER COLUMN \"%s\" SET NOT NULL",
-				op.TableName, op.ColumnName)
+				fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" SET NOT NULL",
+					op.TableName, op.ColumnName))
 			if err != nil {
 				return err
 			}
@@ -190,15 +196,15 @@ func (e *PostgreSQLExecutor) modifyColumn(ctx context.Context, tx *sql.Tx, op Di
 		if op.Constraints.Default != nil {
 			defVal := e.mapper.FormatDefaultValue(op.Constraints.Default, FieldType(op.ColumnType))
 			_, err := tx.ExecContext(ctx,
-				"ALTER TABLE \"%s\" ALTER COLUMN \"%s\" SET DEFAULT %s",
-				op.TableName, op.ColumnName, defVal)
+				fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" SET DEFAULT %s",
+					op.TableName, op.ColumnName, defVal))
 			if err != nil {
 				return err
 			}
 		} else {
 			_, err := tx.ExecContext(ctx,
-				"ALTER TABLE \"%s\" ALTER COLUMN \"%s\" DROP DEFAULT",
-				op.TableName, op.ColumnName)
+				fmt.Sprintf("ALTER TABLE \"%s\" ALTER COLUMN \"%s\" DROP DEFAULT",
+					op.TableName, op.ColumnName))
 			if err != nil {
 				return err
 			}
@@ -227,6 +233,6 @@ func (e *PostgreSQLExecutor) addIndex(ctx context.Context, tx *sql.Tx, op DiffOp
 }
 
 func (e *PostgreSQLExecutor) dropIndex(ctx context.Context, tx *sql.Tx, op DiffOperation) error {
-	_, err := tx.ExecContext(ctx, "DROP INDEX IF EXISTS \"%s\"", op.IndexName)
+	_, err := tx.ExecContext(ctx, fmt.Sprintf("DROP INDEX IF EXISTS \"%s\"", op.IndexName))
 	return err
 }

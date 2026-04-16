@@ -16,18 +16,19 @@ database:
     path: "data/aroute.db"
 
   # PostgreSQL settings (used when driver is "postgres")
+  # IMPORTANT: Override sensitive values via environment variables in production
   # postgres:
   #   host: "localhost"
   #   port: 5432
-  #   user: "aroute"
-  #   password: "changeme"
-  #   dbname: "aroute"
-  #   sslmode: "disable"
+  #   user: "${POSTGRES_USER:-aroute}"
+  #   password: "${POSTGRES_PASSWORD}"  # REQUIRED — set via env var
+  #   dbname: "${POSTGRES_DB:-aroute}"
+  #   sslmode: "prefer"
 
 # Authentication
 auth:
-  # JWT signing secret (CHANGE THIS in production!)
-  jwt_secret: "change-me-to-a-random-string"
+  # IMPORTANT: Override via AROUTE_AUTH_JWT_SECRET environment variable in production
+  jwt_secret: "${AUTH_JWT_SECRET}"  # CHANGE ME - use a strong random string
   jwt_algorithm: "HS256"
   # RS256 key paths (required when jwt_algorithm is RS256/RS384/RS512):
   # jwt_private_key_path: "configs/keys/jwt_private.pem"
@@ -40,8 +41,9 @@ auth:
     max_attempts: 5
     window: "1m"
   admin:
+    # IMPORTANT: Override via AROUTE_AUTH_ADMIN_PASSWORD environment variable
     email: "admin@localhost"
-    password: "changeme"
+    password: ""  # Leave empty to auto-generate on first run
 
 # Media storage
 media:
@@ -110,9 +112,10 @@ log:
     compress: true
 
 # CORS settings
+# IMPORTANT: Do NOT use "*" in production. Specify exact origins.
 cors:
   allowed_origins:
-    - "*"
+    - "http://localhost:8080"
   allowed_methods:
     - "GET"
     - "POST"

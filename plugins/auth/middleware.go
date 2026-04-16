@@ -17,6 +17,8 @@ const (
 	ContextKeyClaims contextKey = "auth_claims"
 	// ContextKeyUserID stores the user ID in the request context.
 	ContextKeyUserID contextKey = "auth_user_id"
+	// ContextKeyRemoteIP stores the client IP address in the request context.
+	ContextKeyRemoteIP contextKey = "auth_remote_ip"
 )
 
 // RBACMiddleware returns a chi-compatible middleware that authenticates requests
@@ -30,9 +32,23 @@ func RBACMiddleware(svc *Service) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Store claims in request context.
+			remoteIP := r.RemoteAddr
+			if rip := r.Header.Get("X-Real-IP"); rip != "" {
+				remoteIP = rip
+			} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				if idx := strings.Index(xff, ","); idx != -1 {
+					remoteIP = strings.TrimSpace(xff[:idx])
+				} else {
+					remoteIP = strings.TrimSpace(xff)
+				}
+			}
+			if idx := strings.LastIndex(remoteIP, ":"); idx != -1 {
+				remoteIP = remoteIP[:idx]
+			}
+
 			ctx := context.WithValue(r.Context(), ContextKeyClaims, claims)
 			ctx = context.WithValue(ctx, ContextKeyUserID, claims.UserID)
+			ctx = context.WithValue(ctx, ContextKeyRemoteIP, remoteIP)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

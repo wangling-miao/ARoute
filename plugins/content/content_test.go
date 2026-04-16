@@ -3175,7 +3175,7 @@ func TestValidateRelationNilConfig(t *testing.T) {
 		RelationConfig: nil,
 	}
 
-	v.validateRelation("test", field, "some-value", "rel", verrs)
+	v.validateRelation(context.Background(), "test", field, "some-value", "rel", verrs)
 	if verrs.HasErrors() {
 		t.Error("expected no errors for nil RelationConfig")
 	}
@@ -3193,7 +3193,7 @@ func TestValidateRelationMissingTarget(t *testing.T) {
 		},
 	}
 
-	v.validateRelation("test", field, "val", "rel", verrs)
+	v.validateRelation(context.Background(), "test", field, "val", "rel", verrs)
 	if !verrs.HasErrors() {
 		t.Error("expected error for missing target_content_type")
 	}

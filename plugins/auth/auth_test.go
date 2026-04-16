@@ -2264,9 +2264,19 @@ func TestPlugin_New(t *testing.T) {
 
 func TestPlugin_ReadConfig(t *testing.T) {
 	p := New()
-	cfg := p.readConfig(newMockConfig())
-	if cfg.jwtSecret != "aroute-default-secret-change-in-production" {
-		t.Errorf("jwtSecret = %q, want default", cfg.jwtSecret)
+	p.ctx = core.NewCoreContext(context.Background(), nil, nil, nil, slog.Default(), "", "")
+	cfg, err := p.readConfig(newMockConfig())
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
+	if cfg.jwtSecret == "" {
+		t.Error("jwtSecret should not be empty")
+	}
+	if cfg.jwtSecret == "aroute-default-secret-change-in-production" {
+		t.Error("jwtSecret should not be the old hardcoded default")
+	}
+	if len(cfg.jwtSecret) != 64 {
+		t.Errorf("jwtSecret length = %d, want 64 (32 bytes hex)", len(cfg.jwtSecret))
 	}
 	if cfg.jwtAlgorithm != "HS256" {
 		t.Errorf("jwtAlgorithm = %q, want %q", cfg.jwtAlgorithm, "HS256")
@@ -2287,6 +2297,7 @@ func TestPlugin_ReadConfig(t *testing.T) {
 
 func TestPlugin_ReadConfigWithValues(t *testing.T) {
 	p := New()
+	p.ctx = core.NewCoreContext(context.Background(), nil, nil, nil, slog.Default(), "", "")
 	mc := newMockConfig()
 	mc.data["auth.jwt_secret"] = "my-secret"
 	mc.data["auth.jwt_algorithm"] = "HS512"
@@ -2296,7 +2307,10 @@ func TestPlugin_ReadConfigWithValues(t *testing.T) {
 	mc.data["auth.rate_limit.max_attempts"] = 10
 	mc.data["auth.rate_limit.window"] = "30m"
 
-	cfg := p.readConfig(mc)
+	cfg, err := p.readConfig(mc)
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
 	if cfg.jwtSecret != "my-secret" {
 		t.Errorf("jwtSecret = %q, want %q", cfg.jwtSecret, "my-secret")
 	}

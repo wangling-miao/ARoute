@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -665,11 +666,22 @@ func (s *Store) scanUser(row *sql.Row) (*interfaces.User, error) {
 		return nil, fmt.Errorf("scan user: %w", err)
 	}
 
-	user.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	user.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		user.CreatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse created_at timestamp", "value", createdAt, "error", err)
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+		user.UpdatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse updated_at timestamp", "value", updatedAt, "error", err)
+	}
 	if lastLoginAt.Valid {
-		t, _ := time.Parse(time.RFC3339, lastLoginAt.String)
-		user.LastLoginAt = &t
+		if t, err := time.Parse(time.RFC3339, lastLoginAt.String); err == nil {
+			user.LastLoginAt = &t
+		} else {
+			slog.Default().Warn("failed to parse last_login_at timestamp", "value", lastLoginAt.String, "error", err)
+		}
 	}
 
 	return &user, nil
@@ -690,8 +702,16 @@ func (s *Store) scanRole(row *sql.Row) (*interfaces.Role, error) {
 		return nil, fmt.Errorf("scan role: %w", err)
 	}
 
-	role.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	role.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		role.CreatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse created_at timestamp", "value", createdAt, "error", err)
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+		role.UpdatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse updated_at timestamp", "value", updatedAt, "error", err)
+	}
 	return &role, nil
 }
 
@@ -707,8 +727,16 @@ func (s *Store) scanRoleRow(rows *sql.Rows) (*interfaces.Role, error) {
 		return nil, fmt.Errorf("scan role row: %w", err)
 	}
 
-	role.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	role.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		role.CreatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse created_at timestamp", "value", createdAt, "error", err)
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+		role.UpdatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse updated_at timestamp", "value", updatedAt, "error", err)
+	}
 	return &role, nil
 }
 
@@ -758,14 +786,24 @@ func (s *Store) scanAPIToken(row *sql.Row) (*interfaces.APIToken, error) {
 		return nil, fmt.Errorf("scan api token: %w", err)
 	}
 
-	token.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		token.CreatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse created_at timestamp", "value", createdAt, "error", err)
+	}
 	if expiresAt.Valid {
-		t, _ := time.Parse(time.RFC3339, expiresAt.String)
-		token.ExpiresAt = &t
+		if t, err := time.Parse(time.RFC3339, expiresAt.String); err == nil {
+			token.ExpiresAt = &t
+		} else {
+			slog.Default().Warn("failed to parse expires_at timestamp", "value", expiresAt.String, "error", err)
+		}
 	}
 	if lastUsedAt.Valid {
-		t, _ := time.Parse(time.RFC3339, lastUsedAt.String)
-		token.LastUsedAt = &t
+		if t, err := time.Parse(time.RFC3339, lastUsedAt.String); err == nil {
+			token.LastUsedAt = &t
+		} else {
+			slog.Default().Warn("failed to parse last_used_at timestamp", "value", lastUsedAt.String, "error", err)
+		}
 	}
 	return &token, nil
 }
@@ -784,14 +822,24 @@ func (s *Store) scanAPITokenRow(rows *sql.Rows) (*interfaces.APIToken, error) {
 		return nil, fmt.Errorf("scan api token row: %w", err)
 	}
 
-	token.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		token.CreatedAt = t
+	} else {
+		slog.Default().Warn("failed to parse created_at timestamp", "value", createdAt, "error", err)
+	}
 	if expiresAt.Valid {
-		t, _ := time.Parse(time.RFC3339, expiresAt.String)
-		token.ExpiresAt = &t
+		if t, err := time.Parse(time.RFC3339, expiresAt.String); err == nil {
+			token.ExpiresAt = &t
+		} else {
+			slog.Default().Warn("failed to parse expires_at timestamp", "value", expiresAt.String, "error", err)
+		}
 	}
 	if lastUsedAt.Valid {
-		t, _ := time.Parse(time.RFC3339, lastUsedAt.String)
-		token.LastUsedAt = &t
+		if t, err := time.Parse(time.RFC3339, lastUsedAt.String); err == nil {
+			token.LastUsedAt = &t
+		} else {
+			slog.Default().Warn("failed to parse last_used_at timestamp", "value", lastUsedAt.String, "error", err)
+		}
 	}
 	return &token, nil
 }

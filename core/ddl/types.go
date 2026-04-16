@@ -2,6 +2,8 @@ package ddl
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 )
 
 // DiffOperationType represents the type of schema diff operation.
@@ -138,4 +140,81 @@ func NewDiffResult() *DiffResult {
 	return &DiffResult{
 		Operations: make([]DiffOperation, 0),
 	}
+}
+
+var identifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+var validCascadeActions = map[string]bool{
+	"CASCADE": true, "SET NULL": true, "SET DEFAULT": true,
+	"RESTRICT": true, "NO ACTION": true,
+}
+
+func sanitizeIdentifier(name, kind string) error {
+	if name == "" {
+		return fmt.Errorf("%s must not be empty", kind)
+	}
+	if !identifierRegex.MatchString(name) {
+		return fmt.Errorf("invalid %s %q: must match [a-zA-Z_][a-zA-Z0-9_]*", kind, name)
+	}
+	if len(name) > 63 {
+		return fmt.Errorf("%s %q exceeds maximum length of 63", kind, name)
+	}
+	return nil
+}
+
+func sanitizeCascadeAction(action string) (string, error) {
+	upper := strings.ToUpper(strings.TrimSpace(action))
+	if !validCascadeActions[upper] {
+		return "", fmt.Errorf("invalid cascade action %q", action)
+	}
+	return upper, nil
+}
+
+func validateOperation(op DiffOperation) error {
+	if err := sanitizeIdentifier(op.TableName, "table name"); err != nil {
+		return err
+	}
+	if op.ColumnName != "" {
+		if err := sanitizeIdentifier(op.ColumnName, "column name"); err != nil {
+			return err
+		}
+	}
+	if op.IndexName != "" {
+		if err := sanitizeIdentifier(op.IndexName, "index name"); err != nil {
+			return err
+		}
+	}
+	for _, col := range op.IndexColumns {
+		if err := sanitizeIdentifier(col, "index column"); err != nil {
+			return err
+		}
+	}
+	if op.ForeignKey != nil {
+		if err := sanitizeIdentifier(op.ForeignKey.Table, "foreign key table"); err != nil {
+			return err
+		}
+		if op.ForeignKey.Column != "" {
+			if err := sanitizeIdentifier(op.ForeignKey.Column, "foreign key column"); err != nil {
+				return err
+			}
+		}
+		if op.ForeignKey.OnDelete != "" {
+			if _, err := sanitizeCascadeAction(op.ForeignKey.OnDelete); err != nil {
+				return err
+			}
+		}
+		if op.ForeignKey.OnUpdate != "" {
+			if _, err := sanitizeCascadeAction(op.ForeignKey.OnUpdate); err != nil {
+				return err
+			}
+		}
+	}
+	if op.Schema != nil {
+		for _, field := range op.Schema.Fields {
+			if err := sanitizeIdentifier(field.Name, "field name"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -29,6 +29,12 @@ func (e *SQLiteExecutor) Execute(ctx context.Context, ops []DiffOperation, force
 		}
 	}
 
+	for _, op := range ops {
+		if err := validateOperation(op); err != nil {
+			return fmt.Errorf("invalid operation: %w", err)
+		}
+	}
+
 	tx, err := e.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)

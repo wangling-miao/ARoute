@@ -50,7 +50,7 @@ func (v *FieldValidator) Validate(ctx context.Context, ct *interfaces.ContentTyp
 			continue
 		}
 
-		v.validateField(ct.Name, field, val, verrs)
+		v.validateField(ctx, ct.Name, field, val, verrs)
 	}
 
 	if verrs.HasErrors() {
@@ -75,7 +75,7 @@ func isEmpty(val interface{}) bool {
 	}
 }
 
-func (v *FieldValidator) validateField(contentType string, field *interfaces.Field, val interface{}, verrs *interfaces.ValidationErrors) {
+func (v *FieldValidator) validateField(ctx context.Context, contentType string, field *interfaces.Field, val interface{}, verrs *interfaces.ValidationErrors) {
 	switch field.Type {
 	case "text", "markdown", "richtext":
 		v.validateText(field, val, verrs)
@@ -102,7 +102,7 @@ func (v *FieldValidator) validateField(contentType string, field *interfaces.Fie
 	case "media":
 		v.validateMedia(val, field.Name, verrs)
 	case "relation":
-		v.validateRelation(contentType, field, val, field.Name, verrs)
+		v.validateRelation(ctx, contentType, field, val, field.Name, verrs)
 	default:
 		verrs.Add(field.Name, fmt.Sprintf("unsupported field type: %s", field.Type), "unsupported_type")
 	}
@@ -307,7 +307,7 @@ func (v *FieldValidator) validateMedia(val interface{}, name string, verrs *inte
 	}
 }
 
-func (v *FieldValidator) validateRelation(contentType string, field *interfaces.Field, val interface{}, name string, verrs *interfaces.ValidationErrors) {
+func (v *FieldValidator) validateRelation(ctx context.Context, contentType string, field *interfaces.Field, val interface{}, name string, verrs *interfaces.ValidationErrors) {
 	if field.RelationConfig == nil {
 		return
 	}
@@ -330,7 +330,6 @@ func (v *FieldValidator) validateRelation(contentType string, field *interfaces.
 		if id == "" {
 			return
 		}
-		ctx := context.Background()
 		targetCT, err := v.store.GetContentType(ctx, field.RelationConfig.TargetContentType)
 		if err != nil {
 			return
@@ -343,7 +342,6 @@ func (v *FieldValidator) validateRelation(contentType string, field *interfaces.
 		if v.store == nil {
 			return
 		}
-		ctx := context.Background()
 		targetCT, err := v.store.GetContentType(ctx, field.RelationConfig.TargetContentType)
 		if err != nil {
 			return

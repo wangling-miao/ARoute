@@ -175,6 +175,10 @@ func NewValidator(license *License, pubKey *ecdsa.PublicKey) *Validator {
 		features:  make(map[string]bool),
 	}
 
+	if pubKey == nil {
+		slog.Default().Warn("license public key not provided; signature verification is disabled. This should only be used for testing.")
+	}
+
 	v.openTier = &License{
 		ID:       "open-default",
 		Tier:     TierOpen,
