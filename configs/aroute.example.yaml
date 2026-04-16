@@ -5,7 +5,19 @@
 server:
   host: "0.0.0.0"
   port: 8080
-
+  # CORS settings
+  cors:
+    allowed_origins:
+      - "http://localhost:8080"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "OPTIONS"
+    allowed_headers:
+      - "Authorization"
+      - "Content-Type"
 # Database configuration
 database:
   # Driver: "sqlite" or "postgres"
@@ -110,22 +122,7 @@ log:
     max_backups: 10
     # Compress rotated log files
     compress: true
-
-# CORS settings
-# IMPORTANT: Do NOT use "*" in production. Specify exact origins.
-cors:
-  allowed_origins:
-    - "http://localhost:8080"
-  allowed_methods:
-    - "GET"
-    - "POST"
-    - "PUT"
-    - "DELETE"
-    - "OPTIONS"
-  allowed_headers:
-    - "Authorization"
-    - "Content-Type"
-
+    
 # Plugins directory
 plugins:
   dir: "plugins"
