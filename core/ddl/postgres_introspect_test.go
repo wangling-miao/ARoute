@@ -550,6 +550,13 @@ func TestPostgreSQL_ListTables_Empty(t *testing.T) {
 
 	ctx := context.Background()
 
+	testPrefixes := []string{"pg_test_", "pg_list_", "pg_hidden_", "pg_simple_", "pg_fk_",
+		"pg_nullable_", "pg_default_", "pg_idx_", "pg_unique_", "pg_compound_",
+		"pg_routing_", "pg_col_", "pg_new_", "pg_alter_", "pg_rebuild_", "pg_diff_"}
+	for _, prefix := range testPrefixes {
+		pgDropPrefixTables(t, pgdb.db, prefix)
+	}
+
 	introspector := NewIntrospector(pgdb, DialectPostgreSQL)
 
 	tables, err := introspector.ListTables(ctx)
@@ -557,8 +564,12 @@ func TestPostgreSQL_ListTables_Empty(t *testing.T) {
 		t.Fatalf("ListTables() error = %v", err)
 	}
 
-	if len(tables) != 0 {
-		t.Errorf("expected 0 tables, got %d: %v", len(tables), tables)
+	for _, tbl := range tables {
+		for _, prefix := range testPrefixes {
+			if strings.HasPrefix(tbl, prefix) {
+				t.Errorf("found leftover test table %q (prefix %q) — cleanup failed", tbl, prefix)
+			}
+		}
 	}
 }
 

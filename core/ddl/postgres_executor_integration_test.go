@@ -156,6 +156,25 @@ func pgDropTestTable(t *testing.T, db *sql.DB, tableName string) {
 	}
 }
 
+func pgDropPrefixTables(t *testing.T, db *sql.DB, prefix string) {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(),
+		"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE $1",
+		prefix+"%")
+	if err != nil {
+		t.Logf("query prefix tables %s: %v", prefix, err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		pgDropTestTable(t, db, name)
+	}
+}
+
 func pgCreateTestTable(t *testing.T, executor *PostgreSQLExecutor, ctx context.Context, schema *Schema) {
 	t.Helper()
 	ops := []DiffOperation{
