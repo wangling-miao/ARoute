@@ -460,10 +460,10 @@ make admin-dev
 - [x] Database plugin (SQLite + PG, migration runner, schema introspection)
 - [x] Auth plugin (JWT, bcrypt, RBAC, API tokens, rate limiting)
 - [x] CLI tool (serve, init, migrate, plugin, config, version)
+- [x] Content plugin (dynamic Content Types, CRUD, versioning, slug)
 
 ### 🚧 In Progress
 
-- [ ] Content plugin (dynamic Content Types, CRUD, versioning, slug)
 - [ ] Media plugin (upload, local/S3 storage, thumbnails)
 - [ ] Theme Engine plugin (Go template → Lua → React SSR)
 - [ ] Search plugin (Bleve + gse Chinese tokenizer)

@@ -3005,3 +3005,84 @@ func TestPlugin_StopNotRunning(t *testing.T) {
 		t.Fatalf("Stop when not running: %v", err)
 	}
 }
+
+func TestIsRateLimitError(t *testing.T) {
+	ok, seconds := IsRateLimitError(nil)
+	if ok {
+		t.Error("nil error should not be rate limit")
+	}
+
+	ok, seconds = IsRateLimitError(fmt.Errorf("some other error"))
+	if ok {
+		t.Error("non-rate-limit error should return false")
+	}
+
+	ok, seconds = IsRateLimitError(fmt.Errorf("rate limit exceeded, retry after 120 seconds"))
+	if !ok {
+		t.Error("expected rate limit error")
+	}
+	if seconds != 120 {
+		t.Errorf("expected 120 seconds, got %d", seconds)
+	}
+
+	ok, seconds = IsRateLimitError(fmt.Errorf("rate limit exceeded"))
+	if !ok {
+		t.Error("expected rate limit error (no retry-after)")
+	}
+	if seconds != 60 {
+		t.Errorf("expected default 60 seconds, got %d", seconds)
+	}
+
+	ok, _ = IsRateLimitError(fmt.Errorf("rate limit exceeded, retry after 0 seconds"))
+	if !ok {
+		t.Error("expected rate limit with 0 seconds to use default")
+	}
+}
+
+func TestWriteRateLimitError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	WriteRateLimitError(rec, 30)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("expected status 429, got %d", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") != "30" {
+		t.Errorf("expected Retry-After=30, got %s", rec.Header().Get("Retry-After"))
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "rate_limit_exceeded") {
+		t.Errorf("expected body to contain rate_limit_exceeded, got %s", body)
+	}
+}
+
+func TestParseDurationWithDays(t *testing.T) {
+	d := parseDurationWithDays("7d")
+	if d != 7*24*time.Hour {
+		t.Errorf("expected 7d = %v, got %v", 7*24*time.Hour, d)
+	}
+
+	d = parseDurationWithDays("1d")
+	if d != 24*time.Hour {
+		t.Errorf("expected 1d = %v, got %v", 24*time.Hour, d)
+	}
+
+	d = parseDurationWithDays("30m")
+	if d != 30*time.Minute {
+		t.Errorf("expected 30m = %v, got %v", 30*time.Minute, d)
+	}
+
+	d = parseDurationWithDays("1h")
+	if d != time.Hour {
+		t.Errorf("expected 1h = %v, got %v", time.Hour, d)
+	}
+
+	d = parseDurationWithDays("invalid")
+	if d != 0 {
+		t.Errorf("expected 0 for invalid, got %v", d)
+	}
+
+	d = parseDurationWithDays("xd")
+	if d != 0 {
+		t.Errorf("expected 0 for non-numeric days, got %v", d)
+	}
+}

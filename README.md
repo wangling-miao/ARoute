@@ -460,10 +460,10 @@ make admin-dev
 - [x] Database 插件（SQLite + PG、Migration Runner、Schema 内省）
 - [x] Auth 插件（JWT、bcrypt、RBAC、API Token、频率限制）
 - [x] CLI 工具（serve、init、migrate、plugin、config、version）
+- [x] Content 插件（动态 Content Type、CRUD、版本历史、Slug）
 
 ### 🚧 开发中
 
-- [ ] Content 插件（动态 Content Type、CRUD、版本历史、Slug）
 - [ ] Media 插件（上传、本地/S3 存储、缩略图）
 - [ ] Theme Engine 插件（Go template → Lua → React SSR）
 - [ ] Search 插件（Bleve + gse 中文分词）
