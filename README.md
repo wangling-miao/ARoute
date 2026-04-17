@@ -1,12 +1,4 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
-  <a href="README_EN.md">
-    <img src="https://img.shields.io/badge/README-English-blue?style=flat-square" alt="English README" />
-  </a>
-</p>
+
 
 <h1 align="center">ARoute CMS</h1>
 
@@ -17,7 +9,15 @@
 <p align="center">
   插件沙箱隔离 · 动态内容类型 · 混合渲染引擎 · 单二进制零依赖部署
 </p>
-
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
+  <a href="README_EN.md">
+    <img src="https://img.shields.io/badge/README-English-blue?style=flat-square" alt="English README" />
+  </a>
+</p>
 <p align="center">
   <a href="#特性">特性</a> ·
   <a href="#快速开始">快速开始</a> ·
@@ -461,12 +461,12 @@ make admin-dev
 - [x] Auth 插件（JWT、bcrypt、RBAC、API Token、频率限制）
 - [x] CLI 工具（serve、init、migrate、plugin、config、version）
 - [x] Content 插件（动态 Content Type、CRUD、版本历史、Slug）
+- [x] Media 插件（上传、本地/S3 存储、缩略图）
+- [x] Theme Engine 插件（Go template → Lua → React SSR）
+- [x] Search 插件（Bleve + gse 中文分词）
 
 ### 🚧 开发中
 
-- [ ] Media 插件（上传、本地/S3 存储、缩略图）
-- [ ] Theme Engine 插件（Go template → Lua → React SSR）
-- [ ] Search 插件（Bleve + gse 中文分词）
 - [ ] REST API 插件（自动 CRUD、OpenAPI 3.0）
 - [ ] Cache 插件（ristretto + EventBus 自动失效）
 - [ ] Queue 插件（Goroutine worker pool、重试、死信队列）

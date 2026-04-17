@@ -1,12 +1,4 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
-  <a href="README.md">
-    <img src="https://img.shields.io/badge/README-中文-red?style=flat-square" alt="中文 README" />
-  </a>
-</p>
+
 
 <h1 align="center">ARoute CMS</h1>
 
@@ -17,7 +9,15 @@
 <p align="center">
   Plugin sandboxing · Dynamic Content Types · Hybrid rendering · Single binary deployment
 </p>
-
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
+  <a href="README.md">
+    <img src="https://img.shields.io/badge/README-中文-red?style=flat-square" alt="中文 README" />
+  </a>
+</p>
 <p align="center">
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick Start</a> ·
@@ -461,12 +461,12 @@ make admin-dev
 - [x] Auth plugin (JWT, bcrypt, RBAC, API tokens, rate limiting)
 - [x] CLI tool (serve, init, migrate, plugin, config, version)
 - [x] Content plugin (dynamic Content Types, CRUD, versioning, slug)
+- [x] Media plugin (upload, local/S3 storage, thumbnails)
+- [x] Theme Engine plugin (Go template → Lua → React SSR)
+- [x] Search plugin (Bleve + gse Chinese tokenizer)
 
 ### 🚧 In Progress
 
-- [ ] Media plugin (upload, local/S3 storage, thumbnails)
-- [ ] Theme Engine plugin (Go template → Lua → React SSR)
-- [ ] Search plugin (Bleve + gse Chinese tokenizer)
 - [ ] REST API plugin (auto CRUD, OpenAPI 3.0)
 - [ ] Cache plugin (ristretto + EventBus auto-invalidation)
 - [ ] Queue plugin (goroutine worker pool, retry, dead letter)
