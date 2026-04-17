@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -144,6 +145,9 @@ func (s *Service) GetActiveTheme(ctx context.Context) (string, error) {
 	return s.activeTheme, nil
 }
 
+// SetActiveTheme changes the active theme to the one specified by name.
+//
+// PRIVILEGED: Callers MUST verify admin authorization before invoking this method.
 func (s *Service) SetActiveTheme(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -191,7 +195,18 @@ func (s *Service) ListThemes(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+// InstallTheme copies a theme from sourcePath into the themes directory and
+// registers it in the database.
+//
+// PRIVILEGED: Callers MUST verify admin authorization before invoking this method.
+// sourcePath MUST be an absolute path within an expected staging directory.
 func (s *Service) InstallTheme(ctx context.Context, sourcePath string) error {
+	absSource, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return fmt.Errorf("invalid source path: %w", err)
+	}
+	sourcePath = absSource
+
 	manifest, err := LoadThemeManifest(filepath.Join(sourcePath, "theme.yaml"))
 	if err != nil {
 		return fmt.Errorf("validate theme manifest: %w", err)
@@ -275,13 +290,34 @@ func (s *Service) emitEvent(ctx context.Context, topic string, data map[string]i
 	})
 }
 
+var slugifyNonAlphaNumName = regexp.MustCompile(`[^a-z0-9-]`)
+
 func slugifyName(name string) string {
 	s := strings.ToLower(name)
 	s = strings.ReplaceAll(s, " ", "-")
+	s = slugifyNonAlphaNumName.ReplaceAllString(s, "")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		s = "untitled"
+	}
 	return s
 }
 
+// allowedThemeExtensions defines file types that may be copied during theme installation.
+var allowedThemeExtensions = map[string]bool{
+	".html": true, ".css": true, ".js": true, ".lua": true,
+	".yaml": true, ".yml": true, ".json": true, ".txt": true,
+	".md": true, ".png": true, ".jpg": true, ".jpeg": true,
+	".svg": true, ".ico": true, ".gif": true, ".webp": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".eot": true,
+	".map": true, ".webmanifest": true,
+}
+
 func copyDir(src, dst string) error {
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return fmt.Errorf("resolve destination path: %w", err)
+	}
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -291,16 +327,33 @@ func copyDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
+
+		if strings.Contains(relPath, "..") {
+			return fmt.Errorf("invalid relative path: %s", relPath)
+		}
+
 		destPath := filepath.Join(dst, relPath)
 
+		absDest, err := filepath.Abs(destPath)
+		if err != nil {
+			return fmt.Errorf("resolve destination: %w", err)
+		}
+		if absDest != absDst && !strings.HasPrefix(absDest, absDst+string(filepath.Separator)) {
+			return fmt.Errorf("destination escapes target directory: %s", relPath)
+		}
+
 		if info.IsDir() {
-			return os.MkdirAll(destPath, info.Mode())
+			return os.MkdirAll(destPath, 0o755)
+		}
+
+		if !allowedThemeExtensions[strings.ToLower(filepath.Ext(info.Name()))] {
+			return nil
 		}
 
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(destPath, data, info.Mode())
+		return os.WriteFile(destPath, data, 0o644)
 	})
 }

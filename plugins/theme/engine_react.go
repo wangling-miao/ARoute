@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -158,9 +159,20 @@ func (e *ReactSSREngine) Render(templateName string, data map[string]interface{}
 	e.injectDataField(ctx, data, "theme")
 
 	// Resolve the .js file path from the template name.
-	// "post.html" → "post.js"
-	jsFileName := strings.TrimSuffix(templateName, filepath.Ext(templateName)) + ".js"
+	// Security: sanitize templateName to prevent path traversal.
+	safeName := filepath.Base(templateName)
+	if safeName != templateName {
+		return "", fmt.Errorf("react ssr: invalid template name %q: path separators not allowed", templateName)
+	}
+	jsFileName := strings.TrimSuffix(safeName, filepath.Ext(safeName)) + ".js"
 	jsFilePath := filepath.Join(e.themesDir, e.themeSlug, "templates", jsFileName)
+
+	// Security: verify resolved path stays within the theme's templates directory.
+	templatesDir := filepath.Join(e.themesDir, e.themeSlug, "templates")
+	absPath, err := filepath.Abs(jsFilePath)
+	if err != nil || !strings.HasPrefix(absPath, templatesDir+string(filepath.Separator)) {
+		return "", fmt.Errorf("react ssr: template path escapes templates directory: %s", templateName)
+	}
 
 	// Determine source: prefer cached bytecode, fall back to file read.
 	var result *qjs.Value
@@ -191,7 +203,10 @@ func (e *ReactSSREngine) Render(templateName string, data map[string]interface{}
 
 	// Build hydration script: embed serialized data so client-side JS can
 	// hydrate without a separate fetch.
-	safeJSON := strings.ReplaceAll(jsonStr, "</script>", "<\\/script>")
+	// Security: json.Marshal escapes <, >, & to \uXXXX since Go 1.13.
+	// Additionally escape any closing script tags (case-insensitive) and HTML comments.
+	safeJSON := regexp.MustCompile(`(?i)</script`).ReplaceAllString(jsonStr, `<\\/script`)
+	safeJSON = strings.ReplaceAll(safeJSON, "<!--", `<\\!--`)
 	hydrationScript := fmt.Sprintf("<script>window.__AROUTE_DATA__ = %s;</script>", safeJSON)
 
 	// Insert before </body> when present; otherwise append to the end.

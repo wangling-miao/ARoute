@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -168,11 +169,23 @@ func (e *LuaEngine) Render(templateName string, data map[string]interface{}) (st
 	e.registerCMSGlobals(L)
 
 	// Resolve template path: replace .html extension with .lua.
-	luaTemplateName := templateName
+	// Security: sanitize templateName to prevent path traversal.
+	safeName := filepath.Base(templateName)
+	if safeName != templateName {
+		return "", fmt.Errorf("lua engine: invalid template name %q: path separators not allowed", templateName)
+	}
+	luaTemplateName := safeName
 	if strings.HasSuffix(luaTemplateName, ".html") {
 		luaTemplateName = strings.TrimSuffix(luaTemplateName, ".html") + ".lua"
 	}
-	templatePath := fmt.Sprintf("%s/%s/templates/%s", e.themesDir, e.themeSlug, luaTemplateName)
+	templatePath := filepath.Join(e.themesDir, e.themeSlug, "templates", luaTemplateName)
+
+	// Security: verify resolved path stays within the theme's templates directory.
+	templatesDir := filepath.Join(e.themesDir, e.themeSlug, "templates")
+	absPath, err := filepath.Abs(templatePath)
+	if err != nil || !strings.HasPrefix(absPath, templatesDir+string(filepath.Separator)) {
+		return "", fmt.Errorf("lua engine: template path escapes templates directory: %s", templateName)
+	}
 
 	// Execute the template file.
 	if err := L.DoFile(templatePath); err != nil {

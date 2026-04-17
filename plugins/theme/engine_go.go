@@ -147,7 +147,12 @@ func (e *GoTemplateEngine) Render(templateName string, data map[string]interface
 		return "", fmt.Errorf("no templates loaded for theme %q", e.themeSlug)
 	}
 
-	name := e.resolveTemplateName(templateName)
+	safeName := filepath.Base(templateName)
+	if safeName != templateName {
+		return "", fmt.Errorf("invalid template name %q: path separators not allowed", templateName)
+	}
+
+	name := e.resolveTemplateName(safeName)
 	if name == "" {
 		return "", fmt.Errorf("template %q not found in theme %q and no fallback available", templateName, e.themeSlug)
 	}
