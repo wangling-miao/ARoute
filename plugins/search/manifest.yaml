@@ -1,0 +1,20 @@
+name: search
+version: 1.0.0
+description: Full-text search plugin with Bleve indexing and gse Chinese tokenizer
+author: wangling
+license: MIT
+engine: native
+requires:
+  - content
+  - database
+after:
+  - content
+  - database
+provides:
+  - search.service
+keywords:
+  - search
+  - bleve
+  - full-text
+  - indexing
+  - chinese
