@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"io"
 	"mime/multipart"
 )
 
@@ -31,4 +32,7 @@ type MediaService interface {
 	// GenerateThumbnail creates a thumbnail for an image file.
 	// Returns the thumbnail path or an error if not applicable.
 	GenerateThumbnail(ctx context.Context, id string, width, height int) (string, error)
+
+	// UploadFromReader stores a file from an io.Reader, avoiding HTTP multipart coupling.
+	UploadFromReader(ctx context.Context, reader io.Reader, filename string, contentType string, uploaderID string) (*MediaFile, error)
 }

@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 	"database/sql"
+	"io"
 	"mime/multipart"
 	"testing"
 	"time"
@@ -321,6 +322,18 @@ func (m *mockAuthService) RevokeAPIToken(ctx context.Context, tokenID string) er
 	return nil
 }
 
+func (m *mockAuthService) UpdateUser(ctx context.Context, id string, req *UpdateUserRequest) (*User, error) {
+	return nil, nil
+}
+
+func (m *mockAuthService) DeleteUser(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *mockAuthService) ListUsers(ctx context.Context, query *UserQuery) (*Page, error) {
+	return nil, nil
+}
+
 type mockContentService struct{}
 
 func (m *mockContentService) Create(ctx context.Context, contentType string, data map[string]interface{}) (*Content, error) {
@@ -385,6 +398,10 @@ func (m *mockMediaService) GenerateThumbnail(ctx context.Context, id string, wid
 	return "", nil
 }
 
+func (m *mockMediaService) UploadFromReader(ctx context.Context, reader io.Reader, filename string, contentType string, uploaderID string) (*MediaFile, error) {
+	return nil, nil
+}
+
 type mockSearchService struct{}
 
 func (m *mockSearchService) Index(ctx context.Context, contentType string, content *Content) error {
@@ -429,6 +446,10 @@ func (m *mockCacheService) Stats(ctx context.Context) *CacheStats {
 	return nil
 }
 
+func (m *mockCacheService) Flush(ctx context.Context) error {
+	return nil
+}
+
 type mockQueueService struct{}
 
 func (m *mockQueueService) RegisterTask(ctx context.Context, name string, handler TaskHandler) error {
@@ -441,6 +462,10 @@ func (m *mockQueueService) Enqueue(ctx context.Context, name string, payload int
 
 func (m *mockQueueService) GetStatus(ctx context.Context, taskID string) (*TaskStatus, error) {
 	return nil, nil
+}
+
+func (m *mockQueueService) Close(ctx context.Context) error {
+	return nil
 }
 
 type mockThemeService struct{}

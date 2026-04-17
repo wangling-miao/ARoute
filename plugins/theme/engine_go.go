@@ -231,17 +231,18 @@ func formatDate(t interface{}, layout string) string {
 	return tt.Format(layout)
 }
 
-func truncate(s string, maxLen int) string {
-	if maxLen < 0 {
+func truncate(s string, maxRunes int) string {
+	if maxRunes <= 0 {
 		return s
 	}
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
 		return s
 	}
-	if maxLen <= 3 {
-		return s[:maxLen]
+	if maxRunes > 3 {
+		return string(runes[:maxRunes-3]) + "..."
 	}
-	return s[:maxLen-3] + "..."
+	return string(runes[:maxRunes])
 }
 
 var slugifyNonAlphaNum = regexp.MustCompile(`[^a-z0-9]+`)

@@ -54,7 +54,11 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	}
 	logger.Info("Content tables created or verified")
 
-	svc := NewService(store, ctx.Events(), logger)
+	var driverName string
+	if ctx.Config() != nil {
+		driverName = ctx.Config().GetString("database.driver")
+	}
+	svc := NewService(store, ctx.Events(), logger, driverName)
 	p.service = svc
 
 	if err := svc.InitializeBuiltInContentTypes(ctx.Context()); err != nil {

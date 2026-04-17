@@ -324,7 +324,11 @@ func (e *SQLiteExecutor) inferFieldType(sqlType string) FieldType {
 }
 
 func (e *SQLiteExecutor) removeField(schema *Schema, fieldName string) *Schema {
-	newSchema := schema.Clone()
+	newSchema, err := schema.Clone()
+	if err != nil {
+		// Clone failed; return original schema (operation will be skipped upstream)
+		return schema
+	}
 	newFields := make([]FieldDefinition, 0, len(schema.Fields))
 	for _, f := range newSchema.Fields {
 		if f.Name != fieldName {
@@ -336,7 +340,10 @@ func (e *SQLiteExecutor) removeField(schema *Schema, fieldName string) *Schema {
 }
 
 func (e *SQLiteExecutor) modifyField(schema *Schema, fieldName, newType string, constraints *Constraints) *Schema {
-	newSchema := schema.Clone()
+	newSchema, err := schema.Clone()
+	if err != nil {
+		return schema
+	}
 	for i, f := range newSchema.Fields {
 		if f.Name == fieldName {
 			newSchema.Fields[i].Type = FieldType(newType)

@@ -51,7 +51,8 @@ func NewService(store *Store, storage StorageBackend, ev core.EventBus, logger *
 }
 
 func (s *Service) Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, uploaderID string) (*interfaces.MediaFile, error) {
-	data, err := io.ReadAll(file)
+	lr := io.LimitReader(file, maxFileSize+1)
+	data, err := io.ReadAll(lr)
 	if err != nil {
 		return nil, fmt.Errorf("read file data: %w", err)
 	}
@@ -246,6 +247,83 @@ func (s *Service) GenerateThumbnail(ctx context.Context, id string, width, heigh
 	})
 
 	return thumbPath, nil
+}
+
+// UploadFromReader stores a file from an io.Reader, avoiding HTTP multipart coupling.
+func (s *Service) UploadFromReader(ctx context.Context, reader io.Reader, filename string, contentType string, uploaderID string) (*interfaces.MediaFile, error) {
+	lr := io.LimitReader(reader, maxFileSize+1)
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, fmt.Errorf("read file data: %w", err)
+	}
+
+	if int64(len(data)) > maxFileSize {
+		return nil, fmt.Errorf("file size exceeds maximum allowed size %d: %w", maxFileSize, interfaces.ErrValidation)
+	}
+
+	mimeType := contentType
+	if mimeType == "" {
+		sniffLen := len(data)
+		if sniffLen > 512 {
+			sniffLen = 512
+		}
+		mimeType = http.DetectContentType(data[:sniffLen])
+	}
+
+	if !allowedTypes[mimeType] {
+		return nil, fmt.Errorf("mime type %q is not allowed: %w", mimeType, interfaces.ErrValidation)
+	}
+
+	now := time.Now().UTC()
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		ext = ".bin"
+	}
+	storagePath := filepath.Join(
+		now.Format("2006"),
+		now.Format("01"),
+		now.Format("02"),
+		uuid.New().String()+ext,
+	)
+
+	if err := s.storage.Save(ctx, data, storagePath); err != nil {
+		return nil, fmt.Errorf("save file to storage: %w", err)
+	}
+
+	var width, height int
+	if isImageMIME(mimeType) {
+		w, h, err := decodeImageConfig(data)
+		if err == nil {
+			width = w
+			height = h
+		}
+	}
+
+	mf := &interfaces.MediaFile{
+		Filename:      filename,
+		MIMEType:      mimeType,
+		Size:          int64(len(data)),
+		Width:         width,
+		Height:        height,
+		StoragePath:   storagePath,
+		StorageType:   s.storage.Type(),
+		UploaderID:    uploaderID,
+		ThumbnailPath: "",
+	}
+
+	if err := s.store.Create(ctx, mf); err != nil {
+		return nil, fmt.Errorf("save media metadata: %w", err)
+	}
+
+	s.emitEvent(ctx, "media.uploaded", map[string]interface{}{
+		"id":          mf.ID,
+		"filename":    mf.Filename,
+		"mime_type":   mf.MIMEType,
+		"size":        mf.Size,
+		"uploader_id": mf.UploaderID,
+	})
+
+	return mf, nil
 }
 
 func (s *Service) emitEvent(ctx context.Context, topic string, data map[string]interface{}) {

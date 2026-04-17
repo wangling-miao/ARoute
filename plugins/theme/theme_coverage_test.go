@@ -455,7 +455,7 @@ return path .. "|" .. url
 	engine := NewLuaEngine(dir, "mytheme", slog.Default(), 2)
 	defer engine.Close()
 
-	result, err := engine.Render("post.lua", map[string]interface{}{
+	result, err := engine.Render(context.Background(), "post.lua", map[string]interface{}{
 		"title": "Hello",
 	})
 	if err != nil {
@@ -479,7 +479,7 @@ func TestLuaEngine_Render_EmptyResult(t *testing.T) {
 	engine := NewLuaEngine(dir, "mytheme", slog.Default(), 2)
 	defer engine.Close()
 
-	result, err := engine.Render("empty.lua", nil)
+	result, err := engine.Render(context.Background(), "empty.lua", nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestLuaEngine_Render_NestedData(t *testing.T) {
 	engine := NewLuaEngine(dir, "datatheme", slog.Default(), 2)
 	defer engine.Close()
 
-	result, err := engine.Render("profile.lua", map[string]interface{}{
+	result, err := engine.Render(context.Background(), "profile.lua", map[string]interface{}{
 		"user": map[string]interface{}{
 			"name": "Alice",
 			"age":  30,
@@ -524,7 +524,7 @@ func TestLuaEngine_Render_ArrayData(t *testing.T) {
 	engine := NewLuaEngine(dir, "arrtheme", slog.Default(), 2)
 	defer engine.Close()
 
-	result, err := engine.Render("list.lua", map[string]interface{}{
+	result, err := engine.Render(context.Background(), "list.lua", map[string]interface{}{
 		"items": []interface{}{"x", "y", "z"},
 	})
 	if err != nil {
@@ -547,7 +547,7 @@ func TestLuaEngine_Render_HtmlExtensionMapping(t *testing.T) {
 	defer engine.Close()
 
 	// Requesting "page.html" should resolve to "page.lua"
-	result, err := engine.Render("page.html", nil)
+	result, err := engine.Render(context.Background(), "page.html", nil)
 	if err != nil {
 		t.Fatalf("Render with .html extension: %v", err)
 	}
@@ -572,7 +572,7 @@ return table.concat(parts, "|")
 	engine := NewLuaEngine(dir, "niltheme", slog.Default(), 2)
 	defer engine.Close()
 
-	result, err := engine.Render("check.lua", map[string]interface{}{
+	result, err := engine.Render(context.Background(), "check.lua", map[string]interface{}{
 		"active": true,
 	})
 	if err != nil {
@@ -812,7 +812,7 @@ func TestLuaEngine_CMSUrl_StringParam(t *testing.T) {
 	engine := NewLuaEngine(dir, "urltheme", slog.Default(), 2)
 	defer engine.Close()
 
-	result, err := engine.Render("url.lua", nil)
+	result, err := engine.Render(context.Background(), "url.lua", nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -832,7 +832,7 @@ func TestLuaEngine_CMSUrl_NoSlug(t *testing.T) {
 	engine := NewLuaEngine(dir, "urltheme2", slog.Default(), 2)
 	defer engine.Close()
 
-	result, err := engine.Render("bare.lua", nil)
+	result, err := engine.Render(context.Background(), "bare.lua", nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}

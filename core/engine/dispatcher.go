@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/wangling-miao/aroute/core"
 )
@@ -79,6 +80,7 @@ func (e *DispatcherError) Unwrap() error {
 
 // dispatcherImpl is the concrete implementation of Dispatcher.
 type dispatcherImpl struct {
+	mu      sync.RWMutex
 	engines map[core.EngineType]Engine
 }
 
@@ -99,6 +101,9 @@ func (d *dispatcherImpl) RegisterEngine(engineType core.EngineType, engine Engin
 		}
 	}
 
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if _, exists := d.engines[engineType]; exists {
 		return &DispatcherError{
 			Op:     "register",
@@ -113,6 +118,9 @@ func (d *dispatcherImpl) RegisterEngine(engineType core.EngineType, engine Engin
 
 // GetEngine retrieves the engine for a given type.
 func (d *dispatcherImpl) GetEngine(engineType core.EngineType) (Engine, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	engine, ok := d.engines[engineType]
 	if !ok {
 		return nil, &DispatcherError{
@@ -141,6 +149,9 @@ func (d *dispatcherImpl) Execute(ctx context.Context, plugin core.Plugin, manife
 		return &DispatcherError{Op: "execute", Plugin: manifest.Name, Err: fmt.Errorf("engine not available: %w", err)}
 	}
 
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	if engine.Type() != engineType {
 		return &DispatcherError{Op: "execute", Plugin: manifest.Name, Err: fmt.Errorf("plugin engine mismatch: manifest=%v, actual=%v", engineType, engine.Type())}
 	}
@@ -150,6 +161,9 @@ func (d *dispatcherImpl) Execute(ctx context.Context, plugin core.Plugin, manife
 
 // Close shuts down all engines.
 func (d *dispatcherImpl) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	var errs []error
 
 	for engineType, engine := range d.engines {

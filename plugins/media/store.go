@@ -4,12 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
+
+var mediaSortColRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 type Store struct {
 	db interfaces.DatabaseService
@@ -131,7 +134,7 @@ func (s *Store) List(ctx context.Context, query *interfaces.ListQuery) ([]*inter
 	sortCol := "created_at"
 	sortOrder := "DESC"
 	if query != nil {
-		if query.Sort != "" {
+		if query.Sort != "" && mediaSortColRegex.MatchString(query.Sort) {
 			sortCol = query.Sort
 		}
 		if strings.EqualFold(query.Order, "asc") {

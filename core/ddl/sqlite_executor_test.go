@@ -1849,7 +1849,10 @@ func TestSchema_Clone_DeepCopy(t *testing.T) {
 		},
 	}
 
-	cloned := original.Clone()
+	cloned, err := original.Clone()
+	if err != nil {
+		t.Fatalf("Clone() error = %v", err)
+	}
 
 	if cloned.Name != original.Name {
 		t.Errorf("cloned.Name = %q, want %q", cloned.Name, original.Name)

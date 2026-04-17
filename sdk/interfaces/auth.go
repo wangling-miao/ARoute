@@ -32,6 +32,15 @@ type AuthService interface {
 
 	// RevokeAPIToken revokes an API token by ID.
 	RevokeAPIToken(ctx context.Context, tokenID string) error
+
+	// UpdateUser updates an existing user's profile fields.
+	UpdateUser(ctx context.Context, id string, req *UpdateUserRequest) (*User, error)
+
+	// DeleteUser permanently removes a user account.
+	DeleteUser(ctx context.Context, id string) error
+
+	// ListUsers retrieves a paginated list of users matching the query.
+	ListUsers(ctx context.Context, query *UserQuery) (*Page, error)
 }
 
 // AuthRequest contains authentication credentials.
@@ -132,4 +141,47 @@ type APIToken struct {
 
 	// LastUsedAt is when the token was last used.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+}
+
+// UpdateUserRequest contains optional fields for updating a user.
+// Only non-zero fields will be applied.
+type UpdateUserRequest struct {
+	// Email is the new email address (optional).
+	Email *string `json:"email,omitempty"`
+
+	// Username is the new display name (optional).
+	Username *string `json:"username,omitempty"`
+
+	// Password is the new password (optional, will be hashed).
+	Password *string `json:"password,omitempty"`
+
+	// Roles replaces the user's role list (optional).
+	Roles []string `json:"roles,omitempty"`
+
+	// Status is the new account status (optional: active, inactive, suspended).
+	Status *string `json:"status,omitempty"`
+}
+
+// UserQuery contains parameters for listing users.
+type UserQuery struct {
+	// Page is the page number (1-indexed).
+	Page int `json:"page"`
+
+	// PerPage is the number of items per page.
+	PerPage int `json:"per_page"`
+
+	// Status filters by account status (optional).
+	Status string `json:"status,omitempty"`
+
+	// Role filters by role name (optional).
+	Role string `json:"role,omitempty"`
+
+	// Search filters by email or username substring (optional).
+	Search string `json:"search,omitempty"`
+
+	// Sort is the sort field name.
+	Sort string `json:"sort,omitempty"`
+
+	// Order is the sort order ("asc" or "desc").
+	Order string `json:"order,omitempty"`
 }

@@ -417,8 +417,12 @@ func (s *Service) GetFacets(ctx context.Context, contentType string, fields []st
 }
 
 // Rebuild clears and rebuilds the entire search index from the content service.
+// It holds the write lock for the entire operation since this is an admin-only
+// operation and blocking reads during rebuild is acceptable.
 func (s *Service) Rebuild(ctx context.Context) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for ct, idx := range s.indices {
 		if err := idx.Close(); err != nil {
 			s.logger.Warn("Failed to close index during rebuild", "content_type", ct, "error", err)
@@ -429,12 +433,27 @@ func (s *Service) Rebuild(ctx context.Context) error {
 		}
 	}
 	s.indices = make(map[string]bleve.Index)
-	s.mu.Unlock()
+
+	mapping, err := s.buildIndexMapping()
+	if err != nil {
+		return fmt.Errorf("build index mapping for rebuild: %w", err)
+	}
 
 	contentTypes := []string{"page", "post", "category", "tag"}
 
 	var totalIndexed int64
 	for _, ct := range contentTypes {
+		// Create the bleve index directly (not via getOrCreateIndex which
+		// would deadlock on s.mu).
+		indexPath := filepath.Join(s.dataDir, ct+".bleve")
+		idx, createErr := bleve.New(indexPath, mapping)
+		if createErr != nil {
+			s.logger.Debug("Skip content type during rebuild, failed to create index",
+				"content_type", ct, "error", createErr)
+			continue
+		}
+		s.indices[ct] = idx
+
 		page := 1
 		perPage := 100
 		for {
@@ -458,7 +477,8 @@ func (s *Service) Rebuild(ctx context.Context) error {
 
 			for _, item := range items {
 				content := mapToContent(item)
-				if err := s.Index(ctx, ct, content); err != nil {
+				doc := s.buildSearchDocument(content)
+				if err := idx.Index(content.ID, doc); err != nil {
 					s.logger.Error("Failed to index during rebuild",
 						"id", content.ID, "error", err)
 					continue

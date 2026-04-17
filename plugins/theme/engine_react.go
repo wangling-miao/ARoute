@@ -14,6 +14,8 @@ import (
 	"github.com/fastschema/qjs"
 )
 
+var reactChunkPattern = regexp.MustCompile(`(?i)</script`)
+
 // ReactSSREngine renders templates using React server-side rendering
 // via a pooled QuickJS runtime with bytecode caching and hydration support.
 type ReactSSREngine struct {
@@ -205,7 +207,7 @@ func (e *ReactSSREngine) Render(templateName string, data map[string]interface{}
 	// hydrate without a separate fetch.
 	// Security: json.Marshal escapes <, >, & to \uXXXX since Go 1.13.
 	// Additionally escape any closing script tags (case-insensitive) and HTML comments.
-	safeJSON := regexp.MustCompile(`(?i)</script`).ReplaceAllString(jsonStr, `<\\/script`)
+	safeJSON := reactChunkPattern.ReplaceAllString(jsonStr, `<\\/script`)
 	safeJSON = strings.ReplaceAll(safeJSON, "<!--", `<\\!--`)
 	hydrationScript := fmt.Sprintf("<script>window.__AROUTE_DATA__ = %s;</script>", safeJSON)
 

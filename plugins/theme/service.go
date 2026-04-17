@@ -128,7 +128,7 @@ func (s *Service) Render(ctx context.Context, templateName string, data map[stri
 		if s.luaEngine == nil {
 			return "", fmt.Errorf("lua engine not initialized")
 		}
-		return s.luaEngine.Render(templateName, data)
+		return s.luaEngine.Render(ctx, templateName, data)
 	case "react":
 		if s.reactEngine == nil {
 			return "", fmt.Errorf("react SSR engine not initialized")
@@ -216,14 +216,15 @@ func (s *Service) InstallTheme(ctx context.Context, sourcePath string) error {
 
 	s.mu.Lock()
 	themesDir := s.themesDir
-	s.mu.Unlock()
 
 	destDir := filepath.Join(themesDir, slug)
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("create theme directory: %w", err)
 	}
 
 	if err := copyDir(sourcePath, destDir); err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("copy theme files: %w", err)
 	}
 
@@ -238,10 +239,10 @@ func (s *Service) InstallTheme(ctx context.Context, sourcePath string) error {
 	}
 
 	if err := s.store.Create(ctx, record); err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("register theme in database: %w", err)
 	}
 
-	s.mu.Lock()
 	s.themes[manifest.Name] = manifest
 	s.mu.Unlock()
 

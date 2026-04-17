@@ -210,7 +210,10 @@ func TestSchema_Clone(t *testing.T) {
 		},
 	}
 
-	clone := original.Clone()
+	clone, err := original.Clone()
+	if err != nil {
+		t.Fatalf("Clone() error = %v", err)
+	}
 
 	clone.Fields[0].Name = "modified"
 
@@ -385,7 +388,10 @@ func TestSchema_Clone_WithIndexes(t *testing.T) {
 		},
 	}
 
-	clone := original.Clone()
+	clone, err := original.Clone()
+	if err != nil {
+		t.Fatalf("Clone() error = %v", err)
+	}
 
 	if len(clone.Indexes) != len(original.Indexes) {
 		t.Fatalf("clone has %d indexes, want %d", len(clone.Indexes), len(original.Indexes))
@@ -405,7 +411,10 @@ func TestSchema_Clone_WithConstraints(t *testing.T) {
 		},
 	}
 
-	clone := original.Clone()
+	clone, err := original.Clone()
+	if err != nil {
+		t.Fatalf("Clone() error = %v", err)
+	}
 
 	if clone.Fields[0].Constraints.MaxLength == nil {
 		t.Fatal("cloned constraint MaxLength should not be nil")

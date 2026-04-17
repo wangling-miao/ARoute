@@ -2,14 +2,17 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wangling-miao/aroute/core"
@@ -155,10 +158,21 @@ func printPluginTable(entries []*registry.PluginEntry) {
 	w.Flush()
 }
 
-func installPluginFromURL(url, pluginDir, registryPath string) error {
-	fmt.Printf("Downloading plugin from %s...\n", url)
+const maxPluginSize = 100 * 1024 * 1024 // 100MB
 
-	resp, err := http.Get(url)
+func installPluginFromURL(rawURL, pluginDir, registryPath string) error {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme %q: only http and https are allowed", parsedURL.Scheme)
+	}
+
+	fmt.Printf("Downloading plugin from %s...\n", rawURL)
+
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(rawURL)
 	if err != nil {
 		return fmt.Errorf("download plugin: %w", err)
 	}
@@ -174,11 +188,14 @@ func installPluginFromURL(url, pluginDir, registryPath string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if strings.HasSuffix(url, ".tar.gz") || strings.HasSuffix(url, ".tgz") {
+	if strings.HasSuffix(rawURL, ".tar.gz") || strings.HasSuffix(rawURL, ".tgz") {
 		tmpFile := filepath.Join(tmpDir, "plugin.tar.gz")
-		data, err := io.ReadAll(resp.Body)
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxPluginSize+1))
 		if err != nil {
 			return fmt.Errorf("read download: %w", err)
+		}
+		if len(data) > maxPluginSize {
+			return fmt.Errorf("plugin archive exceeds maximum size of %d bytes", maxPluginSize)
 		}
 		if err := os.WriteFile(tmpFile, data, 0644); err != nil {
 			return fmt.Errorf("save download: %w", err)
@@ -211,8 +228,62 @@ func installPluginFromURL(url, pluginDir, registryPath string) error {
 }
 
 func extractTarGz(tarGzPath, destDir string) error {
-	cmd := exec.Command("tar", "-xzf", tarGzPath, "-C", destDir)
-	return cmd.Run()
+	f, err := os.Open(tarGzPath)
+	if err != nil {
+		return fmt.Errorf("open archive: %w", err)
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("decompress archive: %w", err)
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read tar entry: %w", err)
+		}
+
+		cleanedName := filepath.Clean(hdr.Name)
+		if strings.Contains(cleanedName, "..") || filepath.IsAbs(cleanedName) {
+			fmt.Fprintf(os.Stderr, "Warning: skipping unsafe path in archive: %s\n", hdr.Name)
+			continue
+		}
+		fullPath := filepath.Join(destDir, cleanedName)
+		if !strings.HasPrefix(fullPath, destDir+string(os.PathSeparator)) && fullPath != destDir {
+			fmt.Fprintf(os.Stderr, "Warning: skipping path escaping dest dir: %s\n", hdr.Name)
+			continue
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(fullPath, os.FileMode(hdr.Mode)); err != nil {
+				return fmt.Errorf("create directory %s: %w", cleanedName, err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+				return fmt.Errorf("create parent directory for %s: %w", cleanedName, err)
+			}
+			outFile, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return fmt.Errorf("create file %s: %w", cleanedName, err)
+			}
+			if _, err := io.Copy(outFile, io.LimitReader(tr, maxPluginSize)); err != nil {
+				outFile.Close()
+				return fmt.Errorf("write file %s: %w", cleanedName, err)
+			}
+			outFile.Close()
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: skipping unsupported tar entry type %d: %s\n", hdr.Typeflag, hdr.Name)
+		}
+	}
+	return nil
 }
 
 func runPluginInstall(cmd *cobra.Command, args []string) error {
@@ -397,7 +468,16 @@ func copyDir(src, dst string) error {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
 
-		if entry.IsDir() {
+		info, err := os.Lstat(srcPath)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			fmt.Fprintf(os.Stderr, "Warning: skipping symlink: %s\n", srcPath)
+			continue
+		}
+
+		if info.IsDir() {
 			if err := copyDir(srcPath, dstPath); err != nil {
 				return err
 			}

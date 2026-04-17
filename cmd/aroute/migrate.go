@@ -105,7 +105,7 @@ func openDatabaseForMigration() (*sql.DB, database.Driver, error) {
 		connStr := buildPostgresConnStr()
 		db, err := sql.Open("pgx", connStr)
 		if err != nil {
-			return nil, database.DriverPostgreSQL, fmt.Errorf("open postgres: %w", err)
+			return nil, database.DriverPostgreSQL, fmt.Errorf("open postgres: %v", err)
 		}
 
 		db.SetMaxOpenConns(viper.GetInt("database.pool.max_conns"))

@@ -19,6 +19,9 @@ type QueueService interface {
 
 	// GetStatus retrieves the current status of a queued task.
 	GetStatus(ctx context.Context, taskID string) (*TaskStatus, error)
+
+	// Close gracefully shuts down the worker pool, waiting for in-flight tasks.
+	Close(ctx context.Context) error
 }
 
 // TaskHandler is the function signature for task handlers.

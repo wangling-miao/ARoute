@@ -6,6 +6,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -54,6 +55,10 @@ type EventBus struct {
 
 	// handlerIDCounter generates unique IDs for handlers
 	handlerIDCounter uint64
+
+	// sem limits concurrent broadcast handler goroutines to prevent
+	// unbounded goroutine spawning under high event load.
+	sem chan struct{}
 }
 
 // filterHandlerEntry represents a registered filter chain handler.
@@ -74,6 +79,7 @@ func NewEventBus() *EventBus {
 	return &EventBus{
 		filterHandlers:    make(map[string][]filterHandlerEntry),
 		broadcastHandlers: make(map[string][]broadcastHandlerEntry),
+		sem:               make(chan struct{}, 100),
 	}
 }
 
@@ -149,21 +155,17 @@ func (eb *EventBus) Emit(ctx context.Context, event Event) {
 		return
 	}
 
-	// Execute all handlers concurrently
-	var wg sync.WaitGroup
+	// Execute all handlers concurrently (bounded by semaphore)
 	for _, entry := range handlers {
-		wg.Add(1)
+		eb.sem <- struct{}{} // acquire semaphore slot; blocks if 100 goroutines are active
 		go func(h BroadcastHandler) {
-			defer wg.Done()
+			defer func() { <-eb.sem }() // release semaphore slot
 			defer func() {
 				if r := recover(); r != nil {
-					// Log panic but don't propagate
-					// In production, this would use proper logging
 					fmt.Printf("[EventBus] Broadcast handler panic: %v\n", r)
 				}
 			}()
 
-			// Send a copy to prevent mutation
 			eventCopy := Event{
 				Topic: event.Topic,
 				Data:  copyEventData(event.Data),
@@ -172,9 +174,7 @@ func (eb *EventBus) Emit(ctx context.Context, event Event) {
 		}(entry.handler)
 	}
 
-	// For fire-and-forget, we don't wait for completion
-	// This matches the spec requirement: "returns immediately"
-	// Handlers run in background
+	// Fire-and-forget: do not wait for handler completion
 }
 
 // DispatchFilter executes filter chain handlers in priority order.
@@ -391,18 +391,31 @@ func matchParts(topicParts, patternParts []string) bool {
 	return false
 }
 
-// copyEventData creates a deep copy of event data map.
-// Ensures broadcast handlers receive independent copies.
+// copyEventData creates a deep copy of event data map using JSON round-trip.
+// Ensures broadcast handlers receive independent copies that cannot mutate each other.
 func copyEventData(data map[string]interface{}) map[string]interface{} {
 	if data == nil {
 		return nil
 	}
 
-	result := make(map[string]interface{}, len(data))
-	for k, v := range data {
-		// Shallow copy is sufficient for most use cases
-		// For nested maps, callers should handle deep copying if needed
-		result[k] = v
+	buf, err := json.Marshal(data)
+	if err != nil {
+		// Fallback to shallow copy if JSON marshal fails (non-serializable values)
+		result := make(map[string]interface{}, len(data))
+		for k, v := range data {
+			result[k] = v
+		}
+		return result
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(buf, &result); err != nil {
+		// Fallback to shallow copy if JSON unmarshal fails
+		result = make(map[string]interface{}, len(data))
+		for k, v := range data {
+			result[k] = v
+		}
+		return result
 	}
 	return result
 }

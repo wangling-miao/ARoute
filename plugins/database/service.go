@@ -11,6 +11,19 @@ import (
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
+// identifierRegex validates SQL identifiers (table names, column names, index names).
+// Only allows letters, digits, and underscores; must start with a letter or underscore.
+var identifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// validateIdentifier checks that a name is a safe SQL identifier to prevent
+// injection via PRAGMA or other statements that don't support parameters.
+func validateIdentifier(name string) error {
+	if !identifierRegex.MatchString(name) {
+		return fmt.Errorf("invalid SQL identifier: %q", name)
+	}
+	return nil
+}
+
 type txCtxKey struct{}
 
 type Service struct {
@@ -133,6 +146,9 @@ func (s *Service) sqliteListTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *Service) sqliteListColumns(ctx context.Context, tableName string) ([]interfaces.ColumnDefinition, error) {
+	if err := validateIdentifier(tableName); err != nil {
+		return nil, fmt.Errorf("invalid table name for PRAGMA table_info: %w", err)
+	}
 	rows, err := s.Query(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {
 		return nil, err
@@ -166,6 +182,9 @@ func (s *Service) sqliteListColumns(ctx context.Context, tableName string) ([]in
 }
 
 func (s *Service) sqliteListIndexes(ctx context.Context, tableName string) ([]interfaces.IndexDefinition, error) {
+	if err := validateIdentifier(tableName); err != nil {
+		return nil, fmt.Errorf("invalid table name for PRAGMA index_list: %w", err)
+	}
 	rows, err := s.Query(ctx, fmt.Sprintf("PRAGMA index_list(%s)", tableName))
 	if err != nil {
 		return nil, err
@@ -191,6 +210,9 @@ func (s *Service) sqliteListIndexes(ctx context.Context, tableName string) ([]in
 			Unique: unique == 1,
 		}
 
+		if err := validateIdentifier(name); err != nil {
+			return nil, fmt.Errorf("invalid index name for PRAGMA index_info: %w", err)
+		}
 		idxInfoRows, err := s.Query(ctx, fmt.Sprintf("PRAGMA index_info(%s)", name))
 		if err != nil {
 			return nil, err
@@ -355,8 +377,7 @@ func MaskPassword(connStr string) string {
 	}
 
 	if strings.Contains(connStr, "@") && strings.Contains(connStr, "://") {
-		re := regexp.MustCompile(`://([^:]+):([^@]+)@`)
-		return re.ReplaceAllString(connStr, "://$1:****@")
+		return maskPasswordURIRe.ReplaceAllString(connStr, "://$1:****@")
 	}
 
 	return connStr

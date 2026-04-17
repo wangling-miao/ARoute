@@ -297,7 +297,7 @@ func (a *licenseAdapter) IsExpired() bool                      { return a.v.IsEx
 func (a *licenseAdapter) Validate() error                      { return a.v.Validate() }
 func (a *licenseAdapter) LicenseInfo() core.LicenseInfoResult {
 	info := a.v.LicenseInfo()
-	return core.LicenseInfoResult{Tier: a.Tier(), Features: info.Features}
+	return core.LicenseInfoResult{Tier: a.Tier(), Features: info.Features, ExpiresAt: info.ExpiresAt}
 }
 
 type registryAdapterForLifecycle struct {
@@ -355,8 +355,21 @@ func (a *engineExecutorAdapter) ExecuteLifecycle(ctx context.Context, plugin cor
 }
 func (a *engineExecutorAdapter) Close() error { return a.e.Close() }
 
+type coreExecutorAsEngine struct {
+	e core.EngineExecutor
+}
+
+func (c *coreExecutorAsEngine) Type() core.EngineType { return c.e.Type() }
+func (c *coreExecutorAsEngine) Initialize(ctx context.Context) error {
+	return c.e.Initialize(ctx)
+}
+func (c *coreExecutorAsEngine) ExecuteLifecycle(ctx context.Context, plugin core.Plugin, ctx2 core.CoreContext) error {
+	return c.e.ExecuteLifecycle(ctx, plugin, ctx2)
+}
+func (c *coreExecutorAsEngine) Close() error { return c.e.Close() }
+
 func (a *dispatcherAdapter) RegisterEngine(engineType core.EngineType, executor core.EngineExecutor) error {
-	return nil
+	return a.d.RegisterEngine(engineType, &coreExecutorAsEngine{e: executor})
 }
 
 func (a *dispatcherAdapter) GetEngine(engineType core.EngineType) (core.EngineExecutor, error) {

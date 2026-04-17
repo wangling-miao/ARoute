@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -32,19 +33,7 @@ func RBACMiddleware(svc *Service) func(http.Handler) http.Handler {
 				return
 			}
 
-			remoteIP := r.RemoteAddr
-			if rip := r.Header.Get("X-Real-IP"); rip != "" {
-				remoteIP = rip
-			} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-				if idx := strings.Index(xff, ","); idx != -1 {
-					remoteIP = strings.TrimSpace(xff[:idx])
-				} else {
-					remoteIP = strings.TrimSpace(xff)
-				}
-			}
-			if idx := strings.LastIndex(remoteIP, ":"); idx != -1 {
-				remoteIP = remoteIP[:idx]
-			}
+			remoteIP := extractClientIP(r, svc.trustedProxies)
 
 			ctx := context.WithValue(r.Context(), ContextKeyClaims, claims)
 			ctx = context.WithValue(ctx, ContextKeyUserID, claims.UserID)
@@ -52,6 +41,51 @@ func RBACMiddleware(svc *Service) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// extractClientIP determines the real client IP from the request.
+// It only trusts X-Real-IP and X-Forwarded-For headers when the direct
+// connection's RemoteAddr matches one of the configured trusted proxy CIDRs.
+// If no trusted proxies are configured, RemoteAddr is used directly.
+func extractClientIP(r *http.Request, trustedProxies []*net.IPNet) string {
+	remoteIP := r.RemoteAddr
+
+	if len(trustedProxies) > 0 {
+		// Check if the direct connection comes from a trusted proxy.
+		host, _, err := net.SplitHostPort(remoteIP)
+		if err != nil {
+			host = remoteIP
+		}
+		ip := net.ParseIP(host)
+		if ip != nil {
+			for _, cidr := range trustedProxies {
+				if cidr.Contains(ip) {
+					// Connection is from a trusted proxy — trust forwarding headers.
+					if rip := r.Header.Get("X-Real-IP"); rip != "" {
+						if h, _, err := net.SplitHostPort(rip); err == nil {
+							return h
+						}
+						return rip
+					}
+					if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+						clientIP := xff
+						if idx := strings.Index(xff, ","); idx != -1 {
+							clientIP = strings.TrimSpace(xff[:idx])
+						}
+						return strings.TrimSpace(clientIP)
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Not from a trusted proxy (or no trusted proxies configured): use RemoteAddr.
+	host, _, err := net.SplitHostPort(remoteIP)
+	if err != nil {
+		return remoteIP
+	}
+	return host
 }
 
 // RequirePermission returns middleware that checks if the authenticated user has

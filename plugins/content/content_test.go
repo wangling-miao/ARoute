@@ -43,7 +43,7 @@ func setupTestService(t *testing.T) *Service {
 	}
 
 	eb := &events.EventBus{}
-	svc := NewService(store, eb, slog.Default())
+	svc := NewService(store, eb, slog.Default(), "sqlite")
 
 	if err := svc.InitializeBuiltInContentTypes(ctx); err != nil {
 		t.Fatalf("init built-in content types: %v", err)
@@ -1686,7 +1686,7 @@ func TestDeleteContentTypeNotFound(t *testing.T) {
 
 func TestEmitEventNilEventBus(t *testing.T) {
 	store := setupTestService(t).store
-	svc := NewService(store, nil, slog.Default())
+	svc := NewService(store, nil, slog.Default(), "sqlite")
 	ctx := context.Background()
 
 	// Create should not panic with nil event bus

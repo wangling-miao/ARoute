@@ -27,10 +27,14 @@ type Builder struct {
 
 // NewBuilder creates a new Aroute engine builder.
 func NewBuilder() *Builder {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
 	return &Builder{
 		config: &Config{
-			DataDir:   filepath.Join(os.Getenv("HOME"), ".aroute", "data"),
-			PluginDir: filepath.Join(os.Getenv("HOME"), ".aroute", "plugins"),
+			DataDir:   filepath.Join(homeDir, ".aroute", "data"),
+			PluginDir: filepath.Join(homeDir, ".aroute", "plugins"),
 		},
 	}
 }

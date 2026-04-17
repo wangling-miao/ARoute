@@ -2,7 +2,6 @@ package content
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -44,17 +43,9 @@ func (s *Service) GenerateUniqueSlug(ctx context.Context, ct *interfaces.Content
 		base = "untitled"
 	}
 
-	slug := base
-	for i := 2; i <= 1000; i++ {
-		isUnique, err := s.store.CheckUnique(ctx, ct.TableName, "slug", slug, "")
-		if err != nil {
-			return "", err
-		}
-		if isUnique {
-			return slug, nil
-		}
-		slug = fmt.Sprintf("%s-%d", base, i)
+	slug, err := s.store.GetNextSlug(ctx, ct.TableName, base)
+	if err != nil {
+		return "", err
 	}
-
 	return slug, nil
 }

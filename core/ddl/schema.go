@@ -223,18 +223,16 @@ func (s *Schema) GetIndex(name string) *IndexDefinition {
 }
 
 // Clone creates a deep copy of the schema.
-func (s *Schema) Clone() *Schema {
+func (s *Schema) Clone() (*Schema, error) {
 	data, err := json.Marshal(s)
 	if err != nil {
-		// This should never happen for a valid schema
-		panic(fmt.Sprintf("failed to marshal schema: %v", err))
+		return nil, fmt.Errorf("marshal schema for clone: %w", err)
 	}
 
 	var clone Schema
 	if err := json.Unmarshal(data, &clone); err != nil {
-		// This should never happen for a valid schema
-		panic(fmt.Sprintf("failed to unmarshal schema: %v", err))
+		return nil, fmt.Errorf("unmarshal schema for clone: %w", err)
 	}
 
-	return &clone
+	return &clone, nil
 }

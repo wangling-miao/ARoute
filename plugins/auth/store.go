@@ -3,8 +3,11 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -623,7 +626,7 @@ func (s *Store) GetUserRevocation(ctx context.Context, userID string) (*time.Tim
 	)
 	var revokedBeforeStr string
 	if err := row.Scan(&revokedBeforeStr); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get user revocation: %w", err)
@@ -633,6 +636,84 @@ func (s *Store) GetUserRevocation(ctx context.Context, userID string) (*time.Tim
 		return nil, fmt.Errorf("parse revocation timestamp: %w", err)
 	}
 	return &t, nil
+}
+
+func (s *Store) ListUsers(ctx context.Context, query *interfaces.UserQuery) (*interfaces.Page, error) {
+	where := "WHERE 1=1"
+	args := []interface{}{}
+
+	if query.Status != "" {
+		where += " AND status = ?"
+		args = append(args, query.Status)
+	}
+	if query.Search != "" {
+		where += " AND (email LIKE ? OR username LIKE ?)"
+		pattern := "%" + query.Search + "%"
+		args = append(args, pattern, pattern)
+	}
+	if query.Role != "" {
+		where += " AND id IN (SELECT ur.user_id FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE r.name = ?)"
+		args = append(args, query.Role)
+	}
+
+	sortCol := "created_at"
+	sortOrder := "DESC"
+	if query.Sort != "" {
+		if isValidSortColumn(query.Sort) {
+			sortCol = query.Sort
+		}
+	}
+	if strings.EqualFold(query.Order, "asc") {
+		sortOrder = "ASC"
+	}
+
+	countRow := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM users "+where, args...)
+	var total int64
+	if err := countRow.Scan(&total); err != nil {
+		return nil, fmt.Errorf("count users: %w", err)
+	}
+
+	offset := (query.Page - 1) * query.PerPage
+	rows, err := s.db.Query(ctx,
+		"SELECT id, email, username, status, created_at, updated_at FROM users "+where+
+			" ORDER BY "+sortCol+" "+sortOrder+" LIMIT ? OFFSET ?",
+		append(args, query.PerPage, offset)...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]*interfaces.User, 0)
+	for rows.Next() {
+		var u interfaces.User
+		var createdAt, updatedAt sql.NullString
+		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.Status, &createdAt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan user row: %w", err)
+		}
+		if t, err := time.Parse(time.RFC3339, createdAt.String); err == nil {
+			u.CreatedAt = t
+		}
+		if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
+			u.UpdatedAt = t
+		}
+		users = append(users, &u)
+	}
+
+	return &interfaces.Page{
+		Data: users,
+		Meta: interfaces.PageMeta{
+			Page:    query.Page,
+			PerPage: query.PerPage,
+			Total:   total,
+		},
+	}, nil
+}
+
+var sortColRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func isValidSortColumn(name string) bool {
+	return sortColRegex.MatchString(name)
 }
 
 // --- Helpers ---
@@ -660,7 +741,7 @@ func (s *Store) scanUser(row *sql.Row) (*interfaces.User, error) {
 		&createdAt, &updatedAt, &lastLoginAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, interfaces.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan user: %w", err)
@@ -696,7 +777,7 @@ func (s *Store) scanRole(row *sql.Row) (*interfaces.Role, error) {
 		&createdAt, &updatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, interfaces.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan role: %w", err)
@@ -748,7 +829,7 @@ func (s *Store) scanPermission(row *sql.Row) (*interfaces.Permission, error) {
 		&perm.DisplayName, &perm.Description,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, interfaces.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan permission: %w", err)
@@ -780,7 +861,7 @@ func (s *Store) scanAPIToken(row *sql.Row) (*interfaces.APIToken, error) {
 		&createdAt, &expiresAt, &lastUsedAt, &revoked,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, interfaces.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan api token: %w", err)

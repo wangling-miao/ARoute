@@ -114,11 +114,11 @@ func (s *Store) SetActive(ctx context.Context, slug string) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`UPDATE _themes SET active = 0`); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE _themes SET active = 0`); err != nil {
 		return fmt.Errorf("deactivate all themes: %w", err)
 	}
 
-	res, err := tx.Exec(`UPDATE _themes SET active = 1 WHERE slug = ?`, slug)
+	res, err := tx.ExecContext(ctx, `UPDATE _themes SET active = 1 WHERE slug = ?`, slug)
 	if err != nil {
 		return fmt.Errorf("activate theme %q: %w", slug, err)
 	}

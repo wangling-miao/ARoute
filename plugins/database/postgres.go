@@ -99,7 +99,7 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 			if timeoutMs <= 0 {
 				return fmt.Errorf("statement_timeout must be positive, got %d", timeoutMs)
 			}
-			_, err = conn.Exec(ctx, fmt.Sprintf("SET statement_timeout = %d", timeoutMs))
+			_, err = conn.Exec(ctx, "SET statement_timeout = $1", timeoutMs)
 			if err != nil {
 				return err
 			}
@@ -110,7 +110,7 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 			if _, err := time.LoadLocation(timezone); err != nil {
 				return fmt.Errorf("invalid timezone %q: %w", timezone, err)
 			}
-			_, err := conn.Exec(ctx, fmt.Sprintf("SET timezone = '%s'", timezone))
+			_, err := conn.Exec(ctx, "SET timezone = $1", timezone)
 			if err != nil {
 				return err
 			}

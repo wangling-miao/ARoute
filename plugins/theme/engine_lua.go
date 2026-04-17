@@ -144,8 +144,8 @@ func NewLuaEngine(themesDir, themeSlug string, logger *slog.Logger, poolSize int
 //  5. Execute the template file via DoFile
 //  6. Extract the return value from the stack
 //  7. Return the LState to the pool
-func (e *LuaEngine) Render(templateName string, data map[string]interface{}) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
+func (e *LuaEngine) Render(ctx context.Context, templateName string, data map[string]interface{}) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
 	L, err := e.pool.Get(ctx)

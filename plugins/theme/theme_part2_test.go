@@ -508,7 +508,7 @@ func TestLuaEngine_Render_NoTemplateFile(t *testing.T) {
 	engine := NewLuaEngine(t.TempDir(), "nonexistent", slog.Default(), 2)
 	defer engine.Close()
 
-	_, err := engine.Render("index.lua", nil)
+	_, err := engine.Render(context.Background(), "index.lua", nil)
 	if err == nil {
 		t.Fatal("Render() with nonexistent template should return error")
 	}

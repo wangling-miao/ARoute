@@ -55,9 +55,9 @@ func NewContainer() *Container {
 	}
 }
 
-// typeKey returns a unique string key for a reflect.Type.
-// Using a cache to avoid repeated string formatting operations.
-func (c *Container) typeKey(t reflect.Type) string {
+// typeKeyLocked returns a unique string key for a reflect.Type.
+// Must be called with c.mu held.
+func (c *Container) typeKeyLocked(t reflect.Type) string {
 	if key, ok := c.typeNames[t]; ok {
 		return key
 	}
@@ -112,11 +112,11 @@ func (c *Container) Provide(provider interface{}) error {
 		return fmt.Errorf("services: provider function second return value must be error")
 	}
 
-	// Get type key
-	typeKey := c.typeKey(returnType)
-
+	// Get type key (must be inside lock since typeNames map is shared state)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(returnType)
 
 	// Check if already registered
 	if _, exists := c.providers[typeKey]; exists {
@@ -159,9 +159,10 @@ func (c *Container) Get(target interface{}) error {
 
 	// Get the type that the pointer points to
 	targetType := targetValue.Elem().Type()
-	typeKey := c.typeKey(targetType)
 
 	c.mu.Lock()
+
+	typeKey := c.typeKeyLocked(targetType)
 
 	// Check if already cached
 	if instance, ok := c.instances[typeKey]; ok {
@@ -247,11 +248,11 @@ func (c *Container) ProvideNamed(name string, provider interface{}) error {
 		return fmt.Errorf("services: provider function second return value must be error")
 	}
 
-	typeKey := c.typeKey(returnType)
-	combinedKey := typeKey + ":" + name
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(returnType)
+	combinedKey := typeKey + ":" + name
 
 	if _, exists := c.namedProviders[combinedKey]; exists {
 		return fmt.Errorf("services: named service %s:%s already registered", returnType, name)
@@ -290,10 +291,11 @@ func (c *Container) GetNamed(name string, target interface{}) error {
 	}
 
 	targetType := targetValue.Elem().Type()
-	typeKey := c.typeKey(targetType)
-	combinedKey := typeKey + ":" + name
 
 	c.mu.Lock()
+
+	typeKey := c.typeKeyLocked(targetType)
+	combinedKey := typeKey + ":" + name
 
 	// Check if already cached
 	if instance, ok := c.namedInstances[combinedKey]; ok {
@@ -354,10 +356,11 @@ func (c *Container) Unregister(target interface{}) error {
 
 	// Get the element type
 	elemType := targetType.Elem()
-	typeKey := c.typeKey(elemType)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(elemType)
 
 	// Remove provider and instance
 	delete(c.providers, typeKey)
@@ -391,10 +394,11 @@ func (c *Container) Has(target interface{}) bool {
 	}
 
 	elemType := targetType.Elem()
-	typeKey := c.typeKey(elemType)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(elemType)
 
 	_, exists := c.providers[typeKey]
 	return exists

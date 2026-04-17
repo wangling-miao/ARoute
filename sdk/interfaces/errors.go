@@ -62,7 +62,11 @@ func (e *ValidationErrors) Error() string {
 }
 
 // Add adds a new validation error to the collection.
+// If the receiver is nil, Add is a no-op to prevent panics.
 func (e *ValidationErrors) Add(field, message string, code ...string) {
+	if e == nil {
+		return
+	}
 	ve := &ValidationError{
 		Field:   field,
 		Message: message,
@@ -76,6 +80,15 @@ func (e *ValidationErrors) Add(field, message string, code ...string) {
 // HasErrors returns true if there are any validation errors.
 func (e *ValidationErrors) HasErrors() bool {
 	return len(e.Errors) > 0
+}
+
+// Unwrap returns ErrValidation when there are collected errors,
+// enabling errors.Is(err, ErrValidation) to match *ValidationErrors.
+func (e *ValidationErrors) Unwrap() error {
+	if e.HasErrors() {
+		return ErrValidation
+	}
+	return nil
 }
 
 // NewValidationErrors creates a new ValidationErrors instance.

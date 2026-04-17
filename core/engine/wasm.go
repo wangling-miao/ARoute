@@ -235,7 +235,14 @@ func (b *HostModuleBuilder) eventSubscribe(ctx context.Context, module api.Modul
 		return 0
 	}
 
-	_ = string(topicBytes)
+	topic := string(topicBytes)
+	if topic == "" {
+		return 0
+	}
+
+	// Event subscription is not supported in the Wasm sandbox.
+	// Wasm plugins should poll for events via host functions instead.
+	// Return 0 to indicate subscription was not created.
 	return 0
 }
 

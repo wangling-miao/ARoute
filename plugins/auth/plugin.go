@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ type authConfig struct {
 	bcryptCost          int
 	adminEmail          string
 	adminPassword       string
+	trustedProxies      []*net.IPNet
 }
 
 // Plugin implements the core.Plugin interface for authentication functionality.
@@ -171,6 +173,11 @@ func (p *Plugin) Stop() error {
 		p.rateLimit.Stop()
 	}
 
+	// Drain in-flight background goroutines (e.g. async API token last-used updates).
+	if p.service != nil {
+		p.service.bgWg.Wait()
+	}
+
 	p.running = false
 	logger.Info("Auth plugin stopped successfully")
 
@@ -211,6 +218,23 @@ func (p *Plugin) readConfig(config core.ConfigProvider) (authConfig, error) {
 	if windowStr != "" {
 		if d, err := time.ParseDuration(windowStr); err == nil {
 			cfg.rateLimitWindow = d
+		}
+	}
+
+	// Parse trusted proxies as a comma-separated list of CIDR strings.
+	tpStr := config.GetString("auth.trusted_proxies")
+	if tpStr != "" {
+		for _, cidr := range strings.Split(tpStr, ",") {
+			cidr = strings.TrimSpace(cidr)
+			if cidr == "" {
+				continue
+			}
+			_, network, err := net.ParseCIDR(cidr)
+			if err != nil {
+				p.ctx.Logger().Warn("invalid trusted proxy CIDR, skipping", "cidr", cidr, "error", err)
+				continue
+			}
+			cfg.trustedProxies = append(cfg.trustedProxies, network)
 		}
 	}
 

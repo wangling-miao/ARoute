@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/wangling-miao/aroute/internal/version"
@@ -36,7 +37,11 @@ func runVersion(cmd *cobra.Command, args []string) {
 			BuildDate: version.BuildDate,
 			GoVersion: version.GoVersion,
 		}
-		data, _ := json.Marshal(output)
+		data, err := json.Marshal(output)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling version info: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(data))
 	} else {
 		fmt.Printf("ARoute CMS v%s\n", version.Version)

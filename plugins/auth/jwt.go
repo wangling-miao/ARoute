@@ -3,8 +3,6 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"os"
 	"time"
@@ -224,22 +222,4 @@ func loadPublicKey(path string) (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("parse RSA public key from %s: %w", path, err)
 	}
 	return key, nil
-}
-
-func rsaPrivateKeyToPEM(key *rsa.PrivateKey, w *os.File) error {
-	return pem.Encode(w, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	})
-}
-
-func rsaPublicKeyToPEM(key *rsa.PublicKey, w *os.File) error {
-	pubBytes, err := x509.MarshalPKIXPublicKey(key)
-	if err != nil {
-		return err
-	}
-	return pem.Encode(w, &pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: pubBytes,
-	})
 }

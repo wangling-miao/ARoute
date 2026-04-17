@@ -386,5 +386,7 @@ func (r *BoltRegistry) Close() error {
 	}
 
 	r.closed = true
-	return r.db.Close()
+	err := r.db.Close()
+	r.db = nil
+	return err
 }

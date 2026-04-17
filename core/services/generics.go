@@ -17,7 +17,6 @@ func Provide[T any](c *Container, provider func() (T, error)) error {
 
 	var zero T
 	returnType := reflect.TypeOf(zero)
-	typeKey := c.typeKey(returnType)
 
 	wrapped := func() (interface{}, error) {
 		return provider()
@@ -25,6 +24,8 @@ func Provide[T any](c *Container, provider func() (T, error)) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(returnType)
 
 	// Spec requires service override support - replace existing
 	if _, exists := c.providers[typeKey]; exists {
@@ -40,9 +41,9 @@ func Provide[T any](c *Container, provider func() (T, error)) error {
 func Get[T any](c *Container) (T, error) {
 	var zero T
 	returnType := reflect.TypeOf(zero)
-	typeKey := c.typeKey(returnType)
 
 	c.mu.Lock()
+	typeKey := c.typeKeyLocked(returnType)
 
 	if instance, ok := c.instances[typeKey]; ok {
 		c.mu.Unlock()
@@ -95,8 +96,6 @@ func ProvideNamed[T any](c *Container, name string, provider func() (T, error)) 
 
 	var zero T
 	returnType := reflect.TypeOf(zero)
-	typeKey := c.typeKey(returnType)
-	combinedKey := typeKey + ":" + name
 
 	wrapped := func() (interface{}, error) {
 		return provider()
@@ -104,6 +103,9 @@ func ProvideNamed[T any](c *Container, name string, provider func() (T, error)) 
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(returnType)
+	combinedKey := typeKey + ":" + name
 
 	// Override support
 	if _, exists := c.namedProviders[combinedKey]; exists {
@@ -118,10 +120,10 @@ func ProvideNamed[T any](c *Container, name string, provider func() (T, error)) 
 func GetNamed[T any](c *Container, name string) (T, error) {
 	var zero T
 	returnType := reflect.TypeOf(zero)
-	typeKey := c.typeKey(returnType)
-	combinedKey := typeKey + ":" + name
 
 	c.mu.Lock()
+	typeKey := c.typeKeyLocked(returnType)
+	combinedKey := typeKey + ":" + name
 
 	if instance, ok := c.namedInstances[combinedKey]; ok {
 		c.mu.Unlock()
@@ -156,10 +158,11 @@ func GetNamed[T any](c *Container, name string) (T, error) {
 // After removal, the service can be re-registered with Provide.
 func Remove[T any](c *Container) {
 	var zero T
-	typeKey := c.typeKey(reflect.TypeOf(zero))
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(reflect.TypeOf(zero))
 
 	delete(c.providers, typeKey)
 	delete(c.instances, typeKey)
@@ -176,11 +179,12 @@ func Remove[T any](c *Container) {
 // RemoveNamed removes a named service registration from the container.
 func RemoveNamed[T any](c *Container, name string) {
 	var zero T
-	typeKey := c.typeKey(reflect.TypeOf(zero))
-	combinedKey := typeKey + ":" + name
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(reflect.TypeOf(zero))
+	combinedKey := typeKey + ":" + name
 
 	delete(c.namedProviders, combinedKey)
 	delete(c.namedInstances, combinedKey)
@@ -190,10 +194,11 @@ func RemoveNamed[T any](c *Container, name string) {
 // Returns true if a provider exists for the type, false otherwise.
 func Has[T any](c *Container) bool {
 	var zero T
-	typeKey := c.typeKey(reflect.TypeOf(zero))
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	typeKey := c.typeKeyLocked(reflect.TypeOf(zero))
 
 	_, exists := c.providers[typeKey]
 	return exists

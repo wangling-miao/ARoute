@@ -26,15 +26,19 @@ type Service struct {
 	events      core.EventBus
 	logger      *slog.Logger
 	maxVersions int
+	tableCache  map[string]string // contentID -> tableName
+	driverName  string
 }
 
-func NewService(store *Store, ev core.EventBus, logger *slog.Logger) *Service {
+func NewService(store *Store, ev core.EventBus, logger *slog.Logger, driverName string) *Service {
 	return &Service{
 		store:       store,
 		validator:   NewFieldValidator(store),
 		events:      ev,
 		logger:      logger,
 		maxVersions: defaultMaxVersions,
+		tableCache:  make(map[string]string),
+		driverName:  driverName,
 	}
 }
 
@@ -73,6 +77,8 @@ func (s *Service) Create(ctx context.Context, contentType string, data map[strin
 	if err != nil {
 		return nil, fmt.Errorf("create content: %w", err)
 	}
+
+	s.tableCache[id] = ct.TableName
 
 	s.insertManyToManyRows(ctx, ct, id, m2mData)
 
@@ -198,6 +204,8 @@ func (s *Service) HardDelete(ctx context.Context, id string) error {
 	if err := s.store.HardDeleteContent(ctx, ct.TableName, id); err != nil {
 		return err
 	}
+
+	delete(s.tableCache, id)
 
 	s.emitEvent(ctx, "content.deleted", map[string]interface{}{
 		"content_type": ct.Name,
@@ -345,14 +353,22 @@ func (s *Service) UpdateContentType(ctx context.Context, name string, ct *interf
 	return s.store.GetContentType(ctx, name)
 }
 
+func (s *Service) newDDLExecutor() interface {
+	Execute(ctx context.Context, ops []ddl.DiffOperation, force bool) error
+} {
+	if s.driverName == "postgres" || s.driverName == "postgresql" || s.driverName == "pg" {
+		return ddl.NewPostgreSQLExecutor(s.store.db)
+	}
+	return ddl.NewSQLiteExecutor(s.store.db)
+}
+
 func (s *Service) DeleteContentType(ctx context.Context, name string) error {
 	ct, err := s.store.GetContentType(ctx, name)
 	if err != nil {
 		return err
 	}
 
-	executor := ddl.NewSQLiteExecutor(s.store.db)
-	if err := executor.Execute(ctx, []ddl.DiffOperation{{
+	if err := s.newDDLExecutor().Execute(ctx, []ddl.DiffOperation{{
 		Type:      ddl.OpTableDrop,
 		TableName: ct.TableName,
 	}}, true); err != nil {
@@ -385,8 +401,7 @@ func (s *Service) createContentTable(ctx context.Context, ct *interfaces.Content
 		Schema:    schema,
 	}}
 
-	executor := ddl.NewSQLiteExecutor(s.store.db)
-	if err := executor.Execute(ctx, ops, false); err != nil {
+	if err := s.newDDLExecutor().Execute(ctx, ops, false); err != nil {
 		return err
 	}
 
@@ -561,6 +576,14 @@ func (s *Service) snapshotVersion(ctx context.Context, contentType, contentID st
 }
 
 func (s *Service) findContentTypeForID(ctx context.Context, id string) (*interfaces.ContentType, error) {
+	if tableName, ok := s.tableCache[id]; ok {
+		ct, err := s.store.GetContentType(ctx, strings.TrimPrefix(strings.TrimSuffix(tableName, "s"), "content_"))
+		if err == nil {
+			return ct, nil
+		}
+		delete(s.tableCache, id)
+	}
+
 	types, err := s.store.ListContentTypes(ctx)
 	if err != nil {
 		return nil, err
@@ -569,6 +592,7 @@ func (s *Service) findContentTypeForID(ctx context.Context, id string) (*interfa
 	for _, ct := range types {
 		_, err := s.store.GetContent(ctx, ct.TableName, id)
 		if err == nil {
+			s.tableCache[id] = ct.TableName
 			return ct, nil
 		}
 	}

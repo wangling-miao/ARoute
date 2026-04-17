@@ -305,6 +305,20 @@ func (v *FieldValidator) validateMedia(val interface{}, name string, verrs *inte
 	if val == nil {
 		return
 	}
+	switch m := val.(type) {
+	case string:
+		if m == "" {
+			verrs.Add(name, "media reference must not be empty", "invalid_media")
+		}
+	case map[string]interface{}:
+		if _, ok := m["id"]; !ok {
+			if _, ok2 := m["url"]; !ok2 {
+				verrs.Add(name, "media reference must have 'id' or 'url' field", "invalid_media")
+			}
+		}
+	default:
+		verrs.Add(name, "media must be a string or object", "type_mismatch")
+	}
 }
 
 func (v *FieldValidator) validateRelation(ctx context.Context, contentType string, field *interfaces.Field, val interface{}, name string, verrs *interfaces.ValidationErrors) {

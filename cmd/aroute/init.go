@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -69,7 +70,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		configPath = initConfigPath
 	} else if !initNoInteractive {
 		fmt.Printf("Config file path [%s]: ", configPath)
-		input, _ := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read input: %w", err)
+		}
 		input = strings.TrimSpace(input)
 		if input != "" {
 			configPath = input
@@ -80,7 +84,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(configPath); err == nil {
 		if !initNoInteractive {
 			fmt.Printf("Config file already exists at %s. Overwrite? [y/N]: ", configPath)
-			input, _ := reader.ReadString('\n')
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read input: %w", err)
+			}
 			input = strings.TrimSpace(strings.ToLower(input))
 			if input != "y" && input != "yes" {
 				fmt.Println("Initialization aborted.")
@@ -97,7 +104,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		dataDirPath = initDataDirPath
 	} else if !initNoInteractive {
 		fmt.Printf("Data directory [%s]: ", dataDirPath)
-		input, _ := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read input: %w", err)
+		}
 		input = strings.TrimSpace(input)
 		if input != "" {
 			dataDirPath = input
@@ -108,7 +118,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	adminEmail := initAdminEmail
 	if adminEmail == "" && !initNoInteractive {
 		fmt.Print("Admin email: ")
-		input, _ := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read input: %w", err)
+		}
 		adminEmail = strings.TrimSpace(input)
 		if adminEmail == "" {
 			return fmt.Errorf("admin email is required")
@@ -156,7 +169,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	siteName := initSiteName
 	if !initNoInteractive && initSiteName == "" {
 		fmt.Printf("Site name [%s]: ", siteName)
-		input, _ := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read input: %w", err)
+		}
 		input = strings.TrimSpace(input)
 		if input != "" {
 			siteName = input
@@ -167,7 +183,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	siteURL := initSiteURL
 	if !initNoInteractive && initSiteURL == "" {
 		fmt.Printf("Site URL [%s]: ", siteURL)
-		input, _ := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read input: %w", err)
+		}
 		input = strings.TrimSpace(input)
 		if input != "" {
 			siteURL = input
@@ -254,7 +273,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("write config file: %w", err)
 	}
 
@@ -326,20 +345,22 @@ func readPasswordHidden(prompt string) (string, error) {
 }
 
 // generateSecureRandomSecret generates a cryptographically secure random string
+// using rejection sampling to avoid modulo bias.
 func generateSecureRandomSecret(length int) (string, error) {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", fmt.Errorf("generate random bytes: %w", err)
+	result := make([]byte, length)
+	maxVal := byte(256 - 256%len(chars))
+	for i := 0; i < length; {
+		b := make([]byte, 1)
+		if _, err := rand.Read(b); err != nil {
+			return "", fmt.Errorf("failed to generate random bytes: %w", err)
+		}
+		if b[0] < maxVal {
+			result[i] = chars[b[0]%byte(len(chars))]
+			i++
+		}
 	}
-
-	for i := range b {
-		b[i] = chars[b[i]%byte(len(chars))]
-	}
-
-	return string(b), nil
+	return string(result), nil
 }
 
 // initDatabase initializes SQLite database connection
@@ -406,6 +427,7 @@ func runMigrations(ctx context.Context, db *sql.DB, dataDirPath string) error {
 	}
 
 	// Sort migration files by name (timestamp-based naming)
+	sort.Strings(migrationFiles)
 	for _, filename := range migrationFiles {
 		filePath := filepath.Join(migrationsDir, filename)
 
@@ -559,6 +581,7 @@ func createAdminUser(ctx context.Context, db *sql.DB, email, password string) er
 	err = db.QueryRowContext(ctx, "SELECT id FROM users WHERE email = ?", email).Scan(&existingID)
 	if err == nil {
 		// User exists, update password
+		fmt.Printf("Warning: Admin user '%s' already exists. Updating password.\n", email)
 		_, err = db.ExecContext(ctx,
 			"UPDATE users SET password_hash = ?, updated_at = ? WHERE email = ?",
 			string(passwordHash), time.Now().Format(time.RFC3339), email,

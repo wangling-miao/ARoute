@@ -26,6 +26,9 @@ type CacheService interface {
 
 	// Stats returns cache statistics (hit rate, miss rate, eviction count).
 	Stats(ctx context.Context) *CacheStats
+
+	// Flush removes all cached entries.
+	Flush(ctx context.Context) error
 }
 
 // CacheStats contains cache performance statistics.

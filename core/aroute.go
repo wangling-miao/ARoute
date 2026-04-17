@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // Aroute is the main engine that integrates all core subsystems.
@@ -119,7 +120,7 @@ func (t LicenseTier) String() string {
 type LicenseInfoResult struct {
 	Tier      LicenseTier
 	Features  []string
-	ExpiresAt interface{}
+	ExpiresAt *time.Time
 }
 
 // DDLRegistry defines the interface for schema management.
@@ -172,9 +173,13 @@ func WithLogger(logger *slog.Logger) Option {
 // New creates a new Aroute engine.
 // The subsystems must be injected - this allows for flexible testing and configuration.
 func New(ctx context.Context, container ServiceContainer, eventBus EventBus, registry PluginRegistry, lifecycle LifecycleManager, dispatcher EngineDispatcher, license LicenseValidator, opts ...Option) (*Aroute, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("determine home directory: %w", err)
+	}
 	cfg := &Config{
-		DataDir:   filepath.Join(os.Getenv("HOME"), ".aroute", "data"),
-		PluginDir: filepath.Join(os.Getenv("HOME"), ".aroute", "plugins"),
+		DataDir:   filepath.Join(homeDir, ".aroute", "data"),
+		PluginDir: filepath.Join(homeDir, ".aroute", "plugins"),
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -416,7 +421,21 @@ func (c *ScopedConfig) Get(key string) interface{} {
 }
 
 func (c *ScopedConfig) Unmarshal(key string, target interface{}) error {
-	return fmt.Errorf("config: unmarshal not implemented")
+	val, ok := c.base[key]
+	if !ok {
+		return fmt.Errorf("config: key %q not found", key)
+	}
+
+	data, err := json.Marshal(val)
+	if err != nil {
+		return fmt.Errorf("config: marshal value for key %q: %w", key, err)
+	}
+
+	if err := json.Unmarshal(data, target); err != nil {
+		return fmt.Errorf("config: unmarshal key %q into target: %w", key, err)
+	}
+
+	return nil
 }
 
 // NewScopedConfig creates a scoped config for a plugin.

@@ -5,12 +5,38 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
+
+var (
+	// sqlIdentifierRegex validates SQL identifiers for safe interpolation
+	// in contexts where parameterization is not supported (table names, column names).
+	sqlIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+)
+
+func isValidSortColumn(name string) bool {
+	return sqlIdentifierRegex.MatchString(name)
+}
+
+func validateTableName(name string) error {
+	if !sqlIdentifierRegex.MatchString(name) {
+		return fmt.Errorf("invalid table name: %q", name)
+	}
+	return nil
+}
+
+func validateIdentifier(name string) error {
+	if !sqlIdentifierRegex.MatchString(name) {
+		return fmt.Errorf("invalid identifier: %q", name)
+	}
+	return nil
+}
 
 type Store struct {
 	db interfaces.DatabaseService
@@ -180,6 +206,9 @@ func (s *Store) ContentTypeSlugExists(ctx context.Context, slug string) (bool, e
 }
 
 func (s *Store) CreateContent(ctx context.Context, tableName string, data map[string]interface{}) (string, error) {
+	if err := validateTableName(tableName); err != nil {
+		return "", fmt.Errorf("create content: %w", err)
+	}
 	id := newUUID()
 	data["id"] = id
 
@@ -203,6 +232,9 @@ func (s *Store) CreateContent(ctx context.Context, tableName string, data map[st
 }
 
 func (s *Store) GetContent(ctx context.Context, tableName, id string) (map[string]interface{}, error) {
+	if err := validateTableName(tableName); err != nil {
+		return nil, fmt.Errorf("get content: %w", err)
+	}
 	query := fmt.Sprintf("SELECT * FROM \"%s\" WHERE id = ? AND deleted_at IS NULL", tableName)
 	rows, err := s.db.Query(ctx, query, id)
 	if err != nil {
@@ -222,6 +254,9 @@ func (s *Store) GetContent(ctx context.Context, tableName, id string) (map[strin
 }
 
 func (s *Store) UpdateContent(ctx context.Context, tableName, id string, data map[string]interface{}) error {
+	if err := validateTableName(tableName); err != nil {
+		return fmt.Errorf("update content: %w", err)
+	}
 	delete(data, "id")
 	delete(data, "created_at")
 	delete(data, "content_type")
@@ -255,6 +290,9 @@ func (s *Store) UpdateContent(ctx context.Context, tableName, id string, data ma
 }
 
 func (s *Store) DeleteContent(ctx context.Context, tableName, id string) error {
+	if err := validateTableName(tableName); err != nil {
+		return fmt.Errorf("delete content: %w", err)
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.db.Exec(ctx,
 		fmt.Sprintf("UPDATE \"%s\" SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL", tableName),
@@ -272,6 +310,9 @@ func (s *Store) DeleteContent(ctx context.Context, tableName, id string) error {
 }
 
 func (s *Store) HardDeleteContent(ctx context.Context, tableName, id string) error {
+	if err := validateTableName(tableName); err != nil {
+		return fmt.Errorf("hard delete content: %w", err)
+	}
 	res, err := s.db.Exec(ctx,
 		fmt.Sprintf("DELETE FROM \"%s\" WHERE id = ?", tableName),
 		id,
@@ -287,6 +328,9 @@ func (s *Store) HardDeleteContent(ctx context.Context, tableName, id string) err
 }
 
 func (s *Store) RestoreContent(ctx context.Context, tableName, id string) error {
+	if err := validateTableName(tableName); err != nil {
+		return fmt.Errorf("restore content: %w", err)
+	}
 	res, err := s.db.Exec(ctx,
 		fmt.Sprintf("UPDATE \"%s\" SET deleted_at = NULL WHERE id = ?", tableName),
 		id,
@@ -346,7 +390,7 @@ func (s *Store) ListContent(ctx context.Context, ct *interfaces.ContentType, que
 	sortCol := "created_at"
 	sortOrder := "DESC"
 	if query != nil {
-		if query.Sort != "" {
+		if query.Sort != "" && isValidSortColumn(query.Sort) {
 			sortCol = query.Sort
 		}
 		if strings.EqualFold(query.Order, "asc") {
@@ -486,7 +530,9 @@ func (s *Store) GetVersion(ctx context.Context, contentType, contentID string, v
 	}
 
 	var data interface{}
-	_ = json.Unmarshal([]byte(dataJSON), &data)
+	if err := json.Unmarshal([]byte(dataJSON), &data); err != nil {
+		return nil, fmt.Errorf("unmarshal version data: %w", err)
+	}
 
 	result := map[string]interface{}{
 		"id":             id,
@@ -548,6 +594,12 @@ func (s *Store) PruneVersions(ctx context.Context, contentType, contentID string
 }
 
 func (s *Store) CheckUnique(ctx context.Context, tableName, fieldName, value, excludeID string) (bool, error) {
+	if err := validateTableName(tableName); err != nil {
+		return false, fmt.Errorf("check unique: %w", err)
+	}
+	if err := validateIdentifier(fieldName); err != nil {
+		return false, fmt.Errorf("check unique: %w", err)
+	}
 	query := fmt.Sprintf("SELECT COUNT(*) FROM \"%s\" WHERE \"%s\" = ? AND deleted_at IS NULL", tableName, fieldName)
 	args := []interface{}{value}
 
@@ -565,6 +617,9 @@ func (s *Store) CheckUnique(ctx context.Context, tableName, fieldName, value, ex
 }
 
 func (s *Store) GetNextSlug(ctx context.Context, tableName, baseSlug string) (string, error) {
+	if err := validateTableName(tableName); err != nil {
+		return "", fmt.Errorf("get next slug: %w", err)
+	}
 	likePattern := baseSlug + "%"
 	query := fmt.Sprintf(
 		"SELECT slug FROM \"%s\" WHERE slug LIKE ? AND deleted_at IS NULL ORDER BY slug",
@@ -602,6 +657,15 @@ func (s *Store) GetNextSlug(ctx context.Context, tableName, baseSlug string) (st
 }
 
 func (s *Store) CreateJunctionTable(ctx context.Context, tableName, sourceSingular, targetSingular string) error {
+	if err := validateTableName(tableName); err != nil {
+		return fmt.Errorf("create junction table: %w", err)
+	}
+	if err := validateIdentifier(sourceSingular); err != nil {
+		return fmt.Errorf("create junction table: invalid source: %w", err)
+	}
+	if err := validateIdentifier(targetSingular); err != nil {
+		return fmt.Errorf("create junction table: invalid target: %w", err)
+	}
 	sql := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (
 		id TEXT PRIMARY KEY,
 		%s_id TEXT NOT NULL,
@@ -616,6 +680,15 @@ func (s *Store) CreateJunctionTable(ctx context.Context, tableName, sourceSingul
 }
 
 func (s *Store) InsertJunctionRows(ctx context.Context, tableName, sourceSingular, targetSingular, sourceID string, targetIDs []string) error {
+	if err := validateTableName(tableName); err != nil {
+		return fmt.Errorf("insert junction rows: %w", err)
+	}
+	if err := validateIdentifier(sourceSingular); err != nil {
+		return fmt.Errorf("insert junction rows: %w", err)
+	}
+	if err := validateIdentifier(targetSingular); err != nil {
+		return fmt.Errorf("insert junction rows: %w", err)
+	}
 	for _, targetID := range targetIDs {
 		id := newUUID()
 		now := time.Now().UTC().Format(time.RFC3339)
@@ -632,6 +705,12 @@ func (s *Store) InsertJunctionRows(ctx context.Context, tableName, sourceSingula
 }
 
 func (s *Store) DeleteJunctionRows(ctx context.Context, tableName, sourceSingular, sourceID string) error {
+	if err := validateTableName(tableName); err != nil {
+		return fmt.Errorf("delete junction rows: %w", err)
+	}
+	if err := validateIdentifier(sourceSingular); err != nil {
+		return fmt.Errorf("delete junction rows: %w", err)
+	}
 	_, err := s.db.Exec(ctx,
 		fmt.Sprintf(`DELETE FROM "%s" WHERE %s_id = ?`, tableName, sourceSingular),
 		sourceID,
@@ -643,6 +722,15 @@ func (s *Store) DeleteJunctionRows(ctx context.Context, tableName, sourceSingula
 }
 
 func (s *Store) GetJunctionIDs(ctx context.Context, tableName, sourceSingular, targetSingular, sourceID string) ([]string, error) {
+	if err := validateTableName(tableName); err != nil {
+		return nil, fmt.Errorf("get junction ids: %w", err)
+	}
+	if err := validateIdentifier(sourceSingular); err != nil {
+		return nil, fmt.Errorf("get junction ids: %w", err)
+	}
+	if err := validateIdentifier(targetSingular); err != nil {
+		return nil, fmt.Errorf("get junction ids: %w", err)
+	}
 	rows, err := s.db.Query(ctx,
 		fmt.Sprintf(`SELECT %s_id FROM "%s" WHERE %s_id = ?`, targetSingular, tableName, sourceSingular),
 		sourceID,
@@ -745,9 +833,12 @@ func (s *Store) columnsAndValues(data map[string]interface{}) ([]string, []inter
 	cols := make([]string, 0, len(data))
 	vals := make([]interface{}, 0, len(data))
 
-	for col, val := range data {
+	for col := range data {
 		cols = append(cols, col)
-		vals = append(vals, val)
+	}
+	sort.Strings(cols)
+	for _, col := range cols {
+		vals = append(vals, data[col])
 	}
 	return cols, vals
 }

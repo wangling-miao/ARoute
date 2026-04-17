@@ -6,10 +6,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/mail"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wangling-miao/aroute/core"
@@ -26,16 +29,18 @@ const (
 
 // Service implements interfaces.AuthService.
 type Service struct {
-	store       *Store
-	jwt         *JWTManager
-	rbac        *RBACManager
-	rateLimiter *RateLimiter
-	logger      *slog.Logger
-	config      core.ConfigProvider
-	bcryptCost  int
-	adminEmail  string
-	adminPass   string
-	hmacKey     [32]byte
+	store          *Store
+	jwt            *JWTManager
+	rbac           *RBACManager
+	rateLimiter    *RateLimiter
+	logger         *slog.Logger
+	config         core.ConfigProvider
+	bcryptCost     int
+	adminEmail     string
+	adminPass      string
+	hmacKey        [32]byte
+	bgWg           sync.WaitGroup
+	trustedProxies []*net.IPNet
 }
 
 // NewService creates a new auth Service.
@@ -47,16 +52,17 @@ func NewService(store *Store, jwt *JWTManager, rbac *RBACManager, rateLimiter *R
 	}
 	hmacKey := sha256.Sum256([]byte("aroute-hmac-" + authCfg.jwtSecret))
 	return &Service{
-		store:       store,
-		jwt:         jwt,
-		rbac:        rbac,
-		rateLimiter: rateLimiter,
-		logger:      logger,
-		config:      config,
-		bcryptCost:  cost,
-		adminEmail:  authCfg.adminEmail,
-		adminPass:   authCfg.adminPassword,
-		hmacKey:     hmacKey,
+		store:          store,
+		jwt:            jwt,
+		rbac:           rbac,
+		rateLimiter:    rateLimiter,
+		logger:         logger,
+		config:         config,
+		bcryptCost:     cost,
+		adminEmail:     authCfg.adminEmail,
+		adminPass:      authCfg.adminPassword,
+		hmacKey:        hmacKey,
+		trustedProxies: authCfg.trustedProxies,
 	}
 }
 
@@ -77,7 +83,7 @@ func (s *Service) Authenticate(ctx context.Context, req *interfaces.AuthRequest)
 	// Look up user by email.
 	user, err := s.store.GetUserByEmail(ctx, req.Email)
 	if err != nil {
-		if err == interfaces.ErrNotFound {
+		if errors.Is(err, interfaces.ErrNotFound) {
 			s.rateLimiter.RecordFailure(ip)
 			return nil, fmt.Errorf("invalid credentials: %w", interfaces.ErrUnauthorized)
 		}
@@ -238,7 +244,7 @@ func (s *Service) CreateUser(ctx context.Context, req *interfaces.CreateUserRequ
 
 	// Check for duplicate email.
 	existing, err := s.store.GetUserByEmail(ctx, req.Email)
-	if err != nil && err != interfaces.ErrNotFound {
+	if err != nil && !errors.Is(err, interfaces.ErrNotFound) {
 		return nil, fmt.Errorf("check email: %w", err)
 	}
 	if existing != nil {
@@ -247,7 +253,7 @@ func (s *Service) CreateUser(ctx context.Context, req *interfaces.CreateUserRequ
 
 	// Check for duplicate username.
 	existing, err = s.store.GetUserByUsername(ctx, req.Username)
-	if err != nil && err != interfaces.ErrNotFound {
+	if err != nil && !errors.Is(err, interfaces.ErrNotFound) {
 		return nil, fmt.Errorf("check username: %w", err)
 	}
 	if existing != nil {
@@ -310,10 +316,14 @@ func (s *Service) GetUser(ctx context.Context, identifier string) (*interfaces.U
 		user, err := s.store.GetUserByID(ctx, identifier)
 		if err == nil {
 			user.PasswordHash = ""
-			user.Roles, _ = s.store.GetUserRoleNames(ctx, user.ID)
+			if roles, rerr := s.store.GetUserRoleNames(ctx, user.ID); rerr != nil {
+				s.logger.Error("failed to get user roles", "user_id", user.ID, "error", rerr)
+			} else {
+				user.Roles = roles
+			}
 			return user, nil
 		}
-		if err != interfaces.ErrNotFound {
+		if !errors.Is(err, interfaces.ErrNotFound) {
 			return nil, fmt.Errorf("get user by id: %w", err)
 		}
 	}
@@ -323,10 +333,14 @@ func (s *Service) GetUser(ctx context.Context, identifier string) (*interfaces.U
 		user, err := s.store.GetUserByEmail(ctx, identifier)
 		if err == nil {
 			user.PasswordHash = ""
-			user.Roles, _ = s.store.GetUserRoleNames(ctx, user.ID)
+			if roles, rerr := s.store.GetUserRoleNames(ctx, user.ID); rerr != nil {
+				s.logger.Error("failed to get user roles", "user_id", user.ID, "error", rerr)
+			} else {
+				user.Roles = roles
+			}
 			return user, nil
 		}
-		if err != interfaces.ErrNotFound {
+		if !errors.Is(err, interfaces.ErrNotFound) {
 			return nil, fmt.Errorf("get user by email: %w", err)
 		}
 	}
@@ -334,13 +348,17 @@ func (s *Service) GetUser(ctx context.Context, identifier string) (*interfaces.U
 	// Try as username.
 	user, err := s.store.GetUserByUsername(ctx, identifier)
 	if err != nil {
-		if err == interfaces.ErrNotFound {
+		if errors.Is(err, interfaces.ErrNotFound) {
 			return nil, interfaces.ErrNotFound
 		}
 		return nil, fmt.Errorf("get user by username: %w", err)
 	}
 	user.PasswordHash = ""
-	user.Roles, _ = s.store.GetUserRoleNames(ctx, user.ID)
+	if roles, rerr := s.store.GetUserRoleNames(ctx, user.ID); rerr != nil {
+		s.logger.Error("failed to get user roles", "user_id", user.ID, "error", rerr)
+	} else {
+		user.Roles = roles
+	}
 	return user, nil
 }
 
@@ -481,7 +499,7 @@ func (s *Service) VerifyAPIToken(ctx context.Context, tokenString string) (*inte
 
 	apiToken, err := s.store.GetAPITokenByHash(ctx, tokenHash)
 	if err != nil {
-		if err == interfaces.ErrNotFound {
+		if errors.Is(err, interfaces.ErrNotFound) {
 			return nil, interfaces.ErrUnauthorized
 		}
 		return nil, fmt.Errorf("lookup api token: %w", err)
@@ -493,8 +511,11 @@ func (s *Service) VerifyAPIToken(ctx context.Context, tokenString string) (*inte
 	}
 
 	// Update last used timestamp asynchronously.
+	s.bgWg.Add(1)
 	go func() {
-		bgCtx := context.Background()
+		defer s.bgWg.Done()
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if err := s.store.UpdateAPITokenLastUsed(bgCtx, apiToken.ID); err != nil {
 			s.logger.Warn("failed to update api token last used", "token_id", apiToken.ID, "error", err)
 		}
@@ -537,6 +558,94 @@ func validateCreateUser(req *interfaces.CreateUserRequest) error {
 		return fmt.Errorf("password must be at least %d characters: %w", minPasswordLength, interfaces.ErrValidation)
 	}
 	return nil
+}
+
+func (s *Service) UpdateUser(ctx context.Context, id string, req *interfaces.UpdateUserRequest) (*interfaces.User, error) {
+	user, err := s.store.GetUserByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get user for update: %w", err)
+	}
+
+	if req.Email != nil {
+		if _, err := mail.ParseAddress(*req.Email); err != nil {
+			return nil, fmt.Errorf("invalid email format: %w", interfaces.ErrValidation)
+		}
+		user.Email = *req.Email
+	}
+	if req.Username != nil {
+		if len(*req.Username) < 3 {
+			return nil, fmt.Errorf("username must be at least 3 characters: %w", interfaces.ErrValidation)
+		}
+		user.Username = *req.Username
+	}
+	if req.Password != nil {
+		if len(*req.Password) < minPasswordLength {
+			return nil, fmt.Errorf("password must be at least %d characters: %w", minPasswordLength, interfaces.ErrValidation)
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(*req.Password), defaultBCryptCost)
+		if err != nil {
+			return nil, fmt.Errorf("hash password: %w", err)
+		}
+		user.PasswordHash = string(hash)
+	}
+	if req.Status != nil {
+		user.Status = *req.Status
+	}
+	user.UpdatedAt = time.Now().UTC()
+
+	if err := s.store.UpdateUser(ctx, user); err != nil {
+		return nil, fmt.Errorf("update user: %w", err)
+	}
+
+	if len(req.Roles) > 0 {
+		existingRoles, err := s.store.GetUserRoleNames(ctx, id)
+		if err != nil {
+			s.logger.Error("failed to get user roles for update", "error", err)
+		} else {
+			roleMap := make(map[string]bool, len(existingRoles))
+			for _, r := range existingRoles {
+				roleMap[r] = true
+			}
+			for _, r := range req.Roles {
+				if !roleMap[r] {
+					role, err := s.store.GetRoleByName(ctx, r)
+					if err == nil {
+						if addErr := s.store.AddUserRole(ctx, id, role.ID); addErr != nil {
+							s.logger.Error("failed to add user role", "role", r, "error", addErr)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	user.Roles, err = s.store.GetUserRoleNames(ctx, id)
+	if err != nil {
+		s.logger.Error("failed to get user roles after update", "error", err)
+	}
+
+	return user, nil
+}
+
+func (s *Service) DeleteUser(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	if err := s.store.SetUserRevocation(ctx, id, now); err != nil {
+		return fmt.Errorf("revoke user: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) ListUsers(ctx context.Context, query *interfaces.UserQuery) (*interfaces.Page, error) {
+	if query == nil {
+		query = &interfaces.UserQuery{Page: 1, PerPage: 20}
+	}
+	if query.Page < 1 {
+		query.Page = 1
+	}
+	if query.PerPage < 1 || query.PerPage > 100 {
+		query.PerPage = 20
+	}
+	return s.store.ListUsers(ctx, query)
 }
 
 func extractIP(ctx context.Context) string {

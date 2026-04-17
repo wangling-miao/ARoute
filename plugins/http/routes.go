@@ -4,6 +4,7 @@
 package http
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -48,11 +49,12 @@ func NewRouteRegistrar(router chi.Router) RouteRegistrar {
 // Register registers a route pattern with handler.
 // Supports standard chi patterns: "GET /path", "POST /path", etc.
 func (r *routeRegistrar) Register(pattern string, handler interface{}) {
-	// Chi router accepts http.HandlerFunc
 	if h, ok := handler.(http.HandlerFunc); ok {
 		r.router.HandleFunc(pattern, h)
 	} else if h, ok := handler.(func(http.ResponseWriter, *http.Request)); ok {
 		r.router.HandleFunc(pattern, h)
+	} else {
+		log.Printf("[http] WARNING: Register() received unsupported handler type %T, ignoring", handler)
 	}
 }
 

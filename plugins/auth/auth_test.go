@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"database/sql"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -740,7 +742,10 @@ func writeRSAKeyPEM(t *testing.T) (*rsa.PrivateKey, string) {
 	if err != nil {
 		t.Fatalf("create private key file: %v", err)
 	}
-	if err := rsaPrivateKeyToPEM(privKey, privFile); err != nil {
+	if err := pem.Encode(privFile, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
+	}); err != nil {
 		privFile.Close()
 		t.Fatalf("write private key PEM: %v", err)
 	}
@@ -751,7 +756,15 @@ func writeRSAKeyPEM(t *testing.T) (*rsa.PrivateKey, string) {
 	if err != nil {
 		t.Fatalf("create public key file: %v", err)
 	}
-	if err := rsaPublicKeyToPEM(&privKey.PublicKey, pubFile); err != nil {
+	pubBytes, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
+	if err != nil {
+		pubFile.Close()
+		t.Fatalf("marshal public key: %v", err)
+	}
+	if err := pem.Encode(pubFile, &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubBytes,
+	}); err != nil {
 		pubFile.Close()
 		t.Fatalf("write public key PEM: %v", err)
 	}

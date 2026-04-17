@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+var (
+	migrationFileRegex = regexp.MustCompile(`^(\d{4,12})_(.+)\.sql$`)
+	downMigrationRegex = regexp.MustCompile(`(?s)--\s*@down\s*\n(.+)`)
+	maskPasswordURIRe  = regexp.MustCompile(`://([^:]+):([^@]+)@`)
+)
+
 type Migration struct {
 	Version   int64
 	Name      string
@@ -107,8 +113,7 @@ func (m *MigrationRunner) parseMigrationFile(dir, filename string) (*Migration, 
 }
 
 func extractVersionAndName(filename string) (int64, string) {
-	re := regexp.MustCompile(`^(\d{4,12})_(.+)\.sql$`)
-	matches := re.FindStringSubmatch(filename)
+	matches := migrationFileRegex.FindStringSubmatch(filename)
 	if len(matches) < 3 {
 		return 0, ""
 	}
@@ -219,15 +224,44 @@ func extractUpMigration(content string) string {
 }
 
 func splitSQLStatements(content string) []string {
-	statements := strings.Split(content, ";")
-	result := []string{}
-	for _, stmt := range statements {
-		stmt = strings.TrimSpace(stmt)
-		if stmt != "" {
-			result = append(result, stmt)
+	var statements []string
+	var current strings.Builder
+	inString := false
+
+	for i := 0; i < len(content); i++ {
+		ch := content[i]
+
+		if inString {
+			current.WriteByte(ch)
+			if ch == '\'' {
+				if i+1 < len(content) && content[i+1] == '\'' {
+					i++
+					current.WriteByte(content[i])
+				} else {
+					inString = false
+				}
+			}
+		} else {
+			if ch == '\'' {
+				inString = true
+				current.WriteByte(ch)
+			} else if ch == ';' {
+				stmt := strings.TrimSpace(current.String())
+				if stmt != "" {
+					statements = append(statements, stmt)
+				}
+				current.Reset()
+			} else {
+				current.WriteByte(ch)
+			}
 		}
 	}
-	return result
+
+	stmt := strings.TrimSpace(current.String())
+	if stmt != "" {
+		statements = append(statements, stmt)
+	}
+	return statements
 }
 
 func (m *MigrationRunner) Revert(ctx context.Context, n int) (int, error) {
@@ -309,8 +343,7 @@ func (m *MigrationRunner) revertMigration(ctx context.Context, migration *Migrat
 }
 
 func extractDownMigration(content string) string {
-	re := regexp.MustCompile(`(?s)--\s*@down\s*\n(.+)`)
-	matches := re.FindStringSubmatch(content)
+	matches := downMigrationRegex.FindStringSubmatch(content)
 	if len(matches) < 2 {
 		return ""
 	}

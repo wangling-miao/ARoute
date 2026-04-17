@@ -211,14 +211,37 @@ func findSuggestion(unknown string, knownKeys []string) string {
 
 // similar checks if two strings are similar (typo detection)
 func similar(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	differences := 0
-	for i := range a {
-		if a[i] != b[i] {
-			differences++
+	if len(a) == len(b) {
+		diff := 0
+		for i := range a {
+			if a[i] != b[i] {
+				diff++
+				if diff > 2 {
+					return false
+				}
+			}
 		}
+		return diff <= 2
 	}
-	return differences <= 2
+	if len(a) == len(b)+1 || len(a)+1 == len(b) {
+		shorter, longer := a, b
+		if len(a) > len(b) {
+			shorter, longer = b, a
+		}
+		diff := 0
+		for i, j := 0, 0; i < len(shorter) && j < len(longer); {
+			if shorter[i] == longer[j] {
+				i++
+				j++
+			} else {
+				diff++
+				j++
+				if diff > 1 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
 }
