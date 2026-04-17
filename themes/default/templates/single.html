@@ -1,0 +1,19 @@
+{{template "layouts/base.html" .}}
+
+{{define "content"}}
+<article class="single-content">
+  <h1 class="content-title">{{.Title}}</h1>
+  {{if .Date}}
+  <div class="content-meta">
+    <time datetime="{{.Date}}">{{formatDate .Date "Jan 02, 2006"}}</time>
+  </div>
+  {{end}}
+  <div class="content-body">
+    {{safeHTML .Body}}
+  </div>
+
+  <nav class="post-nav">
+    <a href="/">&larr; Back to home</a>
+  </nav>
+</article>
+{{end}}

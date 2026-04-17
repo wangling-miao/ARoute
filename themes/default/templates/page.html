@@ -1,0 +1,10 @@
+{{template "layouts/base.html" .}}
+
+{{define "content"}}
+<article class="page">
+  <h1 class="page-title">{{.Page.Title}}</h1>
+  <div class="page-body">
+    {{safeHTML .Page.Body}}
+  </div>
+</article>
+{{end}}

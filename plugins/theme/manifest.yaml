@@ -1,0 +1,19 @@
+name: theme
+version: 1.0.0
+description: Multi-engine theme rendering plugin supporting Go template, Lua, and React SSR
+author: wangling
+license: MIT
+engine: native
+requires:
+  - database
+after:
+  - database
+  - content
+provides:
+  - theme.service
+keywords:
+  - theme
+  - template
+  - rendering
+  - lua
+  - react-ssr

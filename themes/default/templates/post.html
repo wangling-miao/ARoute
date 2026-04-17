@@ -1,0 +1,28 @@
+{{template "layouts/base.html" .}}
+
+{{define "content"}}
+<article class="single-post">
+  <h1 class="post-title">{{.Post.Title}}</h1>
+  <div class="post-meta">
+    {{if .Post.Author}}<span class="post-author">By {{.Post.Author}}</span>{{end}}
+    {{if .Post.Date}}<time datetime="{{.Post.Date}}">{{formatDate .Post.Date "Jan 02, 2006"}}</time>{{end}}
+  </div>
+
+  <div class="post-body">
+    {{safeHTML .Post.Body}}
+  </div>
+
+  {{if .Post.Tags}}
+  <footer class="post-tags">
+    <strong>Tags:</strong>
+    {{range .Post.Tags}}
+    <a href="/tags/{{slugify .}}" class="tag">{{.}}</a>
+    {{end}}
+  </footer>
+  {{end}}
+
+  <nav class="post-nav">
+    <a href="/">&larr; Back to all posts</a>
+  </nav>
+</article>
+{{end}}

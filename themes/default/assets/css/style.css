@@ -1,0 +1,400 @@
+/* ARoute Default Theme — style.css */
+
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+/* Base */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.6;
+  color: #333;
+  background: #fff;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Container */
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* Header */
+.site-header {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 20px 0;
+}
+
+.site-header .container {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.site-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.site-name a {
+  color: #111;
+}
+
+.site-name a:hover {
+  text-decoration: none;
+  color: #2563eb;
+}
+
+.site-tagline {
+  color: #6b7280;
+  font-size: 0.9rem;
+  flex-basis: 100%;
+  margin-top: -4px;
+}
+
+.site-nav {
+  margin-left: auto;
+}
+
+.site-nav a {
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
+.site-nav a:hover {
+  color: #2563eb;
+}
+
+/* Main */
+main {
+  flex: 1;
+  padding: 40px 0;
+}
+
+/* Page Title */
+.page-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: #111;
+}
+
+/* Post List */
+.post-list {
+  list-style: none;
+}
+
+.post-item {
+  margin-bottom: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.post-item:last-child {
+  border-bottom: none;
+}
+
+.post-title {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.post-title a {
+  color: #111;
+}
+
+.post-title a:hover {
+  color: #2563eb;
+}
+
+.post-meta {
+  color: #9ca3af;
+  font-size: 0.875rem;
+  margin-bottom: 10px;
+}
+
+.post-meta .post-author::after {
+  content: " · ";
+}
+
+.post-excerpt {
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.no-posts {
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.pagination-link {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+/* Single Post / Content */
+.single-post,
+.single-content,
+.page {
+  max-width: 720px;
+}
+
+.single-post .post-title,
+.single-content .content-title,
+.page .page-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #111;
+}
+
+.single-post .post-meta,
+.single-content .content-meta {
+  color: #9ca3af;
+  font-size: 0.875rem;
+  margin-bottom: 24px;
+}
+
+/* Prose — body content styling */
+.post-body,
+.page-body,
+.content-body {
+  font-size: 1.05rem;
+  line-height: 1.75;
+  color: #374151;
+}
+
+.post-body h1,
+.page-body h1,
+.content-body h1 {
+  font-size: 1.75rem;
+  margin: 32px 0 16px;
+}
+
+.post-body h2,
+.page-body h2,
+.content-body h2 {
+  font-size: 1.4rem;
+  margin: 28px 0 14px;
+}
+
+.post-body h3,
+.page-body h3,
+.content-body h3 {
+  font-size: 1.2rem;
+  margin: 24px 0 12px;
+}
+
+.post-body p,
+.page-body p,
+.content-body p {
+  margin-bottom: 16px;
+}
+
+.post-body ul,
+.page-body ul,
+.content-body ul,
+.post-body ol,
+.page-body ol,
+.content-body ol {
+  margin-bottom: 16px;
+  padding-left: 24px;
+}
+
+.post-body li,
+.page-body li,
+.content-body li {
+  margin-bottom: 4px;
+}
+
+.post-body code,
+.page-body code,
+.content-body code {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.post-body pre,
+.page-body pre,
+.content-body pre {
+  background: #1f2937;
+  color: #e5e7eb;
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+
+.post-body pre code,
+.page-body pre code,
+.content-body pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.post-body blockquote,
+.page-body blockquote,
+.content-body blockquote {
+  border-left: 3px solid #2563eb;
+  padding-left: 16px;
+  margin: 16px 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Tags */
+.post-tags {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f3f4f6;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.tag {
+  display: inline-block;
+  background: #eff6ff;
+  color: #2563eb;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  margin-left: 6px;
+}
+
+.tag:hover {
+  background: #dbeafe;
+  text-decoration: none;
+}
+
+/* Post Nav */
+.post-nav {
+  margin-top: 32px;
+  font-size: 0.95rem;
+}
+
+/* 404 */
+.error-page {
+  text-align: center;
+  padding: 60px 0;
+}
+
+.error-title {
+  font-size: 6rem;
+  font-weight: 700;
+  color: #d1d5db;
+  line-height: 1;
+}
+
+.error-message {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #374151;
+  margin: 12px 0 8px;
+}
+
+.error-description {
+  color: #6b7280;
+  margin-bottom: 24px;
+}
+
+.error-link {
+  font-weight: 500;
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid #e5e7eb;
+  padding: 20px 0;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .site-header .container {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .site-nav {
+    margin-left: 0;
+  }
+
+  .site-tagline {
+    flex-basis: auto;
+  }
+
+  main {
+    padding: 24px 0;
+  }
+
+  .page-title {
+    font-size: 1.4rem;
+  }
+
+  .single-post .post-title,
+  .single-content .content-title,
+  .page .page-title {
+    font-size: 1.5rem;
+  }
+
+  .post-title {
+    font-size: 1.15rem;
+  }
+
+  .post-body,
+  .page-body,
+  .content-body {
+    font-size: 1rem;
+  }
+
+  .error-title {
+    font-size: 4rem;
+  }
+}

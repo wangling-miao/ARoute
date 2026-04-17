@@ -1,0 +1,12 @@
+name: "ARoute Default"
+version: "1.0.0"
+author: "ARoute Team"
+description: "Default blog theme for ARoute CMS with responsive design"
+engine: "gotemplate"
+aroute_version: ">=1.0.0"
+settings:
+  primary_color: "#2563eb"
+  show_sidebar: true
+  posts_per_page: 10
+  show_author: true
+  show_date: true

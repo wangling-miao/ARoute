@@ -27,6 +27,7 @@ import (
 	"github.com/wangling-miao/aroute/plugins/database"
 	httpplugin "github.com/wangling-miao/aroute/plugins/http"
 	"github.com/wangling-miao/aroute/plugins/media"
+	"github.com/wangling-miao/aroute/plugins/theme"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
@@ -128,6 +129,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 	pluginLoader.Register("media", func() core.Plugin {
 		return media.New()
+	})
+	pluginLoader.Register("theme", func() core.Plugin {
+		return theme.New()
 	})
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},
