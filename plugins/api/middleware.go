@@ -141,7 +141,7 @@ func contentNegotiationMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			accept := r.Header.Get("Accept")
-			if accept != "" && accept != "application/json" && accept != "*/*" {
+			if accept != "" && accept != "application/json" && !strings.Contains(accept, "*/*") {
 				writeError(w, http.StatusNotAcceptable, "NOT_ACCEPTABLE", "only application/json is supported")
 				return
 			}

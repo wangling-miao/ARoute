@@ -1,6 +1,12 @@
 # Aroute CMS Configuration
 # Copy this file to aroute.yaml and modify as needed.
 
+# API settings
+api:
+  docs:
+    enabled: false
+    ui: "swagger"  # "swagger" or "redoc"
+
 # Server settings
 server:
   host: "0.0.0.0"

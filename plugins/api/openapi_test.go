@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,10 @@ func sampleContentType(name, slug, displayName, desc string, fields []interfaces
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
+}
+
+func ptrContentType(ct interfaces.ContentType) *interfaces.ContentType {
+	return &ct
 }
 
 func TestGenerateOpenAPISpec_EmptyContentTypes(t *testing.T) {
@@ -338,24 +343,43 @@ func TestGenerateOpenAPISpec_RequestBodyOnWriteOps(t *testing.T) {
 // TestHandleDocs
 // ---------------------------------------------------------------------------
 
-func setTestRegistry(cts []interfaces.ContentType) func() {
-	contentTypesRegistryMu.Lock()
-	orig := contentTypesRegistry
-	contentTypesRegistry = cts
-	contentTypesRegistryMu.Unlock()
-	return func() {
-		contentTypesRegistryMu.Lock()
-		contentTypesRegistry = orig
-		contentTypesRegistryMu.Unlock()
-	}
+type mockContentSvcForDocs struct {
+	types []*interfaces.ContentType
+}
+
+func (m *mockContentSvcForDocs) Create(ctx context.Context, contentType string, data map[string]interface{}) (*interfaces.Content, error) {
+	return nil, nil
+}
+func (m *mockContentSvcForDocs) GetByID(ctx context.Context, id string) (*interfaces.Content, error) {
+	return nil, nil
+}
+func (m *mockContentSvcForDocs) Update(ctx context.Context, id string, data map[string]interface{}) (*interfaces.Content, error) {
+	return nil, nil
+}
+func (m *mockContentSvcForDocs) Delete(ctx context.Context, id string) error { return nil }
+func (m *mockContentSvcForDocs) List(ctx context.Context, contentType string, query *interfaces.ListQuery) (*interfaces.Page, error) {
+	return nil, nil
+}
+func (m *mockContentSvcForDocs) GetContentType(ctx context.Context, name string) (*interfaces.ContentType, error) {
+	return nil, nil
+}
+func (m *mockContentSvcForDocs) CreateContentType(ctx context.Context, ct *interfaces.ContentType) (*interfaces.ContentType, error) {
+	return nil, nil
+}
+func (m *mockContentSvcForDocs) UpdateContentType(ctx context.Context, name string, ct *interfaces.ContentType) (*interfaces.ContentType, error) {
+	return nil, nil
+}
+func (m *mockContentSvcForDocs) DeleteContentType(ctx context.Context, name string) error { return nil }
+func (m *mockContentSvcForDocs) ListContentTypes(ctx context.Context) ([]*interfaces.ContentType, error) {
+	return m.types, nil
 }
 
 func TestHandleDocs_Returns200WithValidJSON(t *testing.T) {
-	defer setTestRegistry([]interfaces.ContentType{
-		sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{}),
-	})()
-
-	h := NewHandler(nil)
+	h := NewHandler(&mockContentSvcForDocs{
+		types: []*interfaces.ContentType{
+			ptrContentType(sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{})),
+		},
+	})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil)
 
@@ -369,9 +393,7 @@ func TestHandleDocs_Returns200WithValidJSON(t *testing.T) {
 }
 
 func TestHandleDocs_ContentTypeIsJSON(t *testing.T) {
-	defer setTestRegistry(nil)()
-
-	h := NewHandler(nil)
+	h := NewHandler(&mockContentSvcForDocs{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil)
 
@@ -382,9 +404,7 @@ func TestHandleDocs_ContentTypeIsJSON(t *testing.T) {
 }
 
 func TestHandleDocs_ContainsRequiredFields(t *testing.T) {
-	defer setTestRegistry(nil)()
-
-	h := NewHandler(nil)
+	h := NewHandler(&mockContentSvcForDocs{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil)
 
@@ -400,63 +420,6 @@ func TestHandleDocs_ContainsRequiredFields(t *testing.T) {
 	assert.True(t, hasOpenAPI, "spec should have 'openapi' field")
 	assert.True(t, hasInfo, "spec should have 'info' field")
 	assert.True(t, hasPaths, "spec should have 'paths' field")
-}
-
-// ---------------------------------------------------------------------------
-// TestRegisterContentType / TestRegisteredContentTypes
-// ---------------------------------------------------------------------------
-
-func TestRegisterContentType_AddsType(t *testing.T) {
-	defer setTestRegistry(nil)()
-
-	ct := sampleContentType("post", "posts", "Posts", "Blog posts", nil)
-	RegisterContentType(ct)
-
-	got := RegisteredContentTypes()
-	require.Len(t, got, 1)
-	assert.Equal(t, "post", got[0].Name)
-}
-
-func TestRegisterContentType_ReplacesExisting(t *testing.T) {
-	defer setTestRegistry(nil)()
-
-	ct1 := sampleContentType("post", "posts", "Posts", "Old desc", nil)
-	ct2 := sampleContentType("post", "posts", "Posts", "New desc", nil)
-
-	RegisterContentType(ct1)
-	RegisterContentType(ct2)
-
-	got := RegisteredContentTypes()
-	require.Len(t, got, 1)
-	assert.Equal(t, "New desc", got[0].Description)
-}
-
-func TestRegisteredContentTypes_ReturnsCopy(t *testing.T) {
-	defer setTestRegistry([]interfaces.ContentType{
-		sampleContentType("post", "posts", "Posts", "desc", nil),
-	})()
-
-	got := RegisteredContentTypes()
-	require.Len(t, got, 1)
-
-	got[0].Description = "mutated"
-
-	contentTypesRegistryMu.RLock()
-	regDesc := contentTypesRegistry[0].Description
-	contentTypesRegistryMu.RUnlock()
-	assert.Equal(t, "desc", regDesc,
-		"mutating the returned slice should not affect the registry")
-}
-
-func TestRegisterContentType_MultipleRegistrations(t *testing.T) {
-	defer setTestRegistry(nil)()
-
-	RegisterContentType(sampleContentType("post", "posts", "Posts", "desc", nil))
-	RegisterContentType(sampleContentType("page", "pages", "Pages", "desc", nil))
-	RegisterContentType(sampleContentType("tag", "tags", "Tags", "desc", nil))
-
-	got := RegisteredContentTypes()
-	assert.Len(t, got, 3)
 }
 
 // ---------------------------------------------------------------------------

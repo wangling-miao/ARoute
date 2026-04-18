@@ -294,9 +294,13 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // ListContentTypes handles GET /api/v1/content-types.
 func (h *Handler) ListContentTypes(w http.ResponseWriter, r *http.Request) {
-	types := RegisteredContentTypes()
+	types, err := h.contentSvc.ListContentTypes(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list content types")
+		return
+	}
 	if types == nil {
-		types = []interfaces.ContentType{}
+		types = []*interfaces.ContentType{}
 	}
 	writeJSON(w, http.StatusOK, types)
 }

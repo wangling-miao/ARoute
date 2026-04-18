@@ -277,6 +277,10 @@ func (s *Service) GetContentType(ctx context.Context, name string) (*interfaces.
 	return s.store.GetContentType(ctx, name)
 }
 
+func (s *Service) ListContentTypes(ctx context.Context) ([]*interfaces.ContentType, error) {
+	return s.store.ListContentTypes(ctx)
+}
+
 func (s *Service) CreateContentType(ctx context.Context, ct *interfaces.ContentType) (*interfaces.ContentType, error) {
 	if ct.Name == "" {
 		return nil, fmt.Errorf("content type name is required: %w", interfaces.ErrValidation)

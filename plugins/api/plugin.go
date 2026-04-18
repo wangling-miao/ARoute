@@ -121,13 +121,34 @@ func (p *Plugin) registerRoutes() {
 	contentNeg := contentNegotiationMiddleware()
 	rateLimitMW := rateLimitMiddleware(config)
 
+	docsEnabled := true
+	docsUI := "swagger"
+	if config != nil {
+		if v, ok := config.Get("api.docs.enabled").(bool); ok {
+			docsEnabled = v
+		}
+		if v := config.GetString("api.docs.ui"); v != "" {
+			docsUI = v
+		}
+	}
+
+	if docsEnabled {
+		p.registrar.Route("/api/v1/openapi.json", func(r chi.Router) {
+			r.Get("/", p.handler.handleDocs)
+		})
+
+		uiHandler := p.handler.docsUIHandler(docsUI)
+		p.registrar.Route("/api/docs", func(r chi.Router) {
+			r.Get("/", uiHandler)
+		})
+	}
+
 	p.registrar.Route("/api/v1", func(r chi.Router) {
 		r.Use(contentNeg)
 		r.Use(perContentTypeAuthMiddleware(p.authSvc, publicRead, config))
 		r.Use(rateLimitMW)
 
 		r.Get("/content-types", p.handler.ListContentTypes)
-		r.Get("/openapi.json", p.handler.handleDocs)
 
 		r.Route("/{contentType}", func(cr chi.Router) {
 			cr.Get("/", p.handler.List)
@@ -139,25 +160,6 @@ func (p *Plugin) registerRoutes() {
 				ir.Delete("/", p.handler.Delete)
 			})
 		})
-	})
-
-	docsEnabled := true
-	docsUI := "swagger"
-	if config != nil {
-		docsEnabled = config.GetBool("api.docs.enabled")
-		docsUI = config.GetString("api.docs.ui")
-	}
-
-	p.registrar.Route("/api/docs", func(r chi.Router) {
-		if !docsEnabled {
-			r.Use(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-					writeError(w, http.StatusNotFound, "NOT_FOUND", "docs endpoint is disabled")
-				})
-			})
-		}
-		uiHandler := p.handler.docsUIHandler(docsUI)
-		r.Get("/", uiHandler)
 	})
 }
 

@@ -44,4 +44,7 @@ type ContentService interface {
 	// DeleteContentType removes a content type and its associated table.
 	// This is a destructive operation that deletes all content of this type.
 	DeleteContentType(ctx context.Context, name string) error
+
+	// ListContentTypes returns all registered content types.
+	ListContentTypes(ctx context.Context) ([]*ContentType, error)
 }

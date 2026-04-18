@@ -372,6 +372,10 @@ func (m *mockContentService) DeleteContentType(ctx context.Context, name string)
 	return nil
 }
 
+func (m *mockContentService) ListContentTypes(ctx context.Context) ([]*ContentType, error) {
+	return nil, nil
+}
+
 type mockMediaService struct{}
 
 func (m *mockMediaService) Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, uploaderID string) (*MediaFile, error) {

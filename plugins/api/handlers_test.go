@@ -23,15 +23,16 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockContentService struct {
-	createFunc         func(ctx context.Context, contentType string, data map[string]interface{}) (*interfaces.Content, error)
-	getByIDFunc        func(ctx context.Context, id string) (*interfaces.Content, error)
-	updateFunc         func(ctx context.Context, id string, data map[string]interface{}) (*interfaces.Content, error)
-	deleteFunc         func(ctx context.Context, id string) error
-	listFunc           func(ctx context.Context, contentType string, query *interfaces.ListQuery) (*interfaces.Page, error)
-	getContentTypeFunc func(ctx context.Context, name string) (*interfaces.ContentType, error)
-	createCTFunc       func(ctx context.Context, ct *interfaces.ContentType) (*interfaces.ContentType, error)
-	updateCTFunc       func(ctx context.Context, name string, ct *interfaces.ContentType) (*interfaces.ContentType, error)
-	deleteCTFunc       func(ctx context.Context, name string) error
+	createFunc           func(ctx context.Context, contentType string, data map[string]interface{}) (*interfaces.Content, error)
+	getByIDFunc          func(ctx context.Context, id string) (*interfaces.Content, error)
+	updateFunc           func(ctx context.Context, id string, data map[string]interface{}) (*interfaces.Content, error)
+	deleteFunc           func(ctx context.Context, id string) error
+	listFunc             func(ctx context.Context, contentType string, query *interfaces.ListQuery) (*interfaces.Page, error)
+	getContentTypeFunc   func(ctx context.Context, name string) (*interfaces.ContentType, error)
+	createCTFunc         func(ctx context.Context, ct *interfaces.ContentType) (*interfaces.ContentType, error)
+	updateCTFunc         func(ctx context.Context, name string, ct *interfaces.ContentType) (*interfaces.ContentType, error)
+	deleteCTFunc         func(ctx context.Context, name string) error
+	listContentTypesFunc func(ctx context.Context) ([]*interfaces.ContentType, error)
 }
 
 func (m *mockContentService) Create(ctx context.Context, contentType string, data map[string]interface{}) (*interfaces.Content, error) {
@@ -95,6 +96,13 @@ func (m *mockContentService) DeleteContentType(ctx context.Context, name string)
 		return m.deleteCTFunc(ctx, name)
 	}
 	return nil
+}
+
+func (m *mockContentService) ListContentTypes(ctx context.Context) ([]*interfaces.ContentType, error) {
+	if m.listContentTypesFunc != nil {
+		return m.listContentTypesFunc(ctx)
+	}
+	return nil, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -907,12 +915,16 @@ func TestMapError_UnknownError(t *testing.T) {
 // ===========================================================================
 
 func TestListContentTypes_ReturnsRegisteredTypes(t *testing.T) {
-	defer setTestRegistry([]interfaces.ContentType{
-		sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{}),
-		sampleContentType("page", "pages", "Pages", "Static pages", []interfaces.Field{}),
-	})()
+	mock := &mockContentService{
+		listContentTypesFunc: func(_ context.Context) ([]*interfaces.ContentType, error) {
+			return []*interfaces.ContentType{
+				ptrContentType(sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{})),
+				ptrContentType(sampleContentType("page", "pages", "Pages", "Static pages", []interfaces.Field{})),
+			}, nil
+		},
+	}
 
-	h := NewHandler(&mockContentService{})
+	h := NewHandler(mock)
 	router := setupRouter(h)
 
 	rr := doRequest(t, router, http.MethodGet, "/api/v1/content-types", "")

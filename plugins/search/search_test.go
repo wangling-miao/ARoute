@@ -140,6 +140,16 @@ func (m *mockContentService) DeleteContentType(ctx context.Context, name string)
 	return nil
 }
 
+func (m *mockContentService) ListContentTypes(ctx context.Context) ([]*interfaces.ContentType, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*interfaces.ContentType, 0, len(m.types))
+	for _, ct := range m.types {
+		result = append(result, ct)
+	}
+	return result, nil
+}
+
 // contentToMap converts a Content to a map for List results (used by Rebuild).
 func contentToMap(c *interfaces.Content) map[string]interface{} {
 	m := map[string]interface{}{

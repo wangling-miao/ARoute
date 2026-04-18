@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"sync"
 	"unicode"
 
 	"github.com/wangling-miao/aroute/sdk/interfaces"
@@ -79,37 +78,6 @@ type OpenAPIResponse struct {
 	Content     map[string]interface{} `json:"content,omitempty"`
 }
 
-// contentTypesRegistry stores known content types discovered during route
-// registration. Since ContentService does not expose ListContentTypes, the
-// registry is the only way for the docs endpoint to enumerate types.
-var (
-	contentTypesRegistry   []interfaces.ContentType
-	contentTypesRegistryMu sync.RWMutex
-)
-
-// RegisterContentType adds a content type to the OpenAPI registry,
-// replacing any existing entry with the same name.
-func RegisterContentType(ct interfaces.ContentType) {
-	contentTypesRegistryMu.Lock()
-	defer contentTypesRegistryMu.Unlock()
-	for i, existing := range contentTypesRegistry {
-		if existing.Name == ct.Name {
-			contentTypesRegistry[i] = ct
-			return
-		}
-	}
-	contentTypesRegistry = append(contentTypesRegistry, ct)
-}
-
-// RegisteredContentTypes returns a copy of all registered content types.
-func RegisteredContentTypes() []interfaces.ContentType {
-	contentTypesRegistryMu.RLock()
-	defer contentTypesRegistryMu.RUnlock()
-	out := make([]interfaces.ContentType, len(contentTypesRegistry))
-	copy(out, contentTypesRegistry)
-	return out
-}
-
 // GenerateOpenAPISpec creates an OpenAPI 3.0 spec from the given content type
 // definitions, producing full CRUD paths, component schemas, and a Bearer JWT
 // security scheme.
@@ -147,8 +115,17 @@ func GenerateOpenAPISpec(contentTypes []interfaces.ContentType) *OpenAPISpec {
 
 // handleDocs serves the generated OpenAPI JSON spec at GET /api/v1/openapi.json.
 func (h *Handler) handleDocs(w http.ResponseWriter, r *http.Request) {
-	types := RegisteredContentTypes()
-	spec := GenerateOpenAPISpec(types)
+	types, err := h.contentSvc.ListContentTypes(r.Context())
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list content types")
+		return
+	}
+	flatTypes := make([]interfaces.ContentType, len(types))
+	for i, ct := range types {
+		flatTypes[i] = *ct
+	}
+	spec := GenerateOpenAPISpec(flatTypes)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(spec)
 }
