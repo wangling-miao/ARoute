@@ -3,6 +3,7 @@
 
 # API settings
 api:
+  public_read: false
   docs:
     enabled: false
     ui: "swagger"  # "swagger" or "redoc"
