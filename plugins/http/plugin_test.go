@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/services"
+	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
 // mockCoreContext implements core.CoreContext for testing
@@ -129,7 +130,7 @@ func TestPluginInit(t *testing.T) {
 	}
 
 	// Verify RouteRegistrar service was registered
-	var registrar RouteRegistrar
+	var registrar interfaces.RouteRegistrar
 	err = ctx.Services().Get(&registrar)
 	if err != nil {
 		t.Error("RouteRegistrar service was not registered")
@@ -191,7 +192,7 @@ func TestRouteRegistration(t *testing.T) {
 	}
 
 	// Get RouteRegistrar service
-	var registrar RouteRegistrar
+	var registrar interfaces.RouteRegistrar
 	err = ctx.Services().Get(&registrar)
 	if err != nil {
 		t.Fatalf("Failed to get RouteRegistrar: %v", err)
