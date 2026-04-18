@@ -1,0 +1,15 @@
+name: cache
+version: 1.0.0
+description: In-memory cache plugin backed by Ristretto with TTL, auto-invalidation, and statistics
+author: wangling
+license: MIT
+engine: native
+requires: []
+after: []
+provides:
+  - cache.service
+keywords:
+  - cache
+  - ristretto
+  - memory
+  - ttl
