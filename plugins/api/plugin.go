@@ -116,7 +116,7 @@ func (p *Plugin) registerRoutes() {
 		config = p.ctx.Config()
 	}
 	if config != nil {
-		publicRead = config.GetBool("public_read")
+		publicRead = config.GetBool("api.public_read")
 	}
 	contentNeg := contentNegotiationMiddleware()
 	rateLimitMW := rateLimitMiddleware(config)
@@ -132,11 +132,11 @@ func (p *Plugin) registerRoutes() {
 		}
 	}
 
-	if docsEnabled {
-		p.registrar.Route("/api/v1/openapi.json", func(r chi.Router) {
-			r.Get("/", p.handler.handleDocs)
-		})
+	p.registrar.Route("/api/v1/openapi.json", func(r chi.Router) {
+		r.Get("/", p.handler.handleDocs)
+	})
 
+	if docsEnabled {
 		uiHandler := p.handler.docsUIHandler(docsUI)
 		p.registrar.Route("/api/docs", func(r chi.Router) {
 			r.Get("/", uiHandler)
