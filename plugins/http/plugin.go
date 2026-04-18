@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
 //go:embed manifest.yaml
@@ -71,8 +72,7 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	// Setup CORS (must be before routes)
 	p.setupCORS(ctx)
 
-	// Register RouteRegistrar service
-	if err := ctx.Services().Provide(func(container core.ServiceContainer) (RouteRegistrar, error) {
+	if err := ctx.Services().Provide(func(container core.ServiceContainer) (interfaces.RouteRegistrar, error) {
 		return NewRouteRegistrar(p.router), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register RouteRegistrar service: %w", err)

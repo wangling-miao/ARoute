@@ -1,0 +1,20 @@
+name: api
+version: 1.0.0
+description: REST API plugin with auto-generated CRUD endpoints, OpenAPI 3.0 schema
+author: wangling
+license: MIT
+engine: native
+requires:
+  - http
+  - content
+  - auth
+after:
+  - http
+  - content
+  - auth
+provides:
+  - api.service
+keywords:
+  - api
+  - rest
+  - openapi
