@@ -466,10 +466,10 @@ make admin-dev
 - [x] Search 插件（Bleve + gse 中文分词）
 - [x] REST API 插件（自动 CRUD、OpenAPI 3.0）
 - [x] Cache 插件（ristretto + EventBus 自动失效）
+- [x] Queue 插件（Goroutine worker pool、重试、死信队列）
 
 ### 🚧 开发中
 
-- [ ] Queue 插件（Goroutine worker pool、重试、死信队列）
 - [ ] Webhook 插件（HTTP POST、HMAC-SHA256 签名、重试策略）
 - [ ] Admin UI（React + Arco Design + TipTap）
 - [ ] Plugin SDK（Go SDK + Wasm 模板）

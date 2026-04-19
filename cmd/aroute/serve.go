@@ -29,6 +29,7 @@ import (
 	"github.com/wangling-miao/aroute/plugins/database"
 	httpplugin "github.com/wangling-miao/aroute/plugins/http"
 	"github.com/wangling-miao/aroute/plugins/media"
+	"github.com/wangling-miao/aroute/plugins/queue"
 	"github.com/wangling-miao/aroute/plugins/search"
 	"github.com/wangling-miao/aroute/plugins/theme"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
@@ -144,6 +145,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 	pluginLoader.Register("cache", func() core.Plugin {
 		return cache.New()
+	})
+	pluginLoader.Register("queue", func() core.Plugin {
+		return queue.New()
 	})
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},

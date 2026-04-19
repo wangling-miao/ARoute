@@ -1,0 +1,16 @@
+name: queue
+version: 1.0.0
+description: Lightweight task queue plugin with goroutine worker pool, retry with exponential backoff, dead-letter queue, and priority scheduling
+author: wangling
+license: MIT
+engine: native
+requires: []
+after: []
+provides:
+  - queue.service
+keywords:
+  - queue
+  - worker
+  - task
+  - async
+  - retry
