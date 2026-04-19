@@ -648,6 +648,80 @@ func (s *Service) ListUsers(ctx context.Context, query *interfaces.UserQuery) (*
 	return s.store.ListUsers(ctx, query)
 }
 
+// ListRoles returns all roles in the system.
+func (s *Service) ListRoles(ctx context.Context) ([]*interfaces.Role, error) {
+	return s.rbac.ListAllRoles(ctx)
+}
+
+// UpdateRole updates a role's description and permissions by ID.
+func (s *Service) UpdateRole(ctx context.Context, id string, description string, permissionNames []string) (*interfaces.Role, error) {
+	role, err := s.store.GetRoleByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get role: %w", err)
+	}
+
+	if description != "" {
+		role.Description = description
+	}
+	role.UpdatedAt = time.Now().UTC()
+
+	if err := s.store.UpdateRole(ctx, role); err != nil {
+		return nil, fmt.Errorf("update role: %w", err)
+	}
+
+	if len(permissionNames) > 0 {
+		existingPerms, err := s.store.GetPermissionsByRoleID(ctx, id)
+		if err != nil {
+			s.logger.Warn("failed to get existing permissions for role update", "role_id", id, "error", err)
+		}
+		for _, p := range existingPerms {
+			if err := s.store.RemoveRolePermission(ctx, id, p.ID); err != nil {
+				s.logger.Warn("failed to remove permission from role", "role_id", id, "perm_id", p.ID, "error", err)
+			}
+		}
+
+		for _, permName := range permissionNames {
+			if err := s.rbac.AssignPermission(ctx, role.Name, parsePermissionResource(permName), parsePermissionAction(permName)); err != nil {
+				s.logger.Warn("failed to assign permission to role", "role", role.Name, "perm", permName, "error", err)
+			}
+		}
+	}
+
+	perms, err := s.store.GetPermissionsByRoleID(ctx, id)
+	if err != nil {
+		s.logger.Warn("failed to get permissions for role response", "role_id", id, "error", err)
+	}
+	role.Permissions = make([]string, 0, len(perms))
+	for _, p := range perms {
+		role.Permissions = append(role.Permissions, p.Name)
+	}
+
+	return role, nil
+}
+
+// ListAPITokens returns all API tokens for a user.
+func (s *Service) ListAPITokens(ctx context.Context, userID string) ([]*interfaces.APIToken, error) {
+	return s.store.ListAPITokensByUser(ctx, userID)
+}
+
+// parsePermissionResource extracts the resource part from "resource.action".
+func parsePermissionResource(name string) string {
+	parts := strings.SplitN(name, ".", 2)
+	if len(parts) == 2 {
+		return parts[0]
+	}
+	return name
+}
+
+// parsePermissionAction extracts the action part from "resource.action".
+func parsePermissionAction(name string) string {
+	parts := strings.SplitN(name, ".", 2)
+	if len(parts) == 2 {
+		return parts[1]
+	}
+	return "*"
+}
+
 func extractIP(ctx context.Context) string {
 	if ip, ok := ctx.Value(ContextKeyRemoteIP).(string); ok && ip != "" {
 		return ip

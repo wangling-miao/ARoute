@@ -1137,9 +1137,9 @@ func TestInitDB_LoadsPersistedTasks(t *testing.T) {
 		retry_count INTEGER NOT NULL DEFAULT 0,
 		max_retries INTEGER NOT NULL DEFAULT 3,
 		timeout_ms INTEGER NOT NULL DEFAULT 60000,
-		created_at DATETIME NOT NULL,
-		started_at DATETIME,
-		completed_at DATETIME,
+		created_at TEXT NOT NULL,
+		started_at TEXT,
+		completed_at TEXT,
 		error TEXT,
 		delay_ms INTEGER NOT NULL DEFAULT 0
 	)`)
@@ -1151,8 +1151,8 @@ func TestInitDB_LoadsPersistedTasks(t *testing.T) {
 		original_payload TEXT,
 		last_error TEXT,
 		retry_count INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		dead_lettered_at DATETIME NOT NULL
+		created_at TEXT NOT NULL,
+		dead_lettered_at TEXT NOT NULL
 	)`)
 	require.NoError(t, err)
 
@@ -1206,9 +1206,9 @@ func TestInitDB_LoadsDeadLetters(t *testing.T) {
 		retry_count INTEGER NOT NULL DEFAULT 0,
 		max_retries INTEGER NOT NULL DEFAULT 3,
 		timeout_ms INTEGER NOT NULL DEFAULT 60000,
-		created_at DATETIME NOT NULL,
-		started_at DATETIME,
-		completed_at DATETIME,
+		created_at TEXT NOT NULL,
+		started_at TEXT,
+		completed_at TEXT,
 		error TEXT,
 		delay_ms INTEGER NOT NULL DEFAULT 0
 	)`)
@@ -1220,8 +1220,8 @@ func TestInitDB_LoadsDeadLetters(t *testing.T) {
 		original_payload TEXT,
 		last_error TEXT,
 		retry_count INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		dead_lettered_at DATETIME NOT NULL
+		created_at TEXT NOT NULL,
+		dead_lettered_at TEXT NOT NULL
 	)`)
 	require.NoError(t, err)
 

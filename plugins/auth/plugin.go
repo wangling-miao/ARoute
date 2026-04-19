@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
@@ -131,6 +133,14 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 		return p.service, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register AuthService: %w", err)
+	}
+
+	// 10. Register HTTP auth routes.
+	var registrar interfaces.RouteRegistrar
+	if err := ctx.Services().Get(&registrar); err != nil {
+		logger.Warn("Route registrar not available, auth HTTP endpoints not registered", "error", err)
+	} else {
+		p.registerRoutes(registrar)
 	}
 
 	logger.Info("Auth plugin initialized successfully",
@@ -296,4 +306,36 @@ func parseDurationWithDays(s string) time.Duration {
 		return 0
 	}
 	return d
+}
+
+func (p *Plugin) registerRoutes(registrar interfaces.RouteRegistrar) {
+	registrar.Route("/api/v1/auth", func(r chi.Router) {
+		r.Post("/login", p.handleLogin)
+		r.Post("/refresh", p.handleRefresh)
+		r.Get("/me", p.handleGetCurrentUser)
+	})
+
+	registrar.Route("/api/v1/users", func(r chi.Router) {
+		r.Get("/", p.handleListUsers)
+		r.Post("/", p.handleCreateUser)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Put("/", p.handleUpdateUser)
+			r.Delete("/", p.handleDeleteUser)
+		})
+	})
+
+	registrar.Route("/api/v1/roles", func(r chi.Router) {
+		r.Get("/", p.handleListRoles)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Put("/", p.handleUpdateRole)
+		})
+	})
+
+	registrar.Route("/api/v1/api-tokens", func(r chi.Router) {
+		r.Get("/", p.handleListAPITokens)
+		r.Post("/", p.handleCreateAPIToken)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Delete("/", p.handleRevokeAPIToken)
+		})
+	})
 }

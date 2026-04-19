@@ -14,7 +14,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -84,12 +83,13 @@ type mockServiceContainer struct {
 }
 
 func (m *mockServiceContainer) Get(target interface{}) error {
-	rv := reflect.ValueOf(target)
-	if rv.Kind() != reflect.Ptr {
-		return fmt.Errorf("target must be a pointer")
+	switch tp := target.(type) {
+	case *interfaces.DatabaseService:
+		*tp = m.dbSvc
+		return nil
+	default:
+		return fmt.Errorf("service not found: %T", target)
 	}
-	rv.Elem().Set(reflect.ValueOf(m.dbSvc))
-	return nil
 }
 
 func (m *mockServiceContainer) Provide(provider interface{}) error { return nil }

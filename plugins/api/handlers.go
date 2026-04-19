@@ -305,6 +305,82 @@ func (h *Handler) ListContentTypes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, types)
 }
 
+// GetContentType handles GET /api/v1/content-types/{name} — get a single content type.
+func (h *Handler) GetContentType(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "content type name is required")
+		return
+	}
+
+	ct, err := h.contentSvc.GetContentType(r.Context(), name)
+	if err != nil {
+		mapErrorToHTTP(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ct)
+}
+
+// CreateContentType handles POST /api/v1/content-types — create a new content type.
+func (h *Handler) CreateContentType(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var ct interfaces.ContentType
+	if err := json.NewDecoder(r.Body).Decode(&ct); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "request body is not valid JSON")
+		return
+	}
+
+	created, err := h.contentSvc.CreateContentType(r.Context(), &ct)
+	if err != nil {
+		mapErrorToHTTP(w, err)
+		return
+	}
+
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/content-types/%s", created.Name))
+	writeJSON(w, http.StatusCreated, created)
+}
+
+// UpdateContentType handles PUT /api/v1/content-types/{name} — update a content type.
+func (h *Handler) UpdateContentType(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "content type name is required")
+		return
+	}
+
+	defer r.Body.Close()
+	var ct interfaces.ContentType
+	if err := json.NewDecoder(r.Body).Decode(&ct); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "request body is not valid JSON")
+		return
+	}
+
+	updated, err := h.contentSvc.UpdateContentType(r.Context(), name, &ct)
+	if err != nil {
+		mapErrorToHTTP(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// DeleteContentType handles DELETE /api/v1/content-types/{name} — delete a content type.
+func (h *Handler) DeleteContentType(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "content type name is required")
+		return
+	}
+
+	if err := h.contentSvc.DeleteContentType(r.Context(), name); err != nil {
+		mapErrorToHTTP(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // buildListQuery constructs a ListQuery from request query parameters.
 // Returns the query, any warnings, or an error for invalid pagination.
 func buildListQuery(r *http.Request) (*interfaces.ListQuery, []string, error) {

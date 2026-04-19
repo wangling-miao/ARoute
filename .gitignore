@@ -58,3 +58,5 @@ license.bin
 .opencode/
 openspec/
 docs/
+.claude/
+.omc/

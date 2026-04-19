@@ -1,0 +1,405 @@
+/* ═══════════════════════════════════════════════════════════
+   Login — Liquid Glass Card with Gradient Background
+   ═══════════════════════════════════════════════════════════ */
+
+.loginPage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 25%, #f0fdf4 50%, #ede9fe 75%, #dbeafe 100%);
+  background-size: 400% 400%;
+  animation: bgShift 20s ease-in-out infinite;
+}
+
+[data-theme='dark'] .loginPage {
+  background: linear-gradient(135deg, #06080f 0%, #0a1628 25%, #0d1117 50%, #0a0e1a 75%, #06080f 100%);
+  background-size: 400% 400%;
+}
+
+@keyframes bgShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ── Animated Background Orbs ── */
+.bgOrb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.bgOrb1 {
+  width: 700px;
+  height: 700px;
+  background: radial-gradient(circle, rgba(79, 172, 254, 0.2) 0%, rgba(79, 172, 254, 0.05) 50%, transparent 70%);
+  top: -20%;
+  left: -10%;
+  filter: blur(100px);
+  animation: orbDrift1 22s ease-in-out infinite;
+}
+
+[data-theme='dark'] .bgOrb1 {
+  background: radial-gradient(circle, rgba(79, 172, 254, 0.18) 0%, rgba(79, 172, 254, 0.04) 50%, transparent 70%);
+}
+
+.bgOrb2 {
+  width: 550px;
+  height: 550px;
+  background: radial-gradient(circle, rgba(6, 214, 160, 0.18) 0%, rgba(6, 214, 160, 0.04) 50%, transparent 70%);
+  bottom: -15%;
+  right: -8%;
+  filter: blur(90px);
+  animation: orbDrift2 26s ease-in-out infinite;
+}
+
+[data-theme='dark'] .bgOrb2 {
+  background: radial-gradient(circle, rgba(6, 214, 160, 0.12) 0%, transparent 70%);
+}
+
+.bgOrb3 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.15) 0%, rgba(167, 139, 250, 0.03) 50%, transparent 70%);
+  top: 35%;
+  right: 15%;
+  filter: blur(80px);
+  animation: orbDrift3 18s ease-in-out infinite;
+}
+
+[data-theme='dark'] .bgOrb3 {
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.1) 0%, transparent 70%);
+}
+
+@keyframes orbDrift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(40px, -50px) scale(1.08); }
+  50% { transform: translate(-30px, 30px) scale(0.94); }
+  75% { transform: translate(20px, 45px) scale(1.04); }
+}
+
+@keyframes orbDrift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-35px, 25px) scale(1.06); }
+  50% { transform: translate(45px, -35px) scale(0.96); }
+  75% { transform: translate(-20px, -40px) scale(1.03); }
+}
+
+@keyframes orbDrift3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-25px, 30px) scale(1.1); }
+  66% { transform: translate(30px, -20px) scale(0.92); }
+}
+
+/* ── Glass Card ── */
+.loginCard {
+  width: 100%;
+  max-width: 440px;
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(40px) saturate(1.3);
+  -webkit-backdrop-filter: blur(40px) saturate(1.3);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 32px 64px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.3) inset,
+    0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  padding: 3.5rem 3rem;
+  animation: cardAppear 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+[data-theme='dark'] .loginCard {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 32px 64px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 1px 0 rgba(255, 255, 255, 0.08) inset;
+}
+
+.loginCard::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 29px;
+  padding: 1px;
+  background: linear-gradient(
+    160deg,
+    rgba(79, 172, 254, 0.25) 0%,
+    transparent 30%,
+    transparent 70%,
+    rgba(6, 214, 160, 0.2) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: borderShimmer 6s ease-in-out infinite;
+}
+
+@keyframes cardAppear {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes borderShimmer {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ── Brand Section ── */
+.brandSection {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.brandLogo {
+  font-family: var(--font-heading);
+  font-size: 2.75rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #2d8cf0 0%, #06d6a0 50%, #a78bfa 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.04em;
+  display: inline-block;
+  line-height: 1.1;
+  animation: logoGradient 5s ease-in-out infinite;
+  filter: drop-shadow(0 2px 8px rgba(45, 140, 240, 0.15));
+}
+
+@keyframes logoGradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.brandTagline {
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  margin-top: 0.75rem;
+  line-height: 1.5;
+}
+
+/* ── Error Box ── */
+.errorBox {
+  margin-bottom: 1.5rem;
+  padding: 0.875rem 1rem;
+  background: rgba(220, 38, 38, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(220, 38, 38, 0.12);
+  border-radius: 14px;
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.04);
+}
+
+.errorBoxIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── Form Fields ── */
+.formField {
+  margin-bottom: 1.25rem;
+}
+
+.formLabel {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.01em;
+}
+
+.inputWrap {
+  position: relative;
+}
+
+.inputWrap :global(.arco-input),
+.inputWrap :global(.arco-input-wrapper) {
+  background: rgba(255, 255, 255, 0.5) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 14px !important;
+  color: var(--color-text) !important;
+  height: 48px !important;
+  font-size: 0.9375rem !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+[data-theme='dark'] .inputWrap :global(.arco-input),
+[data-theme='dark'] .inputWrap :global(.arco-input-wrapper) {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.inputWrap :global(.arco-input):hover,
+.inputWrap :global(.arco-input-wrapper):hover {
+  border-color: rgba(0, 0, 0, 0.14) !important;
+  background: rgba(255, 255, 255, 0.65) !important;
+}
+
+[data-theme='dark'] .inputWrap :global(.arco-input):hover,
+[data-theme='dark'] .inputWrap :global(.arco-input-wrapper):hover {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.inputWrap :global(.arco-input):focus,
+.inputWrap :global(.arco-input-wrapper):focus-within {
+  background: rgba(255, 255, 255, 0.7) !important;
+  border-color: var(--color-primary) !important;
+  box-shadow:
+    0 0 0 3px var(--color-primary-light),
+    0 4px 12px rgba(45, 140, 240, 0.08) !important;
+}
+
+[data-theme='dark'] .inputWrap :global(.arco-input):focus,
+[data-theme='dark'] .inputWrap :global(.arco-input-wrapper):focus-within {
+  background: rgba(255, 255, 255, 0.07) !important;
+}
+
+.inputWrap :global(.arco-input)::placeholder {
+  color: var(--color-text-tertiary) !important;
+}
+
+.inputIcon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-tertiary);
+  z-index: 1;
+  pointer-events: none;
+  transition: color 0.25s ease;
+}
+
+.inputWrap:focus-within .inputIcon {
+  color: var(--color-primary);
+}
+
+/* ── Form Actions ── */
+.formActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.75rem;
+}
+
+/* ── Submit Button ── */
+.submitBtn {
+  width: 100%;
+  height: 50px;
+  font-family: var(--font-heading);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, #2d8cf0 0%, #06d6a0 50%, #a78bfa 100%) !important;
+  background-size: 200% 200% !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow:
+    0 4px 20px rgba(45, 140, 240, 0.25),
+    0 2px 8px rgba(6, 214, 160, 0.12) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  animation: btnGradient 4s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme='dark'] .submitBtn {
+  background: linear-gradient(135deg, #4facfe 0%, #00c6fb 50%, #06d6a0 100%) !important;
+  box-shadow:
+    0 4px 20px rgba(79, 172, 254, 0.3),
+    0 2px 8px rgba(6, 214, 160, 0.15) !important;
+}
+
+.submitBtn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 100%
+  );
+  background-size: 200% 200%;
+  animation: btnSheen 3s ease-in-out infinite;
+}
+
+.submitBtn:hover {
+  transform: translateY(-2px) !important;
+  box-shadow:
+    0 8px 32px rgba(45, 140, 240, 0.3),
+    0 4px 16px rgba(6, 214, 160, 0.15) !important;
+}
+
+.submitBtn:active {
+  transform: translateY(0) !important;
+}
+
+@keyframes btnGradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes btnSheen {
+  0%, 100% { background-position: -200% 0; }
+  50% { background-position: 200% 0; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 480px) {
+  .loginCard {
+    padding: 2.5rem 1.5rem;
+    border-radius: 20px;
+    margin: 1rem;
+    max-width: calc(100% - 2rem);
+  }
+
+  .brandLogo {
+    font-size: 2.25rem;
+  }
+
+  .brandTagline {
+    font-size: 0.875rem;
+  }
+
+  .bgOrb1 {
+    width: 400px;
+    height: 400px;
+  }
+
+  .bgOrb2 {
+    width: 350px;
+    height: 350px;
+  }
+
+  .bgOrb3 {
+    width: 250px;
+    height: 250px;
+  }
+}

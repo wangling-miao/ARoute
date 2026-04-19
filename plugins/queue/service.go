@@ -131,9 +131,9 @@ func (s *Service) InitDB(ctx context.Context) error {
 		retry_count INTEGER NOT NULL DEFAULT 0,
 		max_retries INTEGER NOT NULL DEFAULT 3,
 		timeout_ms INTEGER NOT NULL DEFAULT 60000,
-		created_at DATETIME NOT NULL,
-		started_at DATETIME,
-		completed_at DATETIME,
+		created_at TEXT NOT NULL,
+		started_at TEXT,
+		completed_at TEXT,
 		error TEXT,
 		delay_ms INTEGER NOT NULL DEFAULT 0
 	)`)
@@ -147,8 +147,8 @@ func (s *Service) InitDB(ctx context.Context) error {
 		original_payload TEXT,
 		last_error TEXT,
 		retry_count INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		dead_lettered_at DATETIME NOT NULL
+		created_at TEXT NOT NULL,
+		dead_lettered_at TEXT NOT NULL
 	)`)
 	if err != nil {
 		return fmt.Errorf("create queue_dead_letters table: %w", err)
@@ -168,10 +168,15 @@ func (s *Service) loadPersistedTasks(ctx context.Context) error {
 		var id, name string
 		var payloadStr sql.NullString
 		var priority, retryCount, maxRetries, timeoutMs, delayMs int
-		var createdAt time.Time
+		var createdAtStr string
 
-		if err := rows.Scan(&id, &name, &payloadStr, &priority, &retryCount, &maxRetries, &timeoutMs, &createdAt, &delayMs); err != nil {
+		if err := rows.Scan(&id, &name, &payloadStr, &priority, &retryCount, &maxRetries, &timeoutMs, &createdAtStr, &delayMs); err != nil {
 			return fmt.Errorf("scan pending task: %w", err)
+		}
+
+		createdAt, err := time.Parse(time.RFC3339Nano, createdAtStr)
+		if err != nil {
+			createdAt, _ = time.Parse(time.RFC3339, createdAtStr)
 		}
 
 		var payload json.RawMessage
@@ -205,11 +210,14 @@ func (s *Service) loadPersistedTasks(ctx context.Context) error {
 		var taskID, name string
 		var payloadStr, lastErr sql.NullString
 		var retryCount int
-		var createdAt, deadLetteredAt time.Time
+		var createdAtStr, deadLetteredAtStr string
 
-		if err := rows2.Scan(&taskID, &name, &payloadStr, &lastErr, &retryCount, &createdAt, &deadLetteredAt); err != nil {
+		if err := rows2.Scan(&taskID, &name, &payloadStr, &lastErr, &retryCount, &createdAtStr, &deadLetteredAtStr); err != nil {
 			return fmt.Errorf("scan dead letter: %w", err)
 		}
+
+		createdAt, _ := time.Parse(time.RFC3339Nano, createdAtStr)
+		deadLetteredAt, _ := time.Parse(time.RFC3339Nano, deadLetteredAtStr)
 
 		var payload json.RawMessage
 		if payloadStr.Valid {
@@ -240,7 +248,7 @@ func (s *Service) persistTask(ctx context.Context, task *taskEntry) {
 	payloadStr := string(task.payload)
 
 	_, err := s.db.Exec(ctx,
-		`INSERT OR REPLACE INTO queue_tasks (id, name, payload, status, priority, retry_count, max_retries, timeout_ms, created_at, delay_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO queue_tasks (id, name, payload, status, priority, retry_count, max_retries, timeout_ms, created_at, delay_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, payload=EXCLUDED.payload, status=EXCLUDED.status, priority=EXCLUDED.priority, retry_count=EXCLUDED.retry_count, max_retries=EXCLUDED.max_retries, timeout_ms=EXCLUDED.timeout_ms, created_at=EXCLUDED.created_at, delay_ms=EXCLUDED.delay_ms`,
 		task.id, task.name, payloadStr, task.status, task.priority, task.retryCount, task.maxRetries, timeoutMs, task.createdAt, delayMs)
 	if err != nil {
 		s.logger.Error("persist task failed", "task_id", task.id, "error", err)
@@ -271,7 +279,7 @@ func (s *Service) persistDeadLetter(ctx context.Context, entry *interfaces.DeadL
 		return
 	}
 	_, err := s.db.Exec(ctx,
-		`INSERT OR REPLACE INTO queue_dead_letters (task_id, name, original_payload, last_error, retry_count, created_at, dead_lettered_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO queue_dead_letters (task_id, name, original_payload, last_error, retry_count, created_at, dead_lettered_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (task_id) DO UPDATE SET name=EXCLUDED.name, original_payload=EXCLUDED.original_payload, last_error=EXCLUDED.last_error, retry_count=EXCLUDED.retry_count, created_at=EXCLUDED.created_at, dead_lettered_at=EXCLUDED.dead_lettered_at`,
 		entry.TaskID, entry.Name, string(entry.OriginalPayload), entry.LastError, entry.RetryCount, entry.CreatedAt, entry.DeadLetteredAt)
 	if err != nil {
 		s.logger.Error("persist dead letter failed", "task_id", entry.TaskID, "error", err)

@@ -1,0 +1,203 @@
+.page {
+  animation: fadeInUp var(--transition-normal) forwards;
+}
+
+/* ── Breadcrumb ── */
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-tertiary);
+  margin-bottom: 1rem;
+}
+
+.breadcrumbLink {
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.breadcrumbLink:hover {
+  color: var(--color-primary);
+}
+
+.breadcrumbSep {
+  color: var(--color-text-disabled);
+}
+
+.breadcrumbCurrent {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+/* ── Header ── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.headerTitle {
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+/* ── Status toggle ── */
+
+.statusToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 0.375rem 0.75rem;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* ── Form card (glass panel) ── */
+
+.formCard {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-sm) !important;
+  transition: border-color var(--transition-fast) !important;
+}
+
+.formCard:hover {
+  border-color: var(--glass-border-hover) !important;
+}
+
+.formCard :global(.arco-card-body) {
+  padding: 1.5rem !important;
+}
+
+/* ── Form rows ── */
+
+.formRow {
+  margin-bottom: 1.5rem;
+}
+
+.formRow:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Labels ── */
+
+.formLabel {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.375rem;
+  letter-spacing: 0.01em;
+}
+
+.formRequired::after {
+  content: ' *';
+  color: var(--color-danger);
+}
+
+/* ── Validation error ── */
+
+.formError {
+  font-size: 0.75rem;
+  color: var(--color-danger);
+  margin-top: 0.25rem;
+}
+
+/* ── Slug row ── */
+
+.slugRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.slugInput {
+  flex: 1;
+}
+
+.slugGenerateBtn {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+/* ── Error state ── */
+
+.errorState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 5rem 1.5rem;
+  color: var(--color-text-tertiary);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* ── Skeleton ── */
+
+.skeletonForm {
+  height: 500px;
+  border-radius: var(--radius-lg);
+}
+
+/* ── Animations ── */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 768px) {
+  .headerTitle {
+    font-size: 1.25rem;
+  }
+
+  .formCard :global(.arco-card-body) {
+    padding: 1rem !important;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
