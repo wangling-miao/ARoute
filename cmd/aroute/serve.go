@@ -22,6 +22,7 @@ import (
 	"github.com/wangling-miao/aroute/core/loader"
 	"github.com/wangling-miao/aroute/core/registry"
 	"github.com/wangling-miao/aroute/core/services"
+	"github.com/wangling-miao/aroute/plugins/admin"
 	"github.com/wangling-miao/aroute/plugins/api"
 	"github.com/wangling-miao/aroute/plugins/auth"
 	"github.com/wangling-miao/aroute/plugins/cache"
@@ -153,6 +154,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	pluginLoader.Register("webhook", func() core.Plugin {
 		return webhook.New()
 	})
+	pluginLoader.Register("admin", func() core.Plugin {
+		return admin.New()
+	})
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},
 		&pluginLoaderAdapter{loader: pluginLoader},
@@ -174,6 +178,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Provide core services in container
 	container.Provide(func(c *services.Container) (*events.EventBus, error) { return eventBus, nil })
 	container.Provide(func(c *services.Container) (*license.Validator, error) { return licenseValidator, nil })
+	container.Provide(func(c *services.Container) (core.LifecycleManager, error) { return lifecycleManager, nil })
 
 	logger.Info("starting aroute engine")
 	if err := aroute.Start(ctx); err != nil {

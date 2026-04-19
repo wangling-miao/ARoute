@@ -697,6 +697,11 @@ func (s *Store) ListUsers(ctx context.Context, query *interfaces.UserQuery) (*in
 		if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
 			u.UpdatedAt = t
 		}
+		roleNames, _ := s.GetUserRoleNames(ctx, u.ID)
+		if roleNames == nil {
+			roleNames = []string{}
+		}
+		u.Roles = roleNames
 		users = append(users, &u)
 	}
 

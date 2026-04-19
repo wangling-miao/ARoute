@@ -19,13 +19,14 @@ var manifestData []byte
 type Plugin struct {
 	*core.BasePlugin
 
-	mu         sync.RWMutex
-	ctx        core.CoreContext
-	contentSvc interfaces.ContentService
-	authSvc    interfaces.AuthService
-	registrar  interfaces.RouteRegistrar
-	handler    *Handler
-	running    bool
+	mu           sync.RWMutex
+	ctx          core.CoreContext
+	contentSvc   interfaces.ContentService
+	authSvc      interfaces.AuthService
+	registrar    interfaces.RouteRegistrar
+	handler      *Handler
+	adminHandler *AdminHandler
+	running      bool
 }
 
 // New creates a new API plugin instance.
@@ -68,6 +69,7 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	logger.Info("Route registrar resolved")
 
 	p.handler = NewHandler(p.contentSvc)
+	p.adminHandler = NewAdminHandler(p.ctx, p.contentSvc)
 
 	p.registerRoutes()
 
@@ -148,8 +150,12 @@ func (p *Plugin) registerRoutes() {
 		r.Use(rateLimitMW)
 
 		r.Get("/content-types", p.handler.ListContentTypes)
+		r.Get("/content-types/{name}", p.handler.GetContentType)
+		r.Post("/content-types", p.handler.CreateContentType)
+		r.Put("/content-types/{name}", p.handler.UpdateContentType)
+		r.Delete("/content-types/{name}", p.handler.DeleteContentType)
 
-		r.Route("/{contentType}", func(cr chi.Router) {
+		r.Route("/content/{contentType}", func(cr chi.Router) {
 			cr.Get("/", p.handler.List)
 			cr.Post("/", p.handler.Create)
 
@@ -159,6 +165,13 @@ func (p *Plugin) registerRoutes() {
 				ir.Delete("/", p.handler.Delete)
 			})
 		})
+
+		r.Get("/dashboard/stats", p.adminHandler.handleDashboardStats)
+		r.Get("/settings", p.adminHandler.handleGetSettings)
+		r.Put("/settings", p.adminHandler.handleUpdateSettings)
+		r.Get("/plugins", p.adminHandler.handleListPlugins)
+		r.Post("/plugins/{name}/enable", p.adminHandler.handleEnablePlugin)
+		r.Post("/plugins/{name}/disable", p.adminHandler.handleDisablePlugin)
 	})
 }
 

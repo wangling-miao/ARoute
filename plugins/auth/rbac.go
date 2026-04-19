@@ -313,7 +313,9 @@ func (m *RBACManager) ListPermissionsForRole(ctx context.Context, roleName strin
 
 	names := make([]string, 0, len(perms))
 	for _, p := range perms {
-		names = append(names, p.Name)
+		// Use resource.action format so groupPermissions can reconstruct the
+		// structured entry correctly (e.g. "*.*" for the admin wildcard).
+		names = append(names, p.Resource+"."+p.Action)
 	}
 	return names, nil
 }

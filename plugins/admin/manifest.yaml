@@ -1,0 +1,19 @@
+name: admin
+version: 1.0.0
+description: Admin UI plugin — serves the React SPA embedded via go:embed at /admin/
+author: wangling
+license: MIT
+engine: native
+requires:
+  - http
+after:
+  - http
+provides:
+  - admin.ui
+homepage: https://github.com/wangling-miao/aroute
+repository: https://github.com/wangling-miao/aroute
+keywords:
+  - admin
+  - ui
+  - spa
+  - react

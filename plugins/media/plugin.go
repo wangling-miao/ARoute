@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
@@ -74,6 +75,14 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 		return fmt.Errorf("failed to register MediaService: %w", err)
 	}
 
+	var registrar interfaces.RouteRegistrar
+	if err := ctx.Services().Get(&registrar); err != nil {
+		logger.Warn("Route registrar not available, media HTTP endpoints disabled", "error", err)
+	} else {
+		p.registerRoutes(registrar)
+		logger.Info("Media HTTP routes registered")
+	}
+
 	logger.Info("Media plugin initialized successfully",
 		"service_registered", "media.service",
 	)
@@ -110,4 +119,14 @@ func (p *Plugin) Stop() error {
 	p.ctx.Logger().Info("Media plugin stopped successfully")
 
 	return nil
+}
+
+func (p *Plugin) registerRoutes(registrar interfaces.RouteRegistrar) {
+	registrar.Route("/api/v1/media", func(r chi.Router) {
+		r.Post("/", p.handleUpload)
+		r.Get("/", p.handleList)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Delete("/", p.handleDelete)
+		})
+	})
 }
