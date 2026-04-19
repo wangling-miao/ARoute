@@ -22,6 +22,11 @@ type RouteRegistrar interface {
 	// Mount mounts another router at a path prefix.
 	Mount(pattern string, router chi.Router)
 
-	// Use appends middleware to the router.
+	// Use collects middleware to be applied before the HTTP server starts.
+	// Middlewares are applied as outer handlers wrapping the mux,
+	// avoiding chi's constraint that middleware must precede routes.
 	Use(middlewares ...func(http.Handler) http.Handler)
+
+	// Middlewares returns all collected middleware functions.
+	Middlewares() []func(http.Handler) http.Handler
 }

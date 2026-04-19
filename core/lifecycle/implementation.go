@@ -88,6 +88,9 @@ func (m *ManagerImpl) Start(ctx context.Context) error {
 
 	var failedPlugins []string
 
+	// Phase 1: Initialize all plugins in dependency order.
+	// This ensures all plugins have registered their services and
+	// collected middleware before any plugin starts serving traffic.
 	for _, pluginName := range order {
 		info, exists := m.plugins[pluginName]
 		if !exists {
@@ -119,7 +122,35 @@ func (m *ManagerImpl) Start(ctx context.Context) error {
 
 		m.setState(info, pluginName, core.StateStarting)
 
-		if err := m.startPlugin(ctx, pluginName, info); err != nil {
+		var coreCtx core.CoreContext
+		if m.ctxFactory != nil {
+			coreCtx = m.ctxFactory(ctx, pluginName)
+		}
+
+		if err := info.Plugin.Init(coreCtx); err != nil {
+			m.setState(info, pluginName, core.StateFailed)
+			info.LoadError = err
+			failedPlugins = append(failedPlugins, pluginName)
+			continue
+		}
+	}
+
+	// Phase 2: Start all initialized plugins in dependency order.
+	for _, pluginName := range order {
+		info, exists := m.plugins[pluginName]
+		if !exists {
+			continue
+		}
+
+		if info.State == core.StateFailed {
+			continue
+		}
+
+		if info.State != core.StateStarting {
+			continue
+		}
+
+		if err := info.Plugin.Start(); err != nil {
 			m.setState(info, pluginName, core.StateFailed)
 			info.LoadError = err
 			failedPlugins = append(failedPlugins, pluginName)
@@ -131,12 +162,14 @@ func (m *ManagerImpl) Start(ctx context.Context) error {
 
 	if len(failedPlugins) > 0 {
 		var parts []string
-		for _, name := range failedPlugins {
+		for _, name := range order {
 			info := m.plugins[name]
-			if info != nil && info.LoadError != nil {
-				parts = append(parts, fmt.Sprintf("%s: %v", name, info.LoadError))
-			} else {
-				parts = append(parts, name)
+			if info != nil && info.State == core.StateFailed {
+				if info.LoadError != nil {
+					parts = append(parts, fmt.Sprintf("%s: %v", name, info.LoadError))
+				} else {
+					parts = append(parts, name)
+				}
 			}
 		}
 		return fmt.Errorf("plugins failed to start: %s", strings.Join(parts, "; "))

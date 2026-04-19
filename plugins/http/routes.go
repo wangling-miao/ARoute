@@ -29,14 +29,20 @@ type RouteRegistrar interface {
 	// Useful for mounting sub-applications or API versions.
 	Mount(pattern string, router chi.Router)
 
-	// Use appends middleware to the router.
-	// Middleware is applied to all routes registered after this call.
+	// Use collects middleware to be applied to all routes.
+	// Middleware is collected during the init phase and applied
+	// before the HTTP server starts, avoiding chi's "middleware before routes" constraint.
 	Use(middlewares ...func(http.Handler) http.Handler)
+
+	// Middlewares returns all collected middleware functions.
+	// Called by the HTTP plugin during Start to apply cross-plugin middleware.
+	Middlewares() []func(http.Handler) http.Handler
 }
 
 // routeRegistrar implements the RouteRegistrar interface.
 type routeRegistrar struct {
-	router chi.Router
+	router      chi.Router
+	middlewares []func(http.Handler) http.Handler
 }
 
 // NewRouteRegistrar creates a new RouteRegistrar instance.
@@ -73,7 +79,15 @@ func (r *routeRegistrar) Mount(pattern string, router chi.Router) {
 	r.router.Mount(pattern, router)
 }
 
-// Use appends middleware to the router.
+// Use collects middleware to be applied later.
+// Middleware is collected during init phase and applied as an outer
+// wrapper before the HTTP server starts. This avoids chi's constraint
+// that all middleware must be defined before routes on a mux.
 func (r *routeRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {
-	r.router.Use(middlewares...)
+	r.middlewares = append(r.middlewares, middlewares...)
+}
+
+// Middlewares returns all collected middleware functions.
+func (r *routeRegistrar) Middlewares() []func(http.Handler) http.Handler {
+	return r.middlewares
 }

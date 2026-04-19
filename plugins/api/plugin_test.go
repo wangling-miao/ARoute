@@ -123,6 +123,10 @@ func (m *pluginMockRegistrar) Use(middlewares ...func(http.Handler) http.Handler
 	m.router.Use(middlewares...)
 }
 
+func (m *pluginMockRegistrar) Middlewares() []func(http.Handler) http.Handler {
+	return nil
+}
+
 func newPluginMockCoreContext(svcs ...interface{}) core.CoreContext {
 	return core.NewCoreContext(
 		context.Background(),

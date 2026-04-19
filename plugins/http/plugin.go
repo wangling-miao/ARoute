@@ -132,8 +132,6 @@ func (p *Plugin) slogMiddleware(logger *slog.Logger) func(http.Handler) http.Han
 }
 
 // Start starts the HTTP server.
-// It listens on the configured address and serves requests.
-// If TLS configuration is provided, it enables HTTPS.
 func (p *Plugin) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -144,6 +142,16 @@ func (p *Plugin) Start() error {
 
 	logger := p.ctx.Logger()
 	config := p.ctx.Config()
+
+	// chi.Mux.Use() panics after routes are registered, so cross-plugin middleware
+	// is collected during init and applied here as outer handler wrappers.
+	handler := http.Handler(p.router)
+	if mws := p.getCollectedMiddlewares(); len(mws) > 0 {
+		for i := len(mws) - 1; i >= 0; i-- {
+			handler = mws[i](handler)
+		}
+		logger.Info("Applied cross-plugin middleware", "count", len(mws))
+	}
 
 	addr := config.GetString("http.addr")
 	if addr == "" {
@@ -163,7 +171,7 @@ func (p *Plugin) Start() error {
 
 	p.server = &http.Server{
 		Addr:         addr,
-		Handler:      p.router,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -223,5 +231,21 @@ func (p *Plugin) Stop() error {
 	p.running = false
 	logger.Info("HTTP server stopped successfully")
 
+	return nil
+}
+
+// getCollectedMiddlewares retrieves middleware collected by the RouteRegistrar
+// from the service container during other plugins' init phase.
+func (p *Plugin) getCollectedMiddlewares() []func(http.Handler) http.Handler {
+	if p.ctx == nil {
+		return nil
+	}
+	var registrar interfaces.RouteRegistrar
+	if err := p.ctx.Services().Get(&registrar); err != nil {
+		return nil
+	}
+	if rr, ok := registrar.(*routeRegistrar); ok {
+		return rr.Middlewares()
+	}
 	return nil
 }
