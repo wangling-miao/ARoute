@@ -472,6 +472,22 @@ func (m *mockQueueService) Close(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockQueueService) ListDeadLetters(ctx context.Context, page, pageSize int) ([]*DeadLetterEntry, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockQueueService) RetryDeadLetter(ctx context.Context, taskID string) error {
+	return nil
+}
+
+func (m *mockQueueService) DeleteDeadLetter(ctx context.Context, taskID string) error {
+	return nil
+}
+
+func (m *mockQueueService) WorkerCount() int {
+	return 0
+}
+
 type mockThemeService struct{}
 
 func (m *mockThemeService) Render(ctx context.Context, templateName string, data map[string]interface{}) (string, error) {

@@ -2,7 +2,24 @@ package interfaces
 
 import (
 	"context"
+	"encoding/json"
 	"time"
+)
+
+// Priority constants for task scheduling.
+const (
+	PriorityHigh   = 1
+	PriorityNormal = 0
+	PriorityLow    = -1
+)
+
+// Task statuses.
+const (
+	TaskStatusPending      = "pending"
+	TaskStatusRunning      = "running"
+	TaskStatusCompleted    = "completed"
+	TaskStatusFailed       = "failed"
+	TaskStatusDeadLettered = "dead-lettered"
 )
 
 // QueueService defines asynchronous task processing operations.
@@ -22,6 +39,20 @@ type QueueService interface {
 
 	// Close gracefully shuts down the worker pool, waiting for in-flight tasks.
 	Close(ctx context.Context) error
+
+	// ListDeadLetters returns a paginated list of dead-lettered tasks.
+	// Returns the entries and total count for pagination.
+	ListDeadLetters(ctx context.Context, page, pageSize int) ([]*DeadLetterEntry, int, error)
+
+	// RetryDeadLetter re-enqueues a dead-lettered task with retry count reset to 0.
+	// Removes the task from the dead letter queue.
+	RetryDeadLetter(ctx context.Context, taskID string) error
+
+	// DeleteDeadLetter permanently removes a task from the dead letter queue.
+	DeleteDeadLetter(ctx context.Context, taskID string) error
+
+	// WorkerCount returns the number of workers in the pool.
+	WorkerCount() int
 }
 
 // TaskHandler is the function signature for task handlers.
@@ -70,4 +101,15 @@ type TaskStatus struct {
 
 	// RetryCount is the number of times this task has been retried.
 	RetryCount int `json:"retry_count"`
+}
+
+// DeadLetterEntry represents a task that has exhausted all retry attempts.
+type DeadLetterEntry struct {
+	TaskID          string          `json:"task_id"`
+	Name            string          `json:"name"`
+	OriginalPayload json.RawMessage `json:"original_payload"`
+	LastError       string          `json:"last_error"`
+	RetryCount      int             `json:"retry_count"`
+	CreatedAt       time.Time       `json:"created_at"`
+	DeadLetteredAt  time.Time       `json:"dead_lettered_at"`
 }
