@@ -132,11 +132,10 @@ func (p *Plugin) registerRoutes() {
 		}
 	}
 
-	p.registrar.Route("/api/v1/openapi.json", func(r chi.Router) {
-		r.Get("/", p.handler.handleDocs)
-	})
-
 	if docsEnabled {
+		p.registrar.Route("/api/v1/openapi.json", func(r chi.Router) {
+			r.Get("/", p.handler.handleDocs)
+		})
 		uiHandler := p.handler.docsUIHandler(docsUI)
 		p.registrar.Route("/api/docs", func(r chi.Router) {
 			r.Get("/", uiHandler)
