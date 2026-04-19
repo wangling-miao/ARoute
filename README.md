@@ -464,11 +464,11 @@ make admin-dev
 - [x] Media 插件（上传、本地/S3 存储、缩略图）
 - [x] Theme Engine 插件（Go template → Lua → React SSR）
 - [x] Search 插件（Bleve + gse 中文分词）
+- [x] REST API 插件（自动 CRUD、OpenAPI 3.0）
+- [x] Cache 插件（ristretto + EventBus 自动失效）
 
 ### 🚧 开发中
 
-- [ ] REST API 插件（自动 CRUD、OpenAPI 3.0）
-- [ ] Cache 插件（ristretto + EventBus 自动失效）
 - [ ] Queue 插件（Goroutine worker pool、重试、死信队列）
 - [ ] Webhook 插件（HTTP POST、HMAC-SHA256 签名、重试策略）
 - [ ] Admin UI（React + Arco Design + TipTap）

@@ -464,11 +464,11 @@ make admin-dev
 - [x] Media plugin (upload, local/S3 storage, thumbnails)
 - [x] Theme Engine plugin (Go template → Lua → React SSR)
 - [x] Search plugin (Bleve + gse Chinese tokenizer)
+- [x] REST API plugin (auto CRUD, OpenAPI 3.0)
+- [x] Cache plugin (ristretto + EventBus auto-invalidation)
 
 ### 🚧 In Progress
 
-- [ ] REST API plugin (auto CRUD, OpenAPI 3.0)
-- [ ] Cache plugin (ristretto + EventBus auto-invalidation)
 - [ ] Queue plugin (goroutine worker pool, retry, dead letter)
 - [ ] Webhook plugin (HTTP POST, HMAC-SHA256, retry)
 - [ ] Admin UI (React + Arco Design + TipTap)
