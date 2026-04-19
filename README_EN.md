@@ -467,10 +467,10 @@ make admin-dev
 - [x] REST API plugin (auto CRUD, OpenAPI 3.0)
 - [x] Cache plugin (ristretto + EventBus auto-invalidation)
 - [x] Queue plugin (goroutine worker pool, retry, dead letter)
+- [x] Webhook plugin (HTTP POST, HMAC-SHA256, SSRF protection, auto-disable)
 
 ### 🚧 In Progress
 
-- [ ] Webhook plugin (HTTP POST, HMAC-SHA256, retry)
 - [ ] Admin UI (React + Arco Design + TipTap)
 - [ ] Plugin SDK (Go SDK + Wasm template)
 - [ ] Default theme (Go template blog theme)

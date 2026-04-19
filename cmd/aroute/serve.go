@@ -32,6 +32,7 @@ import (
 	"github.com/wangling-miao/aroute/plugins/queue"
 	"github.com/wangling-miao/aroute/plugins/search"
 	"github.com/wangling-miao/aroute/plugins/theme"
+	"github.com/wangling-miao/aroute/plugins/webhook"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
@@ -148,6 +149,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 	pluginLoader.Register("queue", func() core.Plugin {
 		return queue.New()
+	})
+	pluginLoader.Register("webhook", func() core.Plugin {
+		return webhook.New()
 	})
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},

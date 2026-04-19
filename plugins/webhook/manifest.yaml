@@ -1,0 +1,15 @@
+name: webhook
+version: 1.0.0
+description: Webhook plugin for event-driven HTTP notifications with HMAC-SHA256 signing, retry strategy, and delivery logging
+author: wangling
+license: MIT
+engine: native
+requires: []
+after: []
+provides:
+  - webhook.service
+keywords:
+  - webhook
+  - event
+  - notification
+  - delivery
