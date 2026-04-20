@@ -468,10 +468,10 @@ make admin-dev
 - [x] Cache 插件（ristretto + EventBus 自动失效）
 - [x] Queue 插件（Goroutine worker pool、重试、死信队列）
 - [x] Webhook 插件（HTTP POST 投递、HMAC-SHA256 签名、SSRF 防护、自动禁用）
+- [x] Admin UI（React + Arco Design + TipTap）
 
 ### 🚧 开发中
 
-- [ ] Admin UI（React + Arco Design + TipTap）
 - [ ] Plugin SDK（Go SDK + Wasm 模板）
 - [ ] 默认主题（Go template 博客主题）
 - [ ] 集成测试与端到端测试

@@ -468,10 +468,10 @@ make admin-dev
 - [x] Cache plugin (ristretto + EventBus auto-invalidation)
 - [x] Queue plugin (goroutine worker pool, retry, dead letter)
 - [x] Webhook plugin (HTTP POST, HMAC-SHA256, SSRF protection, auto-disable)
+- [x] Admin UI (React + Arco Design + TipTap)
 
 ### 🚧 In Progress
 
-- [ ] Admin UI (React + Arco Design + TipTap)
 - [ ] Plugin SDK (Go SDK + Wasm template)
 - [ ] Default theme (Go template blog theme)
 - [ ] Integration & E2E tests
