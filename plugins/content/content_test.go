@@ -359,6 +359,10 @@ func TestSlugGeneration(t *testing.T) {
 		{"a & b | c", "a-b-c"},
 		{"  ", ""},
 		{"Test123", "test123"},
+		{"我的第一篇文章", "wo-de-di-yi-pian-wen-zhang"},
+		{"标签管理", "biao-qian-guan-li"},
+		{"Hello世界", "hello-shi-jie"},
+		{"  中文 测试  ", "zhong-wen-ce-shi"},
 	}
 
 	for _, tt := range tests {
@@ -2337,8 +2341,8 @@ func TestGenerateSlugUnicode(t *testing.T) {
 		{"Hello World", "hello-world"},
 		{"Test--Multiple---Dashes", "test-multiple-dashes"},
 		{"  trim spaces  ", "trim-spaces"},
-		{"中文测试", "中文测试"},
-		{"Hello 世界 World", "hello-世界-world"},
+		{"中文测试", "zhong-wen-ce-shi"},
+		{"Hello 世界 World", "hello-shi-jie-world"},
 		{"UPPERCASE", "uppercase"},
 		{"a---b", "a-b"},
 	}

@@ -46,6 +46,16 @@ func NewStore(db interfaces.DatabaseService) *Store {
 	return &Store{db: db}
 }
 
+func (s *Store) MigratePartialUniqueIndex(ctx context.Context, tableName string) {
+	if err := validateTableName(tableName); err != nil {
+		return
+	}
+	idxName := fmt.Sprintf("idx_%s_slug_unique", tableName)
+	_, _ = s.db.Exec(ctx, fmt.Sprintf(
+		"CREATE UNIQUE INDEX IF NOT EXISTS \"%s\" ON \"%s\" (\"slug\") WHERE \"deleted_at\" IS NULL",
+		idxName, tableName))
+}
+
 func (s *Store) CreateTables(ctx context.Context) error {
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS _content_types (

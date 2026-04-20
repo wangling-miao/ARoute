@@ -106,6 +106,7 @@ func (s *Service) InitializeBuiltInContentTypes(ctx context.Context) error {
 			return err
 		}
 		if exists {
+			s.migratePartialUniqueIndex(ctx, ct)
 			continue
 		}
 

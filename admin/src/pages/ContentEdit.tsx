@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   AlertCircle,
 } from 'lucide-react';
+import { pinyin } from 'pinyin-pro';
 import { content, contentTypes } from '@/api/endpoints';
 import type { ContentType, ContentItem, Field } from '@/types';
 import { showSuccess, showError } from '@/components/Toast';
@@ -27,10 +28,11 @@ const { Option } = Select;
 const { TextArea } = Input;
 
 function slugify(text: string): string {
-  return text
+  const py = pinyin(text, { toneType: 'none', type: 'array' }).join('-');
+  return py
     .toLowerCase()
     .trim()
-    .replace(/[^\w\s-]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
     .replace(/[\s_]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
@@ -422,6 +424,18 @@ export default function ContentEdit() {
       : t('content.edit', { type: ctDef.display_name });
   }, [ctDef, isNew, t]);
 
+  const isEditorType = useMemo(() => {
+    if (!ctDef) return false;
+    const hasTitle = ctDef.fields.some(f => f.name === 'title' && f.type === 'text');
+    const hasBody = ctDef.fields.some(f => f.name === 'body' && f.type === 'richtext');
+    return hasTitle && hasBody;
+  }, [ctDef]);
+
+  const sidebarFields = useMemo(() => {
+    if (!ctDef) return [];
+    return ctDef.fields.filter(f => f.name !== 'title' && f.name !== 'body');
+  }, [ctDef]);
+
   if (loading) {
     return (
       <div className={styles.page}>
@@ -443,6 +457,9 @@ export default function ContentEdit() {
       </div>
     );
   }
+
+  const titleValue = typeof formData['title'] === 'string' ? formData['title'] : '';
+  const bodyValue = typeof formData['body'] === 'string' ? formData['body'] : '';
 
   return (
     <div className={styles.page}>
@@ -467,7 +484,16 @@ export default function ContentEdit() {
             icon={<ArrowLeft size={18} />}
             onClick={() => navigate(`/admin/content/${contentType}`)}
           />
-          <h2 className={styles.headerTitle}>{pageTitle}</h2>
+          {isEditorType ? (
+            <input
+              className={styles.titleInput}
+              value={titleValue}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFieldChange('title', e.target.value)}
+              placeholder={t('content.untitled', { type: ctDef.display_name })}
+            />
+          ) : (
+            <h2 className={styles.headerTitle}>{pageTitle}</h2>
+          )}
         </div>
         <div className={styles.headerActions}>
           <div className={styles.statusToggle}>
@@ -486,19 +512,47 @@ export default function ContentEdit() {
         </div>
       </div>
 
-      <Card className={styles.formCard} bordered={false}>
-        {ctDef.fields.map((field) => (
-          <FieldRenderer
-            key={field.name}
-            field={field}
-            value={formData[field.name]}
-            onChange={(val: unknown) => handleFieldChange(field.name, val)}
-            errors={errors}
-            ctDef={ctDef}
-            formData={formData}
-          />
-        ))}
-      </Card>
+      {isEditorType ? (
+        <div className={styles.editorLayout}>
+          <div className={styles.editorMain}>
+            <RichTextEditor
+              value={bodyValue}
+              onChange={(html: string) => handleFieldChange('body', html)}
+              placeholder={t('content.start_writing')}
+              notion
+            />
+          </div>
+          <div className={styles.editorSidebar}>
+            <Card className={styles.sidebarCard} bordered={false}>
+              {sidebarFields.map((field) => (
+                <FieldRenderer
+                  key={field.name}
+                  field={field}
+                  value={formData[field.name]}
+                  onChange={(val: unknown) => handleFieldChange(field.name, val)}
+                  errors={errors}
+                  ctDef={ctDef}
+                  formData={formData}
+                />
+              ))}
+            </Card>
+          </div>
+        </div>
+      ) : (
+        <Card className={styles.formCard} bordered={false}>
+          {ctDef.fields.map((field) => (
+            <FieldRenderer
+              key={field.name}
+              field={field}
+              value={formData[field.name]}
+              onChange={(val: unknown) => handleFieldChange(field.name, val)}
+              errors={errors}
+              ctDef={ctDef}
+              formData={formData}
+            />
+          ))}
+        </Card>
+      )}
     </div>
   );
 }

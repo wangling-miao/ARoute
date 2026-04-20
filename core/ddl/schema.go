@@ -70,6 +70,9 @@ type IndexDefinition struct {
 
 	// Unique indicates whether the index has a uniqueness constraint.
 	Unique bool `json:"unique"`
+
+	// Where is an optional partial index condition (e.g. "deleted_at IS NULL").
+	Where string `json:"where,omitempty"`
 }
 
 // ForeignKeyReference represents a foreign key reference for a relation field.

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/mozillazg/go-pinyin"
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/ddl"
 	"github.com/wangling-miao/aroute/core/events"
@@ -49,6 +50,7 @@ func (s *Service) Create(ctx context.Context, contentType string, data map[strin
 	}
 
 	s.autoGenerateSlug(ctx, ct, data)
+	cleanEmptyNonTextFields(ct, data)
 
 	if err := s.validator.Validate(ctx, ct, data); err != nil {
 		return nil, err
@@ -116,6 +118,7 @@ func (s *Service) Update(ctx context.Context, id string, data map[string]interfa
 	}
 
 	merged := s.mergeForUpdate(current, data)
+	cleanEmptyNonTextFields(ct, merged)
 
 	if err := s.validator.Validate(ctx, ct, merged); err != nil {
 		return nil, err
@@ -393,10 +396,22 @@ func (s *Service) DeleteContentType(ctx context.Context, name string) error {
 func (s *Service) createContentTable(ctx context.Context, ct *interfaces.ContentType) error {
 	fields := s.buildDDLFields(ct)
 
+	indexes := []ddl.IndexDefinition{
+		{Name: fmt.Sprintf("idx_%s_slug_unique", ct.TableName), Columns: []string{"slug"}, Unique: true, Where: "deleted_at IS NULL"},
+	}
+	for _, f := range ct.Fields {
+		if f.Unique && !s.isSystemField(f.Name) {
+			indexes = append(indexes, ddl.IndexDefinition{
+				Name: fmt.Sprintf("idx_%s_%s_unique", ct.TableName, f.Name), Columns: []string{f.Name}, Unique: true, Where: "deleted_at IS NULL",
+			})
+		}
+	}
+
 	schema := &ddl.Schema{
 		Name:      ct.Name,
 		TableName: ct.TableName,
 		Fields:    fields,
+		Indexes:   indexes,
 	}
 
 	ops := []ddl.DiffOperation{{
@@ -427,7 +442,7 @@ func (s *Service) buildDDLFields(ct *interfaces.ContentType) []ddl.FieldDefiniti
 		{Name: "id", Type: ddl.FieldTypeText, Constraints: &ddl.Constraints{Nullable: false}},
 		{Name: "content_type", Type: ddl.FieldTypeText, Constraints: &ddl.Constraints{Nullable: false}},
 		{Name: "title", Type: ddl.FieldTypeText},
-		{Name: "slug", Type: ddl.FieldTypeText, Constraints: &ddl.Constraints{Unique: true}},
+		{Name: "slug", Type: ddl.FieldTypeText},
 		{Name: "created_by", Type: ddl.FieldTypeText},
 		{Name: "updated_by", Type: ddl.FieldTypeText},
 		{Name: "status", Type: ddl.FieldTypeText},
@@ -451,10 +466,7 @@ func (s *Service) buildDDLFields(ct *interfaces.ContentType) []ddl.FieldDefiniti
 			Name: f.Name,
 			Type: ddlType,
 		}
-		if f.Unique {
-			fd.Constraints = &ddl.Constraints{Unique: true}
-		}
-		if f.Index {
+		if f.Unique || f.Index {
 			fd.Index = true
 		}
 		if f.Type == "relation" && f.RelationConfig != nil {
@@ -482,6 +494,10 @@ func (s *Service) isSystemField(name string) bool {
 	return systemFields[name]
 }
 
+func (s *Service) migratePartialUniqueIndex(ctx context.Context, ct *interfaces.ContentType) {
+	s.store.MigratePartialUniqueIndex(ctx, ct.TableName)
+}
+
 func resolveTargetTable(store *Store, targetContentType string) string {
 	ct, err := store.GetContentType(context.Background(), targetContentType)
 	if err == nil && ct.TableName != "" {
@@ -504,6 +520,22 @@ func mapFieldTypeToDDL(fieldType string) ddl.FieldType {
 		return ddl.FieldTypeRelation
 	default:
 		return ddl.FieldTypeText
+	}
+}
+
+func cleanEmptyNonTextFields(ct *interfaces.ContentType, data map[string]interface{}) {
+	textLike := map[string]bool{"text": true, "richtext": true, "slug": true, "email": true, "url": true, "markdown": true, "color": true}
+	for _, field := range ct.Fields {
+		if textLike[field.Type] {
+			continue
+		}
+		val, ok := data[field.Name]
+		if !ok {
+			continue
+		}
+		if str, _ := val.(string); str == "" {
+			delete(data, field.Name)
+		}
 	}
 }
 
@@ -938,20 +970,24 @@ func generateTypeSlug(name string) string {
 var multiDashRegex = regexp.MustCompile(`-{2,}`)
 
 func GenerateSlugUnicode(title string) string {
-	s := strings.ToLower(title)
-	s = strings.ReplaceAll(s, " ", "-")
+	args := pinyin.NewArgs()
+	args.Style = pinyin.Normal
 
 	var b strings.Builder
-	for _, r := range s {
-		if r < 128 {
-			b.WriteRune(r)
+	for _, r := range title {
+		if unicode.IsSpace(r) {
+			b.WriteRune('-')
+		} else if r < 128 {
+			b.WriteRune(unicode.ToLower(r))
+		} else if unicode.Is(unicode.Han, r) {
+			b.WriteRune('-')
+			b.WriteString(pinyin.LazyPinyin(string(r), args)[0])
+			b.WriteRune('-')
 		} else if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
-		} else if unicode.IsSpace(r) {
-			b.WriteRune('-')
 		}
 	}
-	s = b.String()
+	s := b.String()
 
 	s = multiDashRegex.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")

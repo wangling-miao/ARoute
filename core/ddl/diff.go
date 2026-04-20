@@ -115,6 +115,7 @@ func (e *DiffEngine) diffIndexes(desired *Schema, actual *interfaces.TableDefini
 				IndexName:    idx.Name,
 				IndexColumns: idx.Columns,
 				IndexUnique:  idx.Unique,
+				IndexWhere:   idx.Where,
 			})
 		}
 	}

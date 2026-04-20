@@ -119,6 +119,8 @@ const zh = {
     unpublish: '取消发布',
     save_draft: '保存草稿',
     saved_success: '内容保存成功',
+    untitled: '无标题{{type}}',
+    start_writing: '开始写作...',
     deleted_success: '内容删除成功',
     published_success: '内容发布成功',
     no_content: '暂无内容',

@@ -67,6 +67,9 @@ type DiffOperation struct {
 	// IndexUnique indicates if the index is unique (for index add).
 	IndexUnique bool `json:"index_unique,omitempty"`
 
+	// IndexWhere is an optional partial index condition (e.g. "deleted_at IS NULL").
+	IndexWhere string `json:"index_where,omitempty"`
+
 	// Schema is the full schema definition (for table_create).
 	Schema *Schema `json:"schema,omitempty"`
 }

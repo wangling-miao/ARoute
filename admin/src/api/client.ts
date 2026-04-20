@@ -117,6 +117,10 @@ async function request<T>(
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   const body = await response.json();
 
   if (!response.ok) {

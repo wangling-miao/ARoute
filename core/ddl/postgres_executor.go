@@ -228,6 +228,10 @@ func (e *PostgreSQLExecutor) addIndex(ctx context.Context, tx *sql.Tx, op DiffOp
 	query := fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS \"%s\" ON \"%s\" (%s)",
 		uniqueStr, op.IndexName, op.TableName, strings.Join(cols, ", "))
 
+	if op.IndexWhere != "" {
+		query += " WHERE " + op.IndexWhere
+	}
+
 	_, err := tx.ExecContext(ctx, query)
 	return err
 }

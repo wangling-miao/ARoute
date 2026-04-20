@@ -137,7 +137,7 @@ func (m *JWTManager) VerifyToken(tokenString string) (*interfaces.UserClaims, er
 		}
 	})
 	if err != nil {
-		return nil, fmt.Errorf("parse token: %w: %w", err, interfaces.ErrUnauthorized)
+		return nil, fmt.Errorf("parse token: %s: %w", err.Error(), interfaces.ErrUnauthorized)
 	}
 
 	claims, ok := token.Claims.(*jwtClaims)

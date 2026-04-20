@@ -325,3 +325,238 @@
     font-size: 1rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Notion-like mode
+   ═══════════════════════════════════════════════════════════ */
+
+.editorNotionWrapper {
+  position: relative;
+  min-height: 500px;
+}
+
+.editorNotionWrapper :global(.tiptap) {
+  min-height: 500px;
+}
+
+.editorNotion {
+  padding: 0 !important;
+  min-height: 500px !important;
+  max-height: none !important;
+  font-size: 1.0625rem !important;
+  line-height: 1.85 !important;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.editorNotion p {
+  margin-bottom: 0.75em;
+}
+
+.editorNotion h1 {
+  font-size: 2.25rem !important;
+  font-weight: 800 !important;
+  line-height: 1.25 !important;
+  margin: 1em 0 0.5em !important;
+  letter-spacing: -0.035em !important;
+}
+
+.editorNotion h2 {
+  font-size: 1.75rem !important;
+  font-weight: 700 !important;
+  line-height: 1.3 !important;
+  margin: 0.8em 0 0.4em !important;
+  letter-spacing: -0.03em !important;
+}
+
+.editorNotion h3 {
+  font-size: 1.375rem !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  margin: 0.7em 0 0.35em !important;
+}
+
+.editorNotion blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding: 0.4em 0 0.4em 1em;
+  margin: 1em 0;
+  font-size: 1rem;
+  background: none;
+}
+
+.editorNotion ul,
+.editorNotion ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.75em;
+}
+
+.editorNotion pre {
+  border-radius: var(--radius-md);
+  padding: 1em 1.25em;
+  margin: 1em 0;
+  font-size: 0.875rem;
+}
+
+.editorNotion hr {
+  margin: 2em 0;
+}
+
+/* ── Bubble menu (Notion mode) ── */
+
+.bubbleMenu {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-lg);
+}
+
+.bubbleMenu .toolbarBtn {
+  width: 30px;
+  height: 30px;
+}
+
+.bubbleMenu .toolbarDivider {
+  height: 18px;
+  margin: 0 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Slash command menu (Notion-style "/" menu)
+   ═══════════════════════════════════════════════════════════ */
+
+.slashMenu {
+  position: absolute;
+  z-index: 50;
+  min-width: 260px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-lg);
+}
+
+.slashMenuLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 6px 8px 4px;
+}
+
+.slashMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+  color: var(--color-text);
+}
+
+.slashMenuItem:hover,
+.slashMenuItemActive {
+  background: var(--glass-bg-hover);
+}
+
+.slashMenuIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.slashMenuText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.slashMenuTitle {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.slashMenuDesc {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   URL input popover (inline link/image input)
+   ═══════════════════════════════════════════════════════════ */
+
+.urlPopover {
+  position: absolute;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-width: 320px;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-lg);
+}
+
+.urlPopoverIcon {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.urlPopoverInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: none;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  min-width: 0;
+}
+
+.urlPopoverInput::placeholder {
+  color: var(--color-text-disabled);
+  font-family: var(--font-body);
+}
+
+.urlPopoverBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+
+.urlPopoverBtn:hover {
+  background: var(--color-primary-hover);
+}

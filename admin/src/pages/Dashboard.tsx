@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Card, Tag } from '@arco-design/web-react';
 import {
   FileText,
@@ -13,7 +14,7 @@ import {
   ExternalLink,
   Inbox,
 } from 'lucide-react';
-import { dashboard } from '@/api/endpoints';
+import { dashboard, settings } from '@/api/endpoints';
 import type { DashboardStats, ActivityItem } from '@/types';
 import styles from './Dashboard.module.css';
 
@@ -61,7 +62,12 @@ function LoadingSkeleton() {
   );
 }
 
-function SystemStatusSection({ stats }: { stats: DashboardStats }) {
+function SystemStatusSection({ stats, onNewContent, onNewUser, onViewSite }: {
+  stats: DashboardStats;
+  onNewContent: () => void;
+  onNewUser: () => void;
+  onViewSite: () => void;
+}) {
   const { t } = useTranslation();
 
   const dbStatusClass = stats.system_status.database === 'healthy'
@@ -113,17 +119,17 @@ function SystemStatusSection({ stats }: { stats: DashboardStats }) {
           <span className={styles.systemItemLabel}>{t('dashboard.quick_actions')}</span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Tag color="blue" size="small" style={{ cursor: 'pointer' }}>
+          <Tag color="blue" size="small" style={{ cursor: 'pointer' }} onClick={onNewContent}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Plus size={12} /> {t('dashboard.new_content')}
             </span>
           </Tag>
-          <Tag color="green" size="small" style={{ cursor: 'pointer' }}>
+          <Tag color="green" size="small" style={{ cursor: 'pointer' }} onClick={onNewUser}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <UserPlus size={12} /> {t('dashboard.new_user')}
             </span>
           </Tag>
-          <Tag color="purple" size="small" style={{ cursor: 'pointer' }}>
+          <Tag color="purple" size="small" style={{ cursor: 'pointer' }} onClick={onViewSite}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <ExternalLink size={12} /> {t('dashboard.view_site')}
             </span>
@@ -181,7 +187,9 @@ function ActivitySection({ items }: { items: ActivityItem[] }) {
 
 export default function Dashboard() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [siteUrl, setSiteUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -197,6 +205,10 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [t]);
+
+  useEffect(() => {
+    settings.get().then((s) => setSiteUrl(s.site_url)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchStats();
@@ -231,6 +243,18 @@ export default function Dashboard() {
 
   const contentEntries = Object.entries(stats.content_counts);
 
+  const handleNewContent = () => {
+    const firstType = contentEntries.length > 0 ? contentEntries[0][0] : null;
+    if (firstType) {
+      navigate(`/admin/content/${firstType}/new`);
+    } else {
+      navigate('/admin/content-types/new');
+    }
+  };
+
+  const handleNewUser = () => navigate('/admin/users');
+  const handleViewSite = () => window.open(siteUrl || window.location.origin, '_blank');
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -259,7 +283,7 @@ export default function Dashboard() {
 
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>{t('dashboard.system_status')}</h3>
-        <SystemStatusSection stats={stats} />
+        <SystemStatusSection stats={stats} onNewContent={handleNewContent} onNewUser={handleNewUser} onViewSite={handleViewSite} />
       </div>
     </div>
   );

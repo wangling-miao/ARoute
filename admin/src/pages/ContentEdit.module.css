@@ -200,4 +200,85 @@
     width: 100%;
     justify-content: flex-end;
   }
+
+  .editorLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .editorSidebar {
+    order: -1;
+  }
+
+  .titleInput {
+    font-size: 1.5rem !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Notion-like editor layout
+   ═══════════════════════════════════════════════════════════ */
+
+.editorLayout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.editorMain {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 2rem 2.5rem;
+  min-height: 600px;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+.editorSidebar {
+  position: sticky;
+  top: 1rem;
+}
+
+.sidebarCard {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.sidebarCard :global(.arco-card-body) {
+  padding: 1.25rem !important;
+}
+
+.sidebarCard .formRow {
+  margin-bottom: 1.25rem;
+}
+
+.sidebarCard .formRow:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Notion-like title input ── */
+
+.titleInput {
+  flex: 1;
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--color-text);
+  background: none;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+}
+
+.titleInput::placeholder {
+  color: var(--color-text-disabled);
+  font-weight: 700;
 }

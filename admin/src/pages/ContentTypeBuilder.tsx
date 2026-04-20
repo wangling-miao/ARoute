@@ -20,6 +20,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { pinyin } from 'pinyin-pro';
 import { contentTypes } from '@/api/endpoints';
 import { ApiError } from '@/api/client';
 import { showError, showSuccess } from '@/components/Toast';
@@ -49,7 +50,8 @@ const FIELD_TYPES: { value: FieldType; icon: React.ReactNode }[] = [
 ];
 
 function slugify(text: string): string {
-  return text
+  const py = pinyin(text, { toneType: 'none', type: 'array' }).join('_');
+  return py
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, '_')
     .replace(/_+/g, '_')

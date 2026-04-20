@@ -119,6 +119,8 @@ const en = {
     unpublish: 'Unpublish',
     save_draft: 'Save Draft',
     saved_success: 'Content saved successfully',
+    untitled: 'Untitled {{type}}',
+    start_writing: 'Start writing...',
     deleted_success: 'Content deleted successfully',
     published_success: 'Content published successfully',
     no_content: 'No content yet',
