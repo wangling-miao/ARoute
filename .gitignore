@@ -62,3 +62,6 @@ docs/
 .omc/
 
 plugins/admin/dist/
+
+# Wasm build output
+sdk/wasm/example/build/
