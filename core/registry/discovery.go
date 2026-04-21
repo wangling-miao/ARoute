@@ -248,3 +248,51 @@ func ValidateManifest(manifestPath string) error {
 	}
 	return nil
 }
+
+// CleanupMissingPlugins removes registry entries for L2/L3 (non-native) plugins
+// whose files are no longer present on disk. Returns the number of entries removed.
+//
+// For each registry entry with engine "wasm" or "grpc", it checks whether the
+// discovered path (manifest file) still exists. For wasm plugins, it also checks
+// that the plugin.wasm binary is present. If either is missing, the entry is removed.
+func CleanupMissingPlugins(registry Registry) (int, error) {
+	entries, err := registry.List()
+	if err != nil {
+		return 0, fmt.Errorf("list registry: %w", err)
+	}
+
+	removed := 0
+	for _, entry := range entries {
+		// Only cleanup non-native (L2/L3) plugins
+		if entry.Manifest.Engine == "" || entry.Manifest.Engine == "native" || entry.Manifest.Engine == "l1" {
+			continue
+		}
+
+		// Check if the manifest file still exists
+		if entry.DiscoveredPath != "" {
+			if _, err := os.Stat(entry.DiscoveredPath); os.IsNotExist(err) {
+				if err := registry.Remove(entry.Manifest.Name); err != nil {
+					continue
+				}
+				removed++
+				continue
+			}
+		}
+
+		// For L3 (wasm) plugins, also check the wasm binary exists
+		if entry.Manifest.Engine == "wasm" || entry.Manifest.Engine == "l3" {
+			pluginDir := filepath.Dir(entry.DiscoveredPath)
+			if pluginDir != "" && entry.DiscoveredPath != "" {
+				wasmFile := filepath.Join(pluginDir, "plugin.wasm")
+				if _, err := os.Stat(wasmFile); os.IsNotExist(err) {
+					if err := registry.Remove(entry.Manifest.Name); err != nil {
+						continue
+					}
+					removed++
+				}
+			}
+		}
+	}
+
+	return removed, nil
+}

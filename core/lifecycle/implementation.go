@@ -57,6 +57,11 @@ func (m *ManagerImpl) LoadAll(ctx context.Context) error {
 
 		plugin, err := m.pluginLoader.Load(manifest)
 		if err != nil {
+			// L2/L3 plugins that fail to load (e.g. missing files) are skipped
+			// silently so startup can continue without them.
+			if manifest.Engine != "" && manifest.Engine != "native" && manifest.Engine != "l1" {
+				continue
+			}
 			m.plugins[manifest.Name] = &PluginLoadInfo{
 				Manifest:  &manifest,
 				State:     core.StateFailed,
