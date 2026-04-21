@@ -60,3 +60,5 @@ openspec/
 docs/
 .claude/
 .omc/
+
+plugins/admin/dist/

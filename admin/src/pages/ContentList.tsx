@@ -132,11 +132,10 @@ export default function ContentList() {
   const titleField = ctDef?.fields?.find(f => f.type === 'text' || f.type === 'slug')?.name || 'title';
 
   const getTitle = (item: ContentItem): string => {
-    const data = item.data ?? {};
-    const val = data[titleField];
+    const val = item[titleField];
     if (typeof val === 'string' && val.length > 0) return val;
-    const fallback = Object.values(data).find(v => typeof v === 'string' && (v as string).length > 0);
-    return (fallback as string | undefined) ?? item.id.slice(0, 8);
+    if (item.title && typeof item.title === 'string') return item.title;
+    return item.id.slice(0, 8);
   };
 
   const getStatusTag = (status: string) => {

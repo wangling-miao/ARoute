@@ -109,12 +109,34 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		logger.Warn("plugin discovery error", "error", err)
 	}
-	logger.Info("plugins discovered and registered", "count", registered)
+
+	// Also discover L3 community plugins from data/plugins/
+	l3PluginDir := filepath.Join(dataDir, "plugins")
+	if err := os.MkdirAll(l3PluginDir, 0755); err != nil {
+		return fmt.Errorf("create L3 plugin directory: %w", err)
+	}
+	l3Discovery := registry.NewFSDiscovery(l3PluginDir)
+	l3Registered, l3Err := registry.LoadAndRegister(reg, l3Discovery)
+	if l3Err != nil {
+		logger.Warn("L3 plugin discovery error", "error", l3Err)
+	}
+	registered += l3Registered
+
+	// Cleanup L2/L3 plugins whose files have been removed from disk
+	cleaned, cleanErr := registry.CleanupMissingPlugins(reg)
+	if cleanErr != nil {
+		logger.Warn("plugin cleanup error", "error", cleanErr)
+	}
+	if cleaned > 0 {
+		logger.Info("removed missing L3 plugins from registry", "count", cleaned)
+	}
+
+	logger.Info("plugins discovered and registered", "count", registered-cleaned)
 
 	// Core context factory for plugins
 	ctxFactory := func(pluginCtx context.Context, pluginName string) core.CoreContext {
 		pluginLogger := logger.With("plugin", pluginName)
-		pluginDataDir := filepath.Join(dataDir, "plugins", pluginName)
+		pluginDataDir := filepath.Join(dataDir, "plugin_data", pluginName)
 		pluginConfig := core.NewViperConfig(viper.GetViper())
 		return core.NewCoreContext(pluginCtx, container, eventBus, pluginConfig, pluginLogger, pluginDataDir, pluginDir)
 	}
@@ -157,9 +179,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	pluginLoader.Register("admin", func() core.Plugin {
 		return admin.New()
 	})
+
+	// L3 Wasm loader: loads community plugins from data/plugins/ at runtime
+	wasmLoader := loader.NewWasmLoader(l3PluginDir)
+
+	compositeLoader := loader.NewCompositeLoader(pluginLoader, wasmLoader)
+
 	lifecycleManager := lifecycle.NewManager(
 		&registryAdapterForLifecycle{registry: reg},
-		&pluginLoaderAdapter{loader: pluginLoader},
+		&pluginLoaderAdapter{loader: compositeLoader},
 		eventBus,
 		container,
 		ctxFactory,
@@ -354,7 +382,7 @@ func (a *registryAdapterForLifecycle) IsEnabled(name string) (bool, error) {
 }
 
 type pluginLoaderAdapter struct {
-	loader *loader.NativePluginLoader
+	loader *loader.CompositeLoader
 }
 
 func (a *pluginLoaderAdapter) Load(manifest core.Manifest) (core.Plugin, error) {

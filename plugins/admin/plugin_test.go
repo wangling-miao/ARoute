@@ -174,7 +174,7 @@ func TestPlugin_ServeAdminClientRoute(t *testing.T) {
 func TestPlugin_ServeStaticAssetWithCache(t *testing.T) {
 	p, _ := setupRouterWithAdmin(t)
 
-	req := httptest.NewRequest("GET", "/assets/index-C3lqyKx-.js", nil)
+	req := httptest.NewRequest("GET", "/assets/index-CamzK9Cm.js", nil)
 	w := httptest.NewRecorder()
 	p.handler.ServeHTTP(w, req)
 

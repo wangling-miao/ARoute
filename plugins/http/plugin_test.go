@@ -364,6 +364,217 @@ func TestRouteGroup(t *testing.T) {
 	}
 }
 
+// TestRegisterUnsupportedHandler tests Register with an unsupported handler type
+func TestRegisterUnsupportedHandler(t *testing.T) {
+	r := chi.NewRouter()
+	registrar := NewRouteRegistrar(r)
+
+	// Pass an unsupported handler type (int)
+	registrar.Register("GET /bad", 42)
+
+	// Route should not be registered; requesting it should 404
+	req := httptest.NewRequest("GET", "/bad", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 for unregistered route, got %d", w.Code)
+	}
+}
+
+// TestRouteRegistrarUse tests the Use method for collecting middleware
+func TestRouteRegistrarUse(t *testing.T) {
+	r := chi.NewRouter()
+	registrar := NewRouteRegistrar(r)
+
+	mw1 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-MW1", "yes")
+			next.ServeHTTP(w, r)
+		})
+	}
+	mw2 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-MW2", "yes")
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	registrar.Use(mw1, mw2)
+
+	mws := registrar.Middlewares()
+	if len(mws) != 2 {
+		t.Fatalf("Expected 2 middlewares, got %d", len(mws))
+	}
+}
+
+// TestRouteRegistrarRoute tests the Route method
+func TestRouteRegistrarRoute(t *testing.T) {
+	r := chi.NewRouter()
+	registrar := NewRouteRegistrar(r)
+
+	registrar.Route("/api", func(sub chi.Router) {
+		sub.Get("/hello", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("hello from route"))
+		})
+	})
+
+	req := httptest.NewRequest("GET", "/api/hello", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != "hello from route" {
+		t.Errorf("Expected 'hello from route', got '%s'", w.Body.String())
+	}
+}
+
+// TestStartWithCustomAddr tests Start with custom http.addr config
+func TestStartWithCustomAddr(t *testing.T) {
+	config := &mockConfigProvider{
+		data: map[string]interface{}{
+			"http.addr": "127.0.0.1:0",
+		},
+	}
+
+	ctx := newMockCoreContext()
+	ctx.config = config
+
+	plugin := New()
+	err := plugin.Init(ctx)
+	if err != nil {
+		t.Fatalf("Plugin initialization failed: %v", err)
+	}
+
+	err = plugin.Start()
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop server
+	err = plugin.Stop()
+	if err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+}
+
+// TestStartWhenAlreadyRunning tests Start is idempotent
+func TestStartWhenAlreadyRunning(t *testing.T) {
+	config := &mockConfigProvider{
+		data: map[string]interface{}{
+			"http.addr": "127.0.0.1:0",
+		},
+	}
+
+	ctx := newMockCoreContext()
+	ctx.config = config
+
+	plugin := New()
+	err := plugin.Init(ctx)
+	if err != nil {
+		t.Fatalf("Plugin initialization failed: %v", err)
+	}
+
+	err = plugin.Start()
+	if err != nil {
+		t.Fatalf("First start failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Second start should be a no-op
+	err = plugin.Start()
+	if err != nil {
+		t.Fatalf("Second start failed: %v", err)
+	}
+
+	err = plugin.Stop()
+	if err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+}
+
+// TestStopWhenNotRunning tests Stop when server hasn't started
+func TestStopWhenNotRunning(t *testing.T) {
+	plugin := New()
+	ctx := newMockCoreContext()
+	err := plugin.Init(ctx)
+	if err != nil {
+		t.Fatalf("Plugin initialization failed: %v", err)
+	}
+
+	// Stop without starting should be fine
+	err = plugin.Stop()
+	if err != nil {
+		t.Errorf("Stop on non-running server should not error, got: %v", err)
+	}
+}
+
+// TestStopWithNilServer tests Stop when server is nil
+func TestStopWithNilServer(t *testing.T) {
+	plugin := New()
+	plugin.running = true
+	plugin.ctx = newMockCoreContext()
+
+	// Server is nil, should return nil
+	err := plugin.Stop()
+	if err != nil {
+		t.Errorf("Expected nil error, got: %v", err)
+	}
+}
+
+// TestGetCollectedMiddlewaresNilCtx tests getCollectedMiddlewares with nil ctx
+func TestGetCollectedMiddlewaresNilCtx(t *testing.T) {
+	plugin := New()
+	// ctx is nil
+	mws := plugin.getCollectedMiddlewares()
+	if mws != nil {
+		t.Errorf("Expected nil, got %v", mws)
+	}
+}
+
+// TestGetCollectedMiddlewaresNoRegistrar tests getCollectedMiddlewares when no registrar in container
+func TestGetCollectedMiddlewaresNoRegistrar(t *testing.T) {
+	plugin := New()
+	ctx := newMockCoreContext()
+	// Don't init (so no registrar in container)
+	plugin.ctx = ctx
+	mws := plugin.getCollectedMiddlewares()
+	if mws != nil {
+		t.Errorf("Expected nil when no registrar, got %v", mws)
+	}
+}
+
+// TestSlogMiddlewareStatusZero tests slogMiddleware when status is 0
+func TestSlogMiddlewareStatusZero(t *testing.T) {
+	plugin := New()
+	ctx := newMockCoreContext()
+
+	err := plugin.Init(ctx)
+	if err != nil {
+		t.Fatalf("Plugin initialization failed: %v", err)
+	}
+
+	// Register a handler that writes body without setting status
+	registrar := NewRouteRegistrar(plugin.router)
+	registrar.Register("GET /test-zero-status", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("no explicit status"))
+	})
+
+	req := httptest.NewRequest("GET", "/test-zero-status", nil)
+	w := httptest.NewRecorder()
+	plugin.router.ServeHTTP(w, req)
+
+	// Handler writes body, status should be 200 by Go default
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+}
+
 // TestGracefulShutdown tests graceful shutdown functionality
 func TestGracefulShutdown(t *testing.T) {
 	plugin := New()

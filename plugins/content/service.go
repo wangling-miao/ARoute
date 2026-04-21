@@ -533,7 +533,7 @@ func cleanEmptyNonTextFields(ct *interfaces.ContentType, data map[string]interfa
 		if !ok {
 			continue
 		}
-		if str, _ := val.(string); str == "" {
+		if str, ok := val.(string); ok && str == "" {
 			delete(data, field.Name)
 		}
 	}

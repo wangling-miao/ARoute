@@ -228,7 +228,7 @@ type CoreContextFactory func(ctx context.Context, pluginName string, logger *slo
 // DefaultCoreContextFactory creates a CoreContext with default configuration.
 func DefaultCoreContextFactory(ctx context.Context, pluginName string, logger *slog.Logger, container ServiceContainer, eventBus EventBus, dataDir, pluginDir string) CoreContext {
 	pluginLogger := logger.With("plugin", pluginName)
-	pluginDataDir := filepath.Join(dataDir, "plugins", pluginName)
+	pluginDataDir := filepath.Join(dataDir, "plugin_data", pluginName)
 	pluginConfig := NewScopedConfig(pluginName, make(map[string]interface{}))
 	return NewCoreContext(ctx, container, eventBus, pluginConfig, pluginLogger, pluginDataDir, pluginDir)
 }

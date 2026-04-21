@@ -953,3 +953,154 @@ func TestTestDelivery_NotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
+
+// ─── DeliverEvent Tests ─────────────────────────────────────────────────────
+
+func TestDeliverEvent_Basic(t *testing.T) {
+	var received atomic.Int32
+	svc, server := newTestServiceWithServer(t, func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+		w.WriteHeader(200)
+	})
+
+	createTestWebhook(svc, server.URL, []string{"content.created"}, "test-secret")
+
+	svc.DeliverEvent(context.Background(), interfaces.WebhookEvent{
+		Topic:     "content.created",
+		Timestamp: time.Now(),
+		Data:      map[string]any{"test": true},
+	})
+
+	assert.Equal(t, int32(1), received.Load())
+}
+
+func TestDeliverEvent_ZeroTimestamp(t *testing.T) {
+	var received atomic.Int32
+	svc, server := newTestServiceWithServer(t, func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+		w.WriteHeader(200)
+	})
+
+	createTestWebhook(svc, server.URL, []string{"content.created"}, "test-secret")
+
+	svc.DeliverEvent(context.Background(), interfaces.WebhookEvent{
+		Topic: "content.created",
+		// Timestamp is zero — should fallback to time.Now()
+		Data: map[string]any{"test": true},
+	})
+
+	assert.Equal(t, int32(1), received.Load())
+}
+
+func TestDeliverEvent_DisabledWebhook(t *testing.T) {
+	var received atomic.Int32
+	svc, server := newTestServiceWithServer(t, func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+		w.WriteHeader(200)
+	})
+
+	wh := createTestWebhook(svc, server.URL, []string{"content.created"}, "test-secret")
+	svc.SetEnabled(wh.ID, false)
+
+	svc.DeliverEvent(context.Background(), interfaces.WebhookEvent{
+		Topic:     "content.created",
+		Timestamp: time.Now(),
+		Data:      nil,
+	})
+
+	assert.Equal(t, int32(0), received.Load(), "disabled webhook should receive no POST")
+}
+
+func TestDeliverEvent_NoMatchingWebhooks(t *testing.T) {
+	var received atomic.Int32
+	svc, server := newTestServiceWithServer(t, func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+		w.WriteHeader(200)
+	})
+
+	createTestWebhook(svc, server.URL, []string{"user.login"}, "test-secret")
+
+	svc.DeliverEvent(context.Background(), interfaces.WebhookEvent{
+		Topic:     "content.created",
+		Timestamp: time.Now(),
+		Data:      nil,
+	})
+
+	assert.Equal(t, int32(0), received.Load(), "no POSTs when no webhooks match")
+}
+
+// ─── validateWebhookURL / checkIP Edge Case Tests ────────────────────────────
+
+func TestValidateWebhookURL_UnsupportedScheme(t *testing.T) {
+	err := validateWebhookURL("ftp://example.com/hook")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported URL scheme")
+}
+
+func TestValidateWebhookURL_NoHostname(t *testing.T) {
+	err := validateWebhookURL("http:///path")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "hostname")
+}
+
+func TestValidateWebhookURL_LoopbackIP(t *testing.T) {
+	err := validateWebhookURL("http://127.0.0.1/hook")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "loopback")
+}
+
+func TestValidateWebhookURL_PrivateIP(t *testing.T) {
+	err := validateWebhookURL("http://192.168.1.1/hook")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "private")
+}
+
+func TestValidateWebhookURL_LinkLocalIP(t *testing.T) {
+	err := validateWebhookURL("http://169.254.1.1/hook")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "link-local")
+}
+
+func TestValidateWebhookURL_UnspecifiedIP(t *testing.T) {
+	err := validateWebhookURL("http://0.0.0.0/hook")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unspecified")
+}
+
+func TestValidateWebhookURL_ValidPublicIP(t *testing.T) {
+	err := validateWebhookURL("http://8.8.8.8/hook")
+	assert.NoError(t, err)
+}
+
+func TestValidateWebhookURL_InvalidURL(t *testing.T) {
+	err := validateWebhookURL("not a url at all")
+	assert.Error(t, err)
+}
+
+// ─── SetEnabled / UpdateSecret Not Found ─────────────────────────────────────
+
+func TestSetEnabled_NotFound(t *testing.T) {
+	svc := newTestService(t)
+
+	err := svc.SetEnabled("nonexistent", true)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestUpdateSecret_NotFound(t *testing.T) {
+	svc := newTestService(t)
+
+	err := svc.UpdateSecret("nonexistent", "new-secret")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// ─── Create Short Secret ─────────────────────────────────────────────────────
+
+func TestCreate_ShortSecret(t *testing.T) {
+	svc := newTestService(t)
+
+	_, err := svc.Create("https://example.com/hook", []string{"content.created"}, "short")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "secret must be at least 8 characters")
+}

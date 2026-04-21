@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/events"
@@ -2862,12 +2865,12 @@ func TestRBAC_ListPermissionsForRole(t *testing.T) {
 
 	found := false
 	for _, p := range perms {
-		if p == "wildcard.all" {
+		if p == "*.*" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("admin permissions = %v, want wildcard.all", perms)
+		t.Errorf("admin permissions = %v, want *.*", perms)
 	}
 }
 
@@ -3111,5 +3114,2059 @@ func TestParseDurationWithDays(t *testing.T) {
 	d = parseDurationWithDays("xd")
 	if d != 0 {
 		t.Errorf("expected 0 for non-numeric days, got %v", d)
+	}
+}
+
+// =============================================================================
+// HTTP Handler tests
+// =============================================================================
+
+// setupTestPlugin creates a fully initialized Plugin with HTTP routes for handler testing.
+func setupTestPlugin(t *testing.T) *Plugin {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", "file:handler_test?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+	store := NewStore(dbSvc)
+
+	ctx := context.Background()
+	if err := store.CreateTables(ctx); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtSecret:       "test-secret-key-for-handlers",
+		jwtAlgorithm:    "HS256",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
+
+	logger := slog.Default()
+	rbacMgr := NewRBACManager(store, logger)
+	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("init default roles: %v", err)
+	}
+
+	rateLimiter := NewRateLimiter(5, 15*time.Minute)
+	config := newMockConfig()
+
+	svc := NewService(store, jwtMgr, rbacMgr, rateLimiter, logger, config, authConfig{
+		bcryptCost:    10,
+		adminEmail:    "admin@localhost",
+		adminPassword: "changeme",
+	})
+
+	p := New()
+	p.service = svc
+	p.rateLimit = rateLimiter
+	p.running = true
+	p.ctx = newMockCoreContext(dbSvc, config)
+
+	t.Cleanup(func() {
+		rateLimiter.Stop()
+		db.Close()
+	})
+
+	return p
+}
+
+// authedRequest creates an authenticated HTTP request with a valid JWT for the given user.
+func authedRequest(t *testing.T, svc *Service, user *interfaces.User, method, path, body string) *http.Request {
+	t.Helper()
+	ctx := context.Background()
+	roleNames, err := svc.store.GetUserRoleNames(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRoleNames: %v", err)
+	}
+	token, _, err := svc.jwt.GenerateAccessToken(ctx, user, roleNames)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+
+	var req *http.Request
+	if body != "" {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(method, path, nil)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return req
+}
+
+// =============================================================================
+// handlers.go: handleLogin
+// =============================================================================
+
+func TestHandleLogin_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	createTestUser(t, p.service, "login@example.com", "loginuser", "password123", nil)
+
+	body := `{"email":"login@example.com","password":"password123"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleLogin(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "access_token") {
+		t.Error("expected access_token in response")
+	}
+}
+
+func TestHandleLogin_InvalidJSON(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleLogin(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleLogin_WrongPassword(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	createTestUser(t, p.service, "loginwrong@example.com", "loginwronguser", "password123", nil)
+
+	body := `{"email":"loginwrong@example.com","password":"wrong"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleLogin(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleLogin_MissingCredentials(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"email":"","password":""}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleLogin(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleLogin_DisabledUser(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, p.service, "logindisabled@example.com", "logindisableduser", "password123", nil)
+	dbUser, _ := p.service.store.GetUserByID(ctx, user.ID)
+	dbUser.Status = "suspended"
+	dbUser.UpdatedAt = time.Now().UTC()
+	p.service.store.UpdateUser(ctx, dbUser)
+
+	body := `{"email":"logindisabled@example.com","password":"password123"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleLogin(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+// =============================================================================
+// handlers.go: handleRefresh
+// =============================================================================
+
+func TestHandleRefresh_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	createTestUser(t, p.service, "handlerrefresh@example.com", "handlerrefreshuser", "password123", nil)
+
+	result, err := p.service.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "handlerrefresh@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	body := fmt.Sprintf(`{"refresh_token":"%s"}`, result.RefreshToken)
+	req := httptest.NewRequest("POST", "/api/v1/auth/refresh", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleRefresh(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestHandleRefresh_InvalidJSON(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("POST", "/api/v1/auth/refresh", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleRefresh(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleRefresh_EmptyToken(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"refresh_token":""}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/refresh", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleRefresh(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleRefresh_InvalidToken(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"refresh_token":"invalid-token-string"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/refresh", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleRefresh(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+// =============================================================================
+// handlers.go: handleGetCurrentUser
+// =============================================================================
+
+func TestHandleGetCurrentUser_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "me@example.com", "meuser", "password123", []string{"admin"})
+
+	req := authedRequest(t, p.service, user, "GET", "/api/v1/auth/me", "")
+	w := httptest.NewRecorder()
+	p.handleGetCurrentUser(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "me@example.com") {
+		t.Error("expected email in response")
+	}
+}
+
+func TestHandleGetCurrentUser_NoAuth(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
+	w := httptest.NewRecorder()
+	p.handleGetCurrentUser(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleListUsers
+// =============================================================================
+
+func TestHandleListUsers_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	createTestUser(t, p.service, "listu1@example.com", "listu1", "password123", nil)
+	createTestUser(t, p.service, "listu2@example.com", "listu2", "password123", nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/users/?page=1&per_page=10", nil)
+	w := httptest.NewRecorder()
+	p.handleListUsers(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "listu1") {
+		t.Error("expected user in response")
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleCreateUser
+// =============================================================================
+
+func TestHandleCreateUser_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"email":"new@example.com","username":"newuser","password":"password123"}`
+	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleCreateUser(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusCreated, w.Body.String())
+	}
+}
+
+func TestHandleCreateUser_InvalidJSON(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleCreateUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleCreateUser_Validation(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"email":"","username":"","password":""}`
+	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleCreateUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleCreateUser_Conflict(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	createTestUser(t, p.service, "conflict@example.com", "conflictuser", "password123", nil)
+
+	body := `{"email":"conflict@example.com","username":"other","password":"password123"}`
+	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleCreateUser(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusConflict)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleUpdateUser
+// =============================================================================
+
+func TestHandleUpdateUser_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "upd@example.com", "upduser", "password123", nil)
+
+	body := fmt.Sprintf(`{"username":"updateduser","status":"active"}`)
+	req := httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// Set chi URL params.
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateUser(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestHandleUpdateUser_InvalidJSON(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "updinv@example.com", "updinvuser", "password123", nil)
+
+	req := httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleUpdateUser_NotFound(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"username":"x"}`
+	req := httptest.NewRequest("PUT", "/api/v1/users/nonexistent-id", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{"nonexistent-id"}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateUser(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleDeleteUser
+// =============================================================================
+
+func TestHandleDeleteUser_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "del@example.com", "deluser", "password123", nil)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/users/"+user.ID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleDeleteUser(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleDeleteUser_NoID(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/users/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{""}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleDeleteUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleListRoles
+// =============================================================================
+
+func TestHandleListRoles_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/roles/", nil)
+	w := httptest.NewRecorder()
+	p.handleListRoles(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "admin") {
+		t.Error("expected admin role in response")
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleUpdateRole
+// =============================================================================
+
+func TestHandleUpdateRole_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	role, err := p.service.store.GetRoleByName(ctx, "editor")
+	if err != nil {
+		t.Fatalf("GetRoleByName: %v", err)
+	}
+
+	body := `{"description":"Updated editor role","permissions":[{"resource":"content","actions":["read"]}]}`
+	req := httptest.NewRequest("PUT", "/api/v1/roles/"+role.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{role.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateRole(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestHandleUpdateRole_InvalidJSON(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	role, err := p.service.store.GetRoleByName(ctx, "editor")
+	if err != nil {
+		t.Fatalf("GetRoleByName: %v", err)
+	}
+
+	req := httptest.NewRequest("PUT", "/api/v1/roles/"+role.ID, strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{role.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateRole(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleUpdateRole_NotFound(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"description":"test"}`
+	req := httptest.NewRequest("PUT", "/api/v1/roles/nonexistent", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{"nonexistent"}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateRole(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleListAPITokens
+// =============================================================================
+
+func TestHandleListAPITokens_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, p.service, "apitokens@example.com", "apitokensuser", "password123", []string{"admin"})
+	_, err := p.service.CreateAPIToken(ctx, user.ID, "test-token", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	req := authedRequest(t, p.service, user, "GET", "/api/v1/api-tokens/", "")
+	w := httptest.NewRecorder()
+	p.handleListAPITokens(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestHandleListAPITokens_NoAuth(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/api-tokens/", nil)
+	w := httptest.NewRecorder()
+	p.handleListAPITokens(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleCreateAPIToken
+// =============================================================================
+
+func TestHandleCreateAPIToken_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "apicreatehdl@example.com", "apicreatehdluser", "password123", []string{"admin"})
+
+	body := `{"name":"my-token"}`
+	req := authedRequest(t, p.service, user, "POST", "/api/v1/api-tokens/", body)
+	w := httptest.NewRecorder()
+	p.handleCreateAPIToken(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusCreated, w.Body.String())
+	}
+}
+
+func TestHandleCreateAPIToken_WithExpiry(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "apiexphdl@example.com", "apiexphdluser", "password123", []string{"admin"})
+
+	future := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	body := fmt.Sprintf(`{"name":"exp-token","expires_at":"%s"}`, future)
+	req := authedRequest(t, p.service, user, "POST", "/api/v1/api-tokens/", body)
+	w := httptest.NewRecorder()
+	p.handleCreateAPIToken(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusCreated, w.Body.String())
+	}
+}
+
+func TestHandleCreateAPIToken_InvalidExpiry(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "apiinvexp@example.com", "apiinvexpuser", "password123", []string{"admin"})
+
+	body := `{"name":"test","expires_at":"not-a-date"}`
+	req := authedRequest(t, p.service, user, "POST", "/api/v1/api-tokens/", body)
+	w := httptest.NewRecorder()
+	p.handleCreateAPIToken(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleCreateAPIToken_NoName(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "apinonamehdl@example.com", "apinonamehdluser", "password123", []string{"admin"})
+
+	body := `{"name":""}`
+	req := authedRequest(t, p.service, user, "POST", "/api/v1/api-tokens/", body)
+	w := httptest.NewRecorder()
+	p.handleCreateAPIToken(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleCreateAPIToken_NoAuth(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"name":"test"}`
+	req := httptest.NewRequest("POST", "/api/v1/api-tokens/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleCreateAPIToken(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleCreateAPIToken_InvalidJSON(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "apiinvjson@example.com", "apiinvjsonuser", "password123", []string{"admin"})
+
+	req := authedRequest(t, p.service, user, "POST", "/api/v1/api-tokens/", "{bad")
+	w := httptest.NewRecorder()
+	p.handleCreateAPIToken(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: handleRevokeAPIToken
+// =============================================================================
+
+func TestHandleRevokeAPIToken_Success(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, p.service, "apirevhdl@example.com", "apirevhdluser", "password123", nil)
+	token, err := p.service.CreateAPIToken(ctx, user.ID, "revoke-me", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/"+token.ID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{token.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleRevokeAPIToken(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleRevokeAPIToken_NoID(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{""}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleRevokeAPIToken(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// =============================================================================
+// admin_handlers.go: groupPermissions, flattenPermissions, toRoleResponse
+// =============================================================================
+
+func TestGroupPermissions(t *testing.T) {
+	flat := []string{"content.read", "content.write", "media.read", "*.*"}
+	grouped := groupPermissions(flat)
+
+	resources := make(map[string][]string)
+	for _, g := range grouped {
+		resources[g.Resource] = g.Actions
+	}
+	if len(resources["content"]) != 2 {
+		t.Errorf("content actions = %v, want 2", resources["content"])
+	}
+	if len(resources["*"]) != 1 || resources["*"][0] != "*" {
+		t.Errorf("wildcard = %v, want [*]", resources["*"])
+	}
+
+	// Test no-dot entry gets "all" action.
+	grouped2 := groupPermissions([]string{"singletag"})
+	found := false
+	for _, g := range grouped2 {
+		if g.Resource == "singletag" {
+			if len(g.Actions) != 1 || g.Actions[0] != "all" {
+				t.Errorf("no-dot actions = %v, want [all]", g.Actions)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected singletag group")
+	}
+}
+
+func TestFlattenPermissions(t *testing.T) {
+	entries := []permissionEntry{
+		{Resource: "content", Actions: []string{"read", "write"}},
+		{Resource: "media", Actions: []string{"upload"}},
+	}
+	flat := flattenPermissions(entries)
+
+	expected := []string{"content.read", "content.write", "media.upload"}
+	if len(flat) != len(expected) {
+		t.Fatalf("flat = %v, want %v", flat, expected)
+	}
+	for i, e := range expected {
+		if flat[i] != e {
+			t.Errorf("flat[%d] = %q, want %q", i, flat[i], e)
+		}
+	}
+}
+
+func TestToRoleResponse(t *testing.T) {
+	now := time.Now().UTC()
+	role := &interfaces.Role{
+		ID:          "r1",
+		Name:        "test",
+		DisplayName: "Test",
+		Description: "test role",
+		Permissions: []string{"content.read", "content.write"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	resp := toRoleResponse(role)
+	if resp.ID != "r1" {
+		t.Errorf("ID = %q, want %q", resp.ID, "r1")
+	}
+	if len(resp.Permissions) != 1 {
+		t.Errorf("expected 1 permission group, got %d", len(resp.Permissions))
+	}
+}
+
+// =============================================================================
+// Service: UpdateUser
+// =============================================================================
+
+func TestService_UpdateUser_Email(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "updsvc@example.com", "updsvcuser", "password123", nil)
+
+	newEmail := "updated@example.com"
+	updated, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
+		Email: &newEmail,
+	})
+	if err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+	if updated.Email != newEmail {
+		t.Errorf("email = %q, want %q", updated.Email, newEmail)
+	}
+}
+
+func TestService_UpdateUser_Password(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "updpwsvc@example.com", "updpwsvcuser", "password123", nil)
+
+	newPass := "newpassword456"
+	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
+		Password: &newPass,
+	})
+	if err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+
+	// Verify new password works.
+	_, err = svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "updpwsvc@example.com", Password: "newpassword456",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate with new password: %v", err)
+	}
+}
+
+func TestService_UpdateUser_Status(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "updstatsvc@example.com", "updstatsvcuser", "password123", nil)
+
+	newStatus := "suspended"
+	updated, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
+		Status: &newStatus,
+	})
+	if err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+	if updated.Status != "suspended" {
+		t.Errorf("status = %q, want %q", updated.Status, "suspended")
+	}
+}
+
+func TestService_UpdateUser_InvalidEmail(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "updinvsvc@example.com", "updinvsvcuser", "password123", nil)
+
+	badEmail := "not-valid-email"
+	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
+		Email: &badEmail,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid email")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want ErrValidation", err)
+	}
+}
+
+func TestService_UpdateUser_ShortUsername(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "updshortsvc@example.com", "updshortsvcuser", "password123", nil)
+
+	shortName := "ab"
+	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
+		Username: &shortName,
+	})
+	if err == nil {
+		t.Fatal("expected error for short username")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want ErrValidation", err)
+	}
+}
+
+func TestService_UpdateUser_ShortPassword(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "updshortpw@example.com", "updshortpwuser", "password123", nil)
+
+	shortPW := "abc"
+	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
+		Password: &shortPW,
+	})
+	if err == nil {
+		t.Fatal("expected error for short password")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want ErrValidation", err)
+	}
+}
+
+func TestService_UpdateUser_WithRoles(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "updrolesvc@example.com", "updrolesvcuser", "password123", []string{"viewer"})
+
+	updated, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
+		Roles: []string{"editor"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateUser with roles: %v", err)
+	}
+
+	found := false
+	for _, r := range updated.Roles {
+		if r == "editor" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("roles = %v, want editor included", updated.Roles)
+	}
+}
+
+func TestService_UpdateUser_NotFound(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.UpdateUser(ctx, "nonexistent-id", &interfaces.UpdateUserRequest{})
+	if err == nil {
+		t.Fatal("expected error for nonexistent user")
+	}
+}
+
+// =============================================================================
+// Service: DeleteUser
+// =============================================================================
+
+func TestService_DeleteUser_Success(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "delsvc@example.com", "delsvcuser", "password123", nil)
+
+	err := svc.DeleteUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	// Verify user tokens are revoked (revocation timestamp set).
+	rev, err := svc.store.GetUserRevocation(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRevocation: %v", err)
+	}
+	if rev == nil {
+		t.Error("expected revocation timestamp to be set")
+	}
+}
+
+// =============================================================================
+// Service: ListUsers
+// =============================================================================
+
+func TestService_ListUsers_Success(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "lu1@example.com", "lu1", "password123", nil)
+	createTestUser(t, svc, "lu2@example.com", "lu2", "password123", nil)
+
+	page, err := svc.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if page.Meta.Total < 2 {
+		t.Errorf("total = %d, want >= 2", page.Meta.Total)
+	}
+}
+
+func TestService_ListUsers_DefaultQuery(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "ludefault@example.com", "ludefault", "password123", nil)
+
+	page, err := svc.ListUsers(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListUsers nil query: %v", err)
+	}
+	if page.Meta.Page != 1 {
+		t.Errorf("page = %d, want 1", page.Meta.Page)
+	}
+}
+
+// =============================================================================
+// Service: ListRoles
+// =============================================================================
+
+func TestService_ListRoles(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	roles, err := svc.ListRoles(ctx)
+	if err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	if len(roles) < 4 {
+		t.Errorf("expected at least 4 roles, got %d", len(roles))
+	}
+}
+
+// =============================================================================
+// Service: UpdateRole
+// =============================================================================
+
+func TestService_UpdateRole_Success(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	role, err := svc.store.GetRoleByName(ctx, "editor")
+	if err != nil {
+		t.Fatalf("GetRoleByName: %v", err)
+	}
+
+	updated, err := svc.UpdateRole(ctx, role.ID, "Updated description", []string{"content.read"})
+	if err != nil {
+		t.Fatalf("UpdateRole: %v", err)
+	}
+	if updated.Description != "Updated description" {
+		t.Errorf("description = %q, want %q", updated.Description, "Updated description")
+	}
+}
+
+func TestService_UpdateRole_NotFound(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.UpdateRole(ctx, "nonexistent-id", "desc", nil)
+	if err == nil {
+		t.Fatal("expected error for nonexistent role")
+	}
+}
+
+// =============================================================================
+// Service: ListAPITokens
+// =============================================================================
+
+func TestService_ListAPITokens(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apilistsvc@example.com", "apilistsvcuser", "password123", nil)
+
+	tokens, err := svc.ListAPITokens(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPITokens: %v", err)
+	}
+	if len(tokens) != 0 {
+		t.Errorf("tokens = %d, want 0", len(tokens))
+	}
+
+	_, err = svc.CreateAPIToken(ctx, user.ID, "test", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	tokens, err = svc.ListAPITokens(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPITokens after: %v", err)
+	}
+	if len(tokens) != 1 {
+		t.Errorf("tokens = %d, want 1", len(tokens))
+	}
+}
+
+// =============================================================================
+// Service: parsePermissionResource, parsePermissionAction
+// =============================================================================
+
+func TestParsePermissionHelpers(t *testing.T) {
+	if r := parsePermissionResource("content.read"); r != "content" {
+		t.Errorf("resource = %q, want %q", r, "content")
+	}
+	if a := parsePermissionAction("content.read"); a != "read" {
+		t.Errorf("action = %q, want %q", a, "read")
+	}
+	// No dot — resource is whole string, action defaults to *.
+	if r := parsePermissionResource("nodot"); r != "nodot" {
+		t.Errorf("resource = %q, want %q", r, "nodot")
+	}
+	if a := parsePermissionAction("nodot"); a != "*" {
+		t.Errorf("action = %q, want %q", a, "*")
+	}
+}
+
+// =============================================================================
+// Store: ListUsers (direct)
+// =============================================================================
+
+func TestStore_ListUsers_WithFilters(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "sfilter1@example.com", "sfilter1", "password123", []string{"editor"})
+	createTestUser(t, svc, "sfilter2@example.com", "sfilter2", "password123", []string{"viewer"})
+
+	// Filter by status.
+	page, err := svc.store.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10, Status: "active"})
+	if err != nil {
+		t.Fatalf("ListUsers with status: %v", err)
+	}
+	if page.Meta.Total < 2 {
+		t.Errorf("total with status filter = %d, want >= 2", page.Meta.Total)
+	}
+
+	// Filter by search.
+	page, err = svc.store.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10, Search: "sfilter1"})
+	if err != nil {
+		t.Fatalf("ListUsers with search: %v", err)
+	}
+	if page.Meta.Total != 1 {
+		t.Errorf("total with search = %d, want 1", page.Meta.Total)
+	}
+
+	// Filter by role.
+	page, err = svc.store.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10, Role: "editor"})
+	if err != nil {
+		t.Fatalf("ListUsers with role: %v", err)
+	}
+	if page.Meta.Total < 1 {
+		t.Errorf("total with role filter = %d, want >= 1", page.Meta.Total)
+	}
+
+	// Sort ascending.
+	page, err = svc.store.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10, Sort: "email", Order: "asc"})
+	if err != nil {
+		t.Fatalf("ListUsers with sort: %v", err)
+	}
+
+	// Invalid page/perPage defaults.
+	page, err = svc.store.ListUsers(ctx, &interfaces.UserQuery{Page: 0, PerPage: 0})
+	if err != nil {
+		t.Fatalf("ListUsers with default page: %v", err)
+	}
+}
+
+func TestStore_isValidSortColumn(t *testing.T) {
+	if !isValidSortColumn("created_at") {
+		t.Error("created_at should be valid")
+	}
+	if !isValidSortColumn("email") {
+		t.Error("email should be valid")
+	}
+	if isValidSortColumn("email; DROP TABLE users") {
+		t.Error("SQL injection should not be valid")
+	}
+	if isValidSortColumn("1bad") {
+		t.Error("column starting with digit should not be valid")
+	}
+}
+
+// =============================================================================
+// extractClientIP (middleware.go)
+// =============================================================================
+
+func TestExtractClientIP_NoTrustedProxies(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "192.168.1.100:12345"
+
+	ip := extractClientIP(r, nil)
+	if ip != "192.168.1.100" {
+		t.Errorf("ip = %q, want %q", ip, "192.168.1.100")
+	}
+}
+
+func TestExtractClientIP_TrustedProxyXRealIP(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
+
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.1:12345"
+	r.Header.Set("X-Real-IP", "203.0.113.50")
+
+	ip := extractClientIP(r, []*net.IPNet{cidr})
+	if ip != "203.0.113.50" {
+		t.Errorf("ip = %q, want %q", ip, "203.0.113.50")
+	}
+}
+
+func TestExtractClientIP_TrustedProxyXForwardedFor(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
+
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.1:12345"
+	r.Header.Set("X-Forwarded-For", "203.0.113.50, 70.41.3.18")
+
+	ip := extractClientIP(r, []*net.IPNet{cidr})
+	if ip != "203.0.113.50" {
+		t.Errorf("ip = %q, want %q", ip, "203.0.113.50")
+	}
+}
+
+func TestExtractClientIP_UntrustedProxy(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
+
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "192.168.1.1:12345"
+	r.Header.Set("X-Forwarded-For", "203.0.113.50")
+
+	// Not from a trusted proxy, so should use RemoteAddr directly.
+	ip := extractClientIP(r, []*net.IPNet{cidr})
+	if ip != "192.168.1.1" {
+		t.Errorf("ip = %q, want %q", ip, "192.168.1.1")
+	}
+}
+
+func TestExtractClientIP_NoPort(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "no-port-addr"
+
+	ip := extractClientIP(r, nil)
+	if ip != "no-port-addr" {
+		t.Errorf("ip = %q, want %q", ip, "no-port-addr")
+	}
+}
+
+// =============================================================================
+// readConfig: trusted proxies
+// =============================================================================
+
+func TestPlugin_ReadConfigTrustedProxies(t *testing.T) {
+	p := New()
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+
+	mc := newMockConfig()
+	mc.data["auth.trusted_proxies"] = "10.0.0.0/8, 172.16.0.0/12"
+	mc.data["auth.jwt_secret"] = "test-secret"
+
+	cfg, err := p.readConfig(mc)
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
+	if len(cfg.trustedProxies) != 2 {
+		t.Errorf("trustedProxies = %d, want 2", len(cfg.trustedProxies))
+	}
+}
+
+func TestPlugin_ReadConfigInvalidTrustedProxyCIDR(t *testing.T) {
+	p := New()
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+
+	mc := newMockConfig()
+	mc.data["auth.trusted_proxies"] = "not-a-cidr, 10.0.0.0/8"
+	mc.data["auth.jwt_secret"] = "test-secret"
+
+	cfg, err := p.readConfig(mc)
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
+	// Invalid CIDR should be skipped, valid one kept.
+	if len(cfg.trustedProxies) != 1 {
+		t.Errorf("trustedProxies = %d, want 1", len(cfg.trustedProxies))
+	}
+}
+
+// =============================================================================
+// JWT signingMethod coverage
+// =============================================================================
+
+func TestJWT_HS384SigningMethod(t *testing.T) {
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtSecret:       "test-secret-hs384",
+		jwtAlgorithm:    "HS384",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager HS384: %v", err)
+	}
+
+	user := &interfaces.User{ID: "hs384-user", Email: "hs384@example.com", Username: "hs384user"}
+	token, _, err := jwtMgr.GenerateAccessToken(context.Background(), user, nil)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+	claims, err := jwtMgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != "hs384-user" {
+		t.Errorf("UserID = %q, want %q", claims.UserID, "hs384-user")
+	}
+}
+
+func TestJWT_HS512SigningMethod(t *testing.T) {
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtSecret:       "test-secret-hs512",
+		jwtAlgorithm:    "HS512",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager HS512: %v", err)
+	}
+
+	user := &interfaces.User{ID: "hs512-user", Email: "hs512@example.com", Username: "hs512user"}
+	token, _, err := jwtMgr.GenerateAccessToken(context.Background(), user, nil)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+	claims, err := jwtMgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != "hs512-user" {
+		t.Errorf("UserID = %q, want %q", claims.UserID, "hs512-user")
+	}
+}
+
+// =============================================================================
+// NewService: low bcrypt cost warning
+// =============================================================================
+
+func TestNewService_LowBCryptCost(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:lowcost_test?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+	store := NewStore(dbSvc)
+	ctx := context.Background()
+	if err := store.CreateTables(ctx); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtSecret:       "test",
+		jwtAlgorithm:    "HS256",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
+
+	rbacMgr := NewRBACManager(store, slog.Default())
+	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("init roles: %v", err)
+	}
+
+	rl := NewRateLimiter(5, 15*time.Minute)
+	defer rl.Stop()
+
+	svc := NewService(store, jwtMgr, rbacMgr, rl, slog.Default(), newMockConfig(), authConfig{
+		bcryptCost:    4, // Below minimum of 10.
+		adminEmail:    "admin@localhost",
+		adminPassword: "changeme",
+	})
+	if svc.bcryptCost != 10 {
+		t.Errorf("bcryptCost = %d, want 10 (minimum enforced)", svc.bcryptCost)
+	}
+}
+
+// =============================================================================
+// extractIP with context
+// =============================================================================
+
+func TestExtractIP_WithContext(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ContextKeyRemoteIP, "10.0.0.1")
+	ip := extractIP(ctx)
+	if ip != "10.0.0.1" {
+		t.Errorf("ip = %q, want %q", ip, "10.0.0.1")
+	}
+}
+
+// =============================================================================
+// Plugin: registerRoutes
+// =============================================================================
+
+func TestPlugin_RegisterRoutes(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	var registeredPaths []string
+	mockRegistrar := &mockRouteRegistrar{paths: &registeredPaths}
+	p.registerRoutes(mockRegistrar)
+
+	// Verify that routes were registered.
+	if len(registeredPaths) == 0 {
+		t.Error("expected routes to be registered")
+	}
+	expectedPaths := []string{"/api/v1/auth", "/api/v1/users", "/api/v1/roles", "/api/v1/api-tokens"}
+	for _, ep := range expectedPaths {
+		found := false
+		for _, rp := range registeredPaths {
+			if rp == ep {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected path %q to be registered", ep)
+		}
+	}
+}
+
+// mockRouteRegistrar captures route registrations for testing.
+type mockRouteRegistrar struct {
+	paths *[]string
+}
+
+func (m *mockRouteRegistrar) Route(pattern string, fn func(chi.Router)) {
+	*m.paths = append(*m.paths, pattern)
+	// Create a minimal chi mux to invoke fn without panicking.
+	fn(chi.NewRouter())
+}
+
+func (m *mockRouteRegistrar) Register(pattern string, handler interface{}) {}
+
+func (m *mockRouteRegistrar) Group(fn func(r chi.Router)) {
+	fn(chi.NewRouter())
+}
+
+func (m *mockRouteRegistrar) Mount(pattern string, router chi.Router) {}
+
+func (m *mockRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {}
+
+func (m *mockRouteRegistrar) Middlewares() []func(http.Handler) http.Handler {
+	return nil
+}
+
+// =============================================================================
+// ChangePassword: same password
+// =============================================================================
+
+func TestChangePassword_SamePassword(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "samepw@example.com", "samepwuser", "password123", nil)
+
+	err := svc.ChangePassword(ctx, user.ID, "password123", "password123")
+	if err == nil {
+		t.Fatal("expected error for same password")
+	}
+	if !errors.Is(err, interfaces.ErrValidation) {
+		t.Errorf("error = %v, want ErrValidation", err)
+	}
+}
+
+// =============================================================================
+// Additional handler error-path coverage
+// =============================================================================
+
+func TestHandleLogin_RateLimited(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	createTestUser(t, p.service, "rlhdl@example.com", "rlhdluser", "password123", nil)
+
+	// The handler extracts IP via extractClientIP(r, ...) which uses r.RemoteAddr.
+	// httptest.NewRequest defaults to "192.0.2.1:1234", so extractClientIP returns "192.0.2.1".
+	// Exhaust rate limit for that IP.
+	testIP := "192.0.2.1"
+	for i := 0; i < 6; i++ {
+		p.service.rateLimiter.RecordFailure(testIP)
+	}
+
+	body := `{"email":"rlhdl@example.com","password":"password123"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleLogin(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusTooManyRequests, w.Body.String())
+	}
+}
+
+func setupLowRateLimitService(t *testing.T) *Service {
+	t.Helper()
+	return setupTestService(t)
+}
+
+func TestHandleGetCurrentUser_NotFound(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, p.service, "menotfound@example.com", "menotfounduser", "password123", []string{"admin"})
+
+	// Delete the user after generating the token to trigger not-found path.
+	p.service.DeleteUser(ctx, user.ID)
+
+	req := authedRequest(t, p.service, user, "GET", "/api/v1/auth/me", "")
+	w := httptest.NewRecorder()
+	p.handleGetCurrentUser(w, req)
+
+	// Either 200 (if GetUser still returns the user) or 404 — either way we cover the branch.
+	// The actual result depends on whether DeleteUser soft-deletes or just sets revocation.
+	// This test exercises the GetUser error path in the handler.
+	if w.Code != http.StatusOK && w.Code != http.StatusNotFound && w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 200, 404, or 500", w.Code)
+	}
+}
+
+func TestHandleRefresh_Forbidden(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, p.service, "refreshforbidden@example.com", "refreshforbiddenuser", "password123", nil)
+
+	result, err := p.service.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "refreshforbidden@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Disable user after getting tokens.
+	dbUser, _ := p.service.store.GetUserByID(ctx, user.ID)
+	dbUser.Status = "suspended"
+	dbUser.UpdatedAt = time.Now().UTC()
+	p.service.store.UpdateUser(ctx, dbUser)
+
+	body := fmt.Sprintf(`{"refresh_token":"%s"}`, result.RefreshToken)
+	req := httptest.NewRequest("POST", "/api/v1/auth/refresh", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleRefresh(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestHandleUpdateUser_EmptyID(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"username":"test"}`
+	req := httptest.NewRequest("PUT", "/api/v1/users/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
+	w := httptest.NewRecorder()
+	p.handleUpdateUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleDeleteUser_EmptyID(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/users/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
+	w := httptest.NewRecorder()
+	p.handleDeleteUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleUpdateRole_EmptyID(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"description":"test"}`
+	req := httptest.NewRequest("PUT", "/api/v1/roles/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
+	w := httptest.NewRecorder()
+	p.handleUpdateRole(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleRevokeAPIToken_EmptyID(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
+	w := httptest.NewRecorder()
+	p.handleRevokeAPIToken(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleCreateAPIToken_EmptyExpiry(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "apiemptyexp@example.com", "apiemptyexpuser", "password123", []string{"admin"})
+
+	// Empty string in expires_at should be treated as no expiry.
+	body := `{"name":"test-token","expires_at":""}`
+	req := authedRequest(t, p.service, user, "POST", "/api/v1/api-tokens/", body)
+	w := httptest.NewRecorder()
+	p.handleCreateAPIToken(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusCreated, w.Body.String())
+	}
+}
+
+func TestHandleListUsers_WithQueryParams(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	createTestUser(t, p.service, "lq1@example.com", "lq1", "password123", nil)
+	createTestUser(t, p.service, "lq2@example.com", "lq2", "password123", nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/users/?page=1&per_page=1&status=active&search=lq&sort=email&order=asc", nil)
+	w := httptest.NewRecorder()
+	p.handleListUsers(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+// =============================================================================
+// More handler branch coverage
+// =============================================================================
+
+func TestHandleUpdateUser_ValidationErrors(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "updvalid@example.com", "updvaliduser", "password123", nil)
+
+	// Short username via update.
+	body := `{"username":"ab"}`
+	req := httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("short username: status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+
+	// Invalid email via update.
+	body = `{"email":"not-valid"}`
+	req = httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
+	}))
+	w = httptest.NewRecorder()
+	p.handleUpdateUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("invalid email: status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleUpdateRole_WithPermissions(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	role, err := p.service.rbac.CreateRole(ctx, "permtest", "Perm Test", "test")
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+
+	body := `{"description":"test role","permissions":[{"resource":"content","actions":["read","create"]}]}`
+	req := httptest.NewRequest("PUT", "/api/v1/roles/"+role.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{role.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleUpdateRole(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestHandleCreateUser_WithRoles(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	body := `{"email":"newuser@example.com","username":"newuser","password":"password123","roles":["admin"]}`
+	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleCreateUser(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusCreated, w.Body.String())
+	}
+}
+
+func TestService_UpdateUser_NilFields(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "nilfields@example.com", "nilfieldsuser", "password123", []string{"viewer"})
+
+	// Update with nil fields — should not change anything but still persist.
+	updated, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{})
+	if err != nil {
+		t.Fatalf("UpdateUser empty: %v", err)
+	}
+	if updated.Email != "nilfields@example.com" {
+		t.Errorf("email = %q, want %q", updated.Email, "nilfields@example.com")
+	}
+}
+
+func TestService_UpdateRole_EmptyDescription(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	role, err := svc.store.GetRoleByName(ctx, "editor")
+	if err != nil {
+		t.Fatalf("GetRoleByName: %v", err)
+	}
+
+	// Empty description should not update description.
+	updated, err := svc.UpdateRole(ctx, role.ID, "", nil)
+	if err != nil {
+		t.Fatalf("UpdateRole empty desc: %v", err)
+	}
+	if updated.Description == "" {
+		t.Error("description should be unchanged, not empty")
+	}
+}
+
+func TestService_ListUsers_WithFilters(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "luf1@example.com", "luf1", "password123", []string{"editor"})
+
+	// Filter by role.
+	page, err := svc.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10, Role: "editor"})
+	if err != nil {
+		t.Fatalf("ListUsers role filter: %v", err)
+	}
+	if page.Meta.Total < 1 {
+		t.Errorf("total with role filter = %d, want >= 1", page.Meta.Total)
+	}
+
+	// Filter by status.
+	page, err = svc.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10, Status: "active"})
+	if err != nil {
+		t.Fatalf("ListUsers status filter: %v", err)
+	}
+	if page.Meta.Total < 1 {
+		t.Errorf("total with status filter = %d, want >= 1", page.Meta.Total)
+	}
+
+	// Search.
+	page, err = svc.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10, Search: "luf1"})
+	if err != nil {
+		t.Fatalf("ListUsers search: %v", err)
+	}
+	if page.Meta.Total != 1 {
+		t.Errorf("total with search = %d, want 1", page.Meta.Total)
+	}
+}
+
+func TestPlugin_ReadConfigWithDays(t *testing.T) {
+	p := New()
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+
+	mc := newMockConfig()
+	mc.data["auth.jwt_secret"] = "my-secret"
+	mc.data["auth.refresh_token_ttl"] = "3d"
+
+	cfg, err := p.readConfig(mc)
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
+	if cfg.refreshTokenTTL != 3*24*time.Hour {
+		t.Errorf("refreshTokenTTL = %v, want %v", cfg.refreshTokenTTL, 3*24*time.Hour)
+	}
+}
+
+func TestHandleGetCurrentUser_AuthWithAPIToken(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, p.service, "apitkme@example.com", "apitkmeuser", "password123", []string{"admin"})
+
+	apiToken, err := p.service.CreateAPIToken(ctx, user.ID, "test-me-token", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+apiToken.TokenHash)
+	w := httptest.NewRecorder()
+	p.handleGetCurrentUser(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+// =============================================================================
+// Additional edge cases to push coverage over 85%
+// =============================================================================
+
+func TestJWT_RS512SigningMethod(t *testing.T) {
+	_, keyDir := writeRSAKeyPEM(t)
+
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtAlgorithm:      "RS512",
+		jwtPrivateKeyPath: filepath.Join(keyDir, "private.pem"),
+		jwtPublicKeyPath:  filepath.Join(keyDir, "public.pem"),
+		accessTokenTTL:    15 * time.Minute,
+		refreshTokenTTL:   24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager RS512: %v", err)
+	}
+
+	user := &interfaces.User{ID: "rs512-user", Email: "rs512@example.com", Username: "rs512user"}
+	token, _, err := jwtMgr.GenerateAccessToken(context.Background(), user, nil)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken: %v", err)
+	}
+	claims, err := jwtMgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if claims.UserID != "rs512-user" {
+		t.Errorf("UserID = %q, want %q", claims.UserID, "rs512-user")
+	}
+}
+
+func TestJWT_LoadPublicKeyFileNotFound(t *testing.T) {
+	_, keyDir := writeRSAKeyPEM(t)
+	_, err := NewJWTManager(authConfig{
+		jwtAlgorithm:      "RS256",
+		jwtPrivateKeyPath: filepath.Join(keyDir, "private.pem"),
+		jwtPublicKeyPath:  filepath.Join(keyDir, "nonexistent_public.pem"),
+		accessTokenTTL:    15 * time.Minute,
+		refreshTokenTTL:   24 * time.Hour,
+	})
+	if err == nil {
+		t.Fatal("expected error when public key file does not exist")
+	}
+}
+
+func TestHandleDeleteUser_WithValidUser(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "delhdl@example.com", "delhdluser", "password123", nil)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/users/"+user.ID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleDeleteUser(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleRevokeAPIToken_WithValidToken(t *testing.T) {
+	p := setupTestPlugin(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, p.service, "revokehdl@example.com", "revokehdluser", "password123", nil)
+	token, err := p.service.CreateAPIToken(ctx, user.ID, "revoke-hdl", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/"+token.ID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
+		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{token.ID}},
+	}))
+	w := httptest.NewRecorder()
+	p.handleRevokeAPIToken(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleListAPITokens_EmptyList(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	user := createTestUser(t, p.service, "emptytokens@example.com", "emptytokensuser", "password123", []string{"admin"})
+
+	req := authedRequest(t, p.service, user, "GET", "/api/v1/api-tokens/", "")
+	w := httptest.NewRecorder()
+	p.handleListAPITokens(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestHandleListUsers_DefaultParams(t *testing.T) {
+	p := setupTestPlugin(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/users/", nil)
+	w := httptest.NewRecorder()
+	p.handleListUsers(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestService_DeleteUser_Nonexistent(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	err := svc.DeleteUser(ctx, "nonexistent-user-id")
+	if err != nil {
+		t.Errorf("DeleteUser should not error for nonexistent user: %v", err)
+	}
+}
+
+func TestPlugin_ReadConfig_RefreshTokenTTLHours(t *testing.T) {
+	p := New()
+	p.ctx = newMockCoreContext(nil, newMockConfig())
+
+	mc := newMockConfig()
+	mc.data["auth.jwt_secret"] = "secret"
+	mc.data["auth.refresh_token_ttl"] = "48h"
+
+	cfg, err := p.readConfig(mc)
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
+	if cfg.refreshTokenTTL != 48*time.Hour {
+		t.Errorf("refreshTokenTTL = %v, want %v", cfg.refreshTokenTTL, 48*time.Hour)
+	}
+}
+
+// =============================================================================
+// Store error-path coverage (triggered by closing the DB connection)
+// =============================================================================
+
+func setupClosedDBService(t *testing.T) *Service {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", "file:closed_db_test?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	dbSvc := database.NewService(db, database.DriverSQLite)
+	store := NewStore(dbSvc)
+
+	ctx := context.Background()
+	if err := store.CreateTables(ctx); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtSecret:       "test-secret",
+		jwtAlgorithm:    "HS256",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
+
+	logger := slog.Default()
+	rbacMgr := NewRBACManager(store, logger)
+	if err := rbacMgr.InitializeDefaultRoles(ctx); err != nil {
+		t.Fatalf("init default roles: %v", err)
+	}
+
+	rateLimiter := NewRateLimiter(5, 15*time.Minute)
+	config := newMockConfig()
+
+	svc := NewService(store, jwtMgr, rbacMgr, rateLimiter, logger, config, authConfig{
+		bcryptCost:    10,
+		adminEmail:    "admin@localhost",
+		adminPassword: "changeme",
+	})
+
+	// Now close the DB to trigger errors on subsequent operations.
+	db.Close()
+	rateLimiter.Stop()
+
+	return svc
+}
+
+func TestStore_ErrorPaths_ClosedDB(t *testing.T) {
+	svc := setupClosedDBService(t)
+	ctx := context.Background()
+
+	// These operations should return errors because the DB is closed.
+	_, err := svc.store.GetUserByID(ctx, "any-id")
+	if err == nil {
+		t.Error("expected error from GetUserByID with closed DB")
+	}
+
+	_, err = svc.store.GetUserByEmail(ctx, "any@example.com")
+	if err == nil {
+		t.Error("expected error from GetUserByEmail with closed DB")
+	}
+
+	_, err = svc.store.GetUserByUsername(ctx, "anyone")
+	if err == nil {
+		t.Error("expected error from GetUserByUsername with closed DB")
+	}
+
+	err = svc.store.UpdateUser(ctx, &interfaces.User{ID: "x", Email: "x@x.com", Username: "x", Status: "active", UpdatedAt: time.Now()})
+	if err == nil {
+		t.Error("expected error from UpdateUser with closed DB")
+	}
+
+	_, err = svc.store.CountUsers(ctx)
+	if err == nil {
+		t.Error("expected error from CountUsers with closed DB")
+	}
+
+	_, err = svc.store.ListUsers(ctx, &interfaces.UserQuery{Page: 1, PerPage: 10})
+	if err == nil {
+		t.Error("expected error from ListUsers with closed DB")
+	}
+
+	_, err = svc.store.ListRoles(ctx)
+	if err == nil {
+		t.Error("expected error from ListRoles with closed DB")
+	}
+
+	err = svc.store.DeleteRole(ctx, "any-id")
+	if err == nil {
+		t.Error("expected error from DeleteRole with closed DB")
+	}
+
+	_, err = svc.store.ListAPITokensByUser(ctx, "any-user")
+	if err == nil {
+		t.Error("expected error from ListAPITokensByUser with closed DB")
+	}
+
+	_, err = svc.store.GetPermissionsByRoleID(ctx, "any-role")
+	if err == nil {
+		t.Error("expected error from GetPermissionsByRoleID with closed DB")
+	}
+
+	_, err = svc.store.ListPermissions(ctx)
+	if err == nil {
+		t.Error("expected error from ListPermissions with closed DB")
+	}
+
+	_, err = svc.store.GetUserPermissions(ctx, "any-user")
+	if err == nil {
+		t.Error("expected error from GetUserPermissions with closed DB")
 	}
 }

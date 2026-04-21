@@ -146,6 +146,10 @@ func setupRouter(h *Handler) *chi.Mux {
 	r.Put("/api/v1/{contentType}/{id}", h.Update)
 	r.Delete("/api/v1/{contentType}/{id}", h.Delete)
 	r.Get("/api/v1/content-types", h.ListContentTypes)
+	r.Get("/api/v1/content-types/{name}", h.GetContentType)
+	r.Post("/api/v1/content-types", h.CreateContentType)
+	r.Put("/api/v1/content-types/{name}", h.UpdateContentType)
+	r.Delete("/api/v1/content-types/{name}", h.DeleteContentType)
 	return r
 }
 
@@ -1388,4 +1392,213 @@ func TestGet_WithoutExpand_NoMeta(t *testing.T) {
 	resp := decodeAPIResponse(t, rr.Body.Bytes())
 	metaBytes, _ := json.Marshal(resp.Meta)
 	assert.Equal(t, `{}`, string(metaBytes), "without expand, meta should be empty")
+}
+
+// ===========================================================================
+// GetContentType handler tests
+// ===========================================================================
+
+func TestGetContentType_Success(t *testing.T) {
+	ct := sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{
+		{Name: "title", Type: "text"},
+	})
+	mock := &mockContentService{
+		getContentTypeFunc: func(_ context.Context, name string) (*interfaces.ContentType, error) {
+			assert.Equal(t, "post", name)
+			return &ct, nil
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodGet, "/api/v1/content-types/post", "")
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	resp := decodeAPIResponse(t, rr.Body.Bytes())
+	dataBytes, _ := json.Marshal(resp.Data)
+	var got interfaces.ContentType
+	require.NoError(t, json.Unmarshal(dataBytes, &got))
+	assert.Equal(t, "post", got.Name)
+}
+
+func TestGetContentType_EmptyName(t *testing.T) {
+	h := NewHandler(&mockContentService{})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/content-types/", nil)
+	h.GetContentType(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	apiErr := firstAPIError(t, rr.Body.Bytes())
+	assert.Equal(t, "BAD_REQUEST", apiErr.Code)
+}
+
+func TestGetContentType_NotFound(t *testing.T) {
+	mock := &mockContentService{
+		getContentTypeFunc: func(_ context.Context, _ string) (*interfaces.ContentType, error) {
+			return nil, interfaces.ErrNotFound
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodGet, "/api/v1/content-types/missing", "")
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+// ===========================================================================
+// CreateContentType handler tests
+// ===========================================================================
+
+func TestCreateContentType_Success(t *testing.T) {
+	ct := sampleContentType("page", "pages", "Pages", "Static pages", []interfaces.Field{})
+	mock := &mockContentService{
+		createCTFunc: func(_ context.Context, input *interfaces.ContentType) (*interfaces.ContentType, error) {
+			return &ct, nil
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	body := `{"name":"page","slug":"pages","display_name":"Pages"}`
+	rr := doRequest(t, router, http.MethodPost, "/api/v1/content-types", body)
+	assert.Equal(t, http.StatusCreated, rr.Code)
+	assert.Equal(t, "/api/v1/content-types/page", rr.Header().Get("Location"))
+}
+
+func TestCreateContentType_InvalidJSON(t *testing.T) {
+	h := NewHandler(&mockContentService{})
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodPost, "/api/v1/content-types", "{bad json}")
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	apiErr := firstAPIError(t, rr.Body.Bytes())
+	assert.Equal(t, "INVALID_JSON", apiErr.Code)
+}
+
+func TestCreateContentType_ServiceError(t *testing.T) {
+	mock := &mockContentService{
+		createCTFunc: func(_ context.Context, _ *interfaces.ContentType) (*interfaces.ContentType, error) {
+			return nil, interfaces.ErrConflict
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodPost, "/api/v1/content-types", `{"name":"dup"}`)
+	assert.Equal(t, http.StatusConflict, rr.Code)
+}
+
+// ===========================================================================
+// UpdateContentType handler tests
+// ===========================================================================
+
+func TestUpdateContentType_Success(t *testing.T) {
+	ct := sampleContentType("post", "posts", "Posts", "Updated", []interfaces.Field{})
+	mock := &mockContentService{
+		updateCTFunc: func(_ context.Context, name string, _ *interfaces.ContentType) (*interfaces.ContentType, error) {
+			assert.Equal(t, "post", name)
+			return &ct, nil
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	body := `{"name":"post","display_name":"Updated"}`
+	rr := doRequest(t, router, http.MethodPut, "/api/v1/content-types/post", body)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestUpdateContentType_EmptyName(t *testing.T) {
+	h := NewHandler(&mockContentService{})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/content-types/", strings.NewReader(`{}`))
+	h.UpdateContentType(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	apiErr := firstAPIError(t, rr.Body.Bytes())
+	assert.Equal(t, "BAD_REQUEST", apiErr.Code)
+}
+
+func TestUpdateContentType_InvalidJSON(t *testing.T) {
+	h := NewHandler(&mockContentService{})
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodPut, "/api/v1/content-types/post", "not json")
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	apiErr := firstAPIError(t, rr.Body.Bytes())
+	assert.Equal(t, "INVALID_JSON", apiErr.Code)
+}
+
+func TestUpdateContentType_NotFound(t *testing.T) {
+	mock := &mockContentService{
+		updateCTFunc: func(_ context.Context, _ string, _ *interfaces.ContentType) (*interfaces.ContentType, error) {
+			return nil, interfaces.ErrNotFound
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodPut, "/api/v1/content-types/ghost", `{"name":"ghost"}`)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+// ===========================================================================
+// DeleteContentType handler tests
+// ===========================================================================
+
+func TestDeleteContentType_Success(t *testing.T) {
+	mock := &mockContentService{
+		deleteCTFunc: func(_ context.Context, name string) error {
+			assert.Equal(t, "post", name)
+			return nil
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodDelete, "/api/v1/content-types/post", "")
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+}
+
+func TestDeleteContentType_EmptyName(t *testing.T) {
+	h := NewHandler(&mockContentService{})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/content-types/", nil)
+	h.DeleteContentType(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	apiErr := firstAPIError(t, rr.Body.Bytes())
+	assert.Equal(t, "BAD_REQUEST", apiErr.Code)
+}
+
+func TestDeleteContentType_NotFound(t *testing.T) {
+	mock := &mockContentService{
+		deleteCTFunc: func(_ context.Context, _ string) error {
+			return interfaces.ErrNotFound
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodDelete, "/api/v1/content-types/ghost", "")
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+// ===========================================================================
+// ListContentTypes error path test
+// ===========================================================================
+
+func TestListContentTypes_ServiceError(t *testing.T) {
+	mock := &mockContentService{
+		listContentTypesFunc: func(_ context.Context) ([]*interfaces.ContentType, error) {
+			return nil, fmt.Errorf("database down")
+		},
+	}
+	h := NewHandler(mock)
+	router := setupRouter(h)
+
+	rr := doRequest(t, router, http.MethodGet, "/api/v1/content-types", "")
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	apiErr := firstAPIError(t, rr.Body.Bytes())
+	assert.Equal(t, "INTERNAL_ERROR", apiErr.Code)
 }

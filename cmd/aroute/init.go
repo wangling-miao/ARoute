@@ -203,6 +203,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(filepath.Join(dataDirPath, "plugins"), 0755); err != nil {
 		return fmt.Errorf("create plugins directory: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Join(dataDirPath, "plugin_data"), 0755); err != nil {
+		return fmt.Errorf("create plugin_data directory: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Join(dataDirPath, "uploads"), 0755); err != nil {
 		return fmt.Errorf("create uploads directory: %w", err)
 	}

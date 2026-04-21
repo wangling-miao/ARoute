@@ -322,7 +322,12 @@ export default function ContentEdit() {
 
       if (id) {
         const item: ContentItem = await content.get(contentType, id);
-        const data: Record<string, unknown> = { ...defaults, ...item.data };
+        const fieldNames = new Set(ctDef?.fields?.map(f => f.name) ?? []);
+        const itemFields: Record<string, unknown> = {};
+        for (const [key, val] of Object.entries(item)) {
+          if (fieldNames.has(key)) itemFields[key] = val;
+        }
+        const data: Record<string, unknown> = { ...defaults, ...itemFields };
         setFormData(data);
         setStatus(item.status);
       } else {

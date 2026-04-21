@@ -27,12 +27,17 @@ export interface Permission {
 export interface ContentItem {
   id: string;
   content_type: string;
-  data: Record<string, unknown>;
   status: 'draft' | 'published';
   author_id: string;
   created_at: string;
   updated_at: string;
   published_at?: string;
+  title?: string;
+  slug?: string;
+  body?: string;
+  seo_title?: string;
+  seo_description?: string;
+  [key: string]: unknown;
 }
 
 export interface ContentType {

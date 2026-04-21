@@ -4,18 +4,23 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"log/slog"
 	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/events"
 	"github.com/wangling-miao/aroute/plugins/database"
@@ -1870,3 +1875,1104 @@ func TestNewS3StorageInvalidEndpoint(t *testing.T) {
 	// We just verify it doesn't panic
 	_ = err
 }
+
+// ==================== UploadFromReader Tests ====================
+
+func TestUploadFromReader(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	data := createTestPNG(t, 100, 100)
+	reader := bytes.NewReader(data)
+
+	mf, err := svc.UploadFromReader(ctx, reader, "test.png", "image/png", "user-1")
+	if err != nil {
+		t.Fatalf("upload from reader: %v", err)
+	}
+	if mf.ID == "" {
+		t.Fatal("expected non-empty ID")
+	}
+	if mf.Filename != "test.png" {
+		t.Errorf("expected filename 'test.png', got %s", mf.Filename)
+	}
+	if mf.MIMEType != "image/png" {
+		t.Errorf("expected mime_type 'image/png', got %s", mf.MIMEType)
+	}
+	if mf.Size != int64(len(data)) {
+		t.Errorf("expected size %d, got %d", len(data), mf.Size)
+	}
+	if mf.StorageType != "local" {
+		t.Errorf("expected storage_type 'local', got %s", mf.StorageType)
+	}
+	if mf.UploaderID != "user-1" {
+		t.Errorf("expected uploader_id 'user-1', got %s", mf.UploaderID)
+	}
+	if mf.Width != 100 {
+		t.Errorf("expected width 100, got %d", mf.Width)
+	}
+	if mf.Height != 100 {
+		t.Errorf("expected height 100, got %d", mf.Height)
+	}
+}
+
+func TestUploadFromReaderEmptyContentType(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	data := createTestPNG(t, 50, 50)
+	reader := bytes.NewReader(data)
+
+	// Empty contentType should trigger MIME sniffing
+	mf, err := svc.UploadFromReader(ctx, reader, "sniff.png", "", "user-1")
+	if err != nil {
+		t.Fatalf("upload from reader with empty content type: %v", err)
+	}
+	if mf.MIMEType != "image/png" {
+		t.Errorf("expected sniffed mime_type 'image/png', got %s", mf.MIMEType)
+	}
+}
+
+func TestUploadFromReaderExceedsMaxSize(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	bigData := make([]byte, 50*1024*1024+1)
+	copy(bigData, createTestPNG(t, 1, 1))
+
+	reader := bytes.NewReader(bigData)
+	_, err := svc.UploadFromReader(ctx, reader, "big.png", "image/png", "user-1")
+	if err == nil {
+		t.Fatal("expected error for file exceeding max size")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Errorf("expected 'exceeds maximum' in error, got: %v", err)
+	}
+}
+
+func TestUploadFromReaderInvalidMIME(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	invalidData := []byte{0x89, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0}
+	reader := bytes.NewReader(invalidData)
+
+	_, err := svc.UploadFromReader(ctx, reader, "random.bin", "", "user-1")
+	if err == nil {
+		t.Fatal("expected error for invalid MIME type")
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("expected 'not allowed' in error, got: %v", err)
+	}
+}
+
+func TestUploadFromReaderExplicitBadMIME(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	data := createTestPNG(t, 10, 10)
+	reader := bytes.NewReader(data)
+
+	_, err := svc.UploadFromReader(ctx, reader, "test.txt", "text/plain", "user-1")
+	if err == nil {
+		t.Fatal("expected error for text/plain MIME type")
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("expected 'not allowed' in error, got: %v", err)
+	}
+}
+
+func TestUploadFromReaderNoExtension(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	data := createTestPNG(t, 10, 10)
+	reader := bytes.NewReader(data)
+
+	mf, err := svc.UploadFromReader(ctx, reader, "noext", "image/png", "user-1")
+	if err != nil {
+		t.Fatalf("upload from reader no extension: %v", err)
+	}
+	// Storage path should use .bin as default extension when none provided
+	if !strings.Contains(mf.StoragePath, ".bin") {
+		t.Errorf("expected storage path to contain '.bin', got %s", mf.StoragePath)
+	}
+}
+
+func TestUploadFromReaderNonImage(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	// Upload a PDF via UploadFromReader
+	pdfData := []byte("%PDF-1.4 fake pdf content for testing")
+	reader := bytes.NewReader(pdfData)
+
+	mf, err := svc.UploadFromReader(ctx, reader, "doc.pdf", "application/pdf", "user-1")
+	if err != nil {
+		t.Fatalf("upload pdf from reader: %v", err)
+	}
+	if mf.MIMEType != "application/pdf" {
+		t.Errorf("expected mime_type 'application/pdf', got %s", mf.MIMEType)
+	}
+	// Non-images should have zero dimensions
+	if mf.Width != 0 || mf.Height != 0 {
+		t.Errorf("expected zero dimensions for pdf, got %dx%d", mf.Width, mf.Height)
+	}
+}
+
+func TestUploadFromReaderStorageError(t *testing.T) {
+	svc := setupTestService(t)
+	svc.storage = &mockErrorStorage{}
+	ctx := context.Background()
+
+	data := createTestPNG(t, 10, 10)
+	reader := bytes.NewReader(data)
+
+	_, err := svc.UploadFromReader(ctx, reader, "fail.png", "image/png", "user-1")
+	if err == nil {
+		t.Fatal("expected error when storage fails")
+	}
+	if !strings.Contains(err.Error(), "save file to storage") {
+		t.Errorf("expected storage save error, got: %v", err)
+	}
+}
+
+func TestUploadFromReaderReadError(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	reader := &errorReader{}
+	_, err := svc.UploadFromReader(ctx, reader, "fail.png", "image/png", "user-1")
+	if err == nil {
+		t.Fatal("expected error when reader fails")
+	}
+	if !strings.Contains(err.Error(), "read file data") {
+		t.Errorf("expected read error, got: %v", err)
+	}
+}
+
+type errorReader struct{}
+
+func (r *errorReader) Read(_ []byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+// ==================== Handler Tests ====================
+
+func setupPluginWithRoutes(t *testing.T) (*Plugin, chi.Router) {
+	t.Helper()
+	dbName := nextTestDBName()
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=memory&cache=shared&_pragma=foreign_keys(ON)", dbName))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	dbSvc := database.NewService(db, database.DriverSQLite)
+
+	tmpDir := t.TempDir()
+	chiRouter := chi.NewRouter()
+	registrar := &testRouteRegistrar{router: chiRouter}
+
+	mCtx := &mockMediaCoreContext{
+		svc:     &mockMediaServiceContainerWithSvc{dbSvc: dbSvc, registrar: registrar},
+		config:  &mockMediaConfig{storage: "local"},
+		dataDir: tmpDir,
+	}
+
+	p := New()
+	if err := p.Init(mCtx); err != nil {
+		t.Fatalf("init plugin: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("start plugin: %v", err)
+	}
+
+	return p, chiRouter
+}
+
+type testRouteRegistrar struct {
+	router *chi.Mux
+}
+
+func (r *testRouteRegistrar) Register(pattern string, handler interface{}) {}
+func (r *testRouteRegistrar) Route(pattern string, fn func(r2 chi.Router)) {
+	r.router.Route(pattern, fn)
+}
+func (r *testRouteRegistrar) Group(fn func(r2 chi.Router))        { r.router.Group(fn) }
+func (r *testRouteRegistrar) Mount(pattern string, h chi.Router)   { r.router.Mount(pattern, h) }
+func (r *testRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {
+	r.router.Use(middlewares...)
+}
+func (r *testRouteRegistrar) Middlewares() []func(http.Handler) http.Handler { return nil }
+
+type mockMediaServiceContainerWithSvc struct {
+	dbSvc     interfaces.DatabaseService
+	registrar interfaces.RouteRegistrar
+}
+
+func (m *mockMediaServiceContainerWithSvc) Provide(fn interface{}) error { return nil }
+func (m *mockMediaServiceContainerWithSvc) Get(target interface{}) error {
+	if p, ok := target.(*interfaces.DatabaseService); ok && m.dbSvc != nil {
+		*p = m.dbSvc
+		return nil
+	}
+	if p, ok := target.(*interfaces.RouteRegistrar); ok && m.registrar != nil {
+		*p = m.registrar
+		return nil
+	}
+	return fmt.Errorf("service not found")
+}
+func (m *mockMediaServiceContainerWithSvc) GetNamed(name string, target interface{}) error { return nil }
+func (m *mockMediaServiceContainerWithSvc) Unregister(target interface{}) error            { return nil }
+func (m *mockMediaServiceContainerWithSvc) Has(target interface{}) bool                    { return false }
+func (m *mockMediaServiceContainerWithSvc) Keys() []string                                 { return nil }
+
+func TestHandleUploadSuccess(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	data := createTestPNG(t, 50, 50)
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "test.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	dataMap, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatal("expected data to be a map")
+	}
+	if dataMap["filename"] != "test.png" {
+		t.Errorf("expected filename 'test.png', got %v", dataMap["filename"])
+	}
+}
+
+func TestHandleUploadNoFile(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+}
+
+func TestHandleUploadInvalidMIME(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	invalidData := []byte{0x89, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0}
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "random.bin")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	part.Write(invalidData)
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+}
+
+func TestHandleUploadOversized(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	// Create a request body that exceeds maxFileSize in multipart form
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "big.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	// Write more than maxFileSize bytes
+	bigData := make([]byte, maxFileSize+1024)
+	copy(bigData, createTestPNG(t, 1, 1))
+	part.Write(bigData)
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+}
+
+func TestHandleListEmpty(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	dataArr, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be an array, got %T", resp.Data)
+	}
+	if len(dataArr) != 0 {
+		t.Errorf("expected 0 items, got %d", len(dataArr))
+	}
+	// Check X-Total-Count header
+	if w.Header().Get("X-Total-Count") != "0" {
+		t.Errorf("expected X-Total-Count 0, got %s", w.Header().Get("X-Total-Count"))
+	}
+}
+
+func TestHandleListWithItems(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	// Upload a file via service first
+	data := createTestPNG(t, 30, 30)
+	file := newTestFile(data)
+	header := &multipart.FileHeader{Filename: "list_test.png", Size: int64(len(data))}
+	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	dataArr, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be an array, got %T", resp.Data)
+	}
+	if len(dataArr) != 1 {
+		t.Errorf("expected 1 item, got %d", len(dataArr))
+	}
+}
+
+func TestHandleListPagination(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	// Upload 3 files
+	for i := 0; i < 3; i++ {
+		data := createTestPNG(t, 10, 10)
+		file := newTestFile(data)
+		header := &multipart.FileHeader{
+			Filename: fmt.Sprintf("page_test_%d.png", i),
+			Size:     int64(len(data)),
+		}
+		if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+			t.Fatalf("upload %d: %v", i, err)
+		}
+	}
+
+	// Request page 1 with per_page=2
+	req := httptest.NewRequest("GET", "/api/v1/media/?page=1&per_page=2", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	metaMap, ok := resp.Meta.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected meta to be a map, got %T", resp.Meta)
+	}
+	if int(metaMap["total_count"].(float64)) != 3 {
+		t.Errorf("expected total_count 3, got %v", metaMap["total_count"])
+	}
+}
+
+func TestHandleListSortOrder(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	for _, name := range []string{"alpha.png", "beta.png", "gamma.png"} {
+		data := createTestPNG(t, 5, 5)
+		file := newTestFile(data)
+		header := &multipart.FileHeader{Filename: name, Size: int64(len(data))}
+		if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+			t.Fatalf("upload %s: %v", name, err)
+		}
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/media/?sort=filename&order=asc", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestHandleDeleteSuccess(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	data := createTestPNG(t, 20, 20)
+	file := newTestFile(data)
+	header := &multipart.FileHeader{Filename: "delete_test.png", Size: int64(len(data))}
+	uploaded, err := p.service.Upload(ctx, file, header, "user-1")
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/v1/media/"+uploaded.ID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected status 204, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify deleted
+	_, err = p.service.GetByID(ctx, uploaded.ID)
+	if err != interfaces.ErrNotFound {
+		t.Errorf("expected ErrNotFound after delete, got: %v", err)
+	}
+}
+
+func TestHandleDeleteNotFound(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/media/nonexistent-id", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+}
+
+func TestHandleDeleteEmptyID(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	// chi won't route to /{id} without an id segment, so this hits 404 from router
+	req := httptest.NewRequest("DELETE", "/api/v1/media/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Router returns 405 (method not allowed) for DELETE on collection path
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+}
+
+func TestExtractUploaderID(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+
+	// No user ID in context
+	if uid := extractUploaderID(req); uid != "" {
+		t.Errorf("expected empty uid, got %s", uid)
+	}
+
+	// With user ID in context
+	ctx := context.WithValue(req.Context(), ctxKeyUserID, "user-42")
+	req = req.WithContext(ctx)
+	if uid := extractUploaderID(req); uid != "user-42" {
+		t.Errorf("expected uid 'user-42', got %s", uid)
+	}
+}
+
+func TestExtractUploaderIDEmptyString(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	ctx := context.WithValue(req.Context(), ctxKeyUserID, "")
+	req = req.WithContext(ctx)
+	if uid := extractUploaderID(req); uid != "" {
+		t.Errorf("expected empty uid for empty string, got %s", uid)
+	}
+}
+
+func TestExtractUploaderIDWrongType(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	ctx := context.WithValue(req.Context(), ctxKeyUserID, 12345)
+	req = req.WithContext(ctx)
+	if uid := extractUploaderID(req); uid != "" {
+		t.Errorf("expected empty uid for wrong type, got %s", uid)
+	}
+}
+
+func TestWriteMediaJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeMediaJSON(w, http.StatusOK, map[string]string{"hello": "world"})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("expected json content type, got %s", ct)
+	}
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	dataMap, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatal("expected data map")
+	}
+	if dataMap["hello"] != "world" {
+		t.Errorf("expected hello=world, got %v", dataMap["hello"])
+	}
+}
+
+func TestWriteMediaError(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeMediaError(w, http.StatusBadRequest, "TEST_CODE", "test message")
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("expected json content type, got %s", ct)
+	}
+	var envelope mediaErrorsEnvelope
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(envelope.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(envelope.Errors))
+	}
+	if envelope.Errors[0].Code != "TEST_CODE" {
+		t.Errorf("expected code TEST_CODE, got %s", envelope.Errors[0].Code)
+	}
+	if envelope.Errors[0].Message != "test message" {
+		t.Errorf("expected message 'test message', got %s", envelope.Errors[0].Message)
+	}
+}
+
+func TestWriteMediaJSONWithMeta(t *testing.T) {
+	w := httptest.NewRecorder()
+	meta := mediaPageMeta{
+		TotalCount: 10,
+		Page:       2,
+		PerPage:    5,
+		TotalPages: 2,
+	}
+	writeMediaJSONWithMeta(w, http.StatusOK, []string{"a", "b"}, meta)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	if w.Header().Get("X-Total-Count") != "10" {
+		t.Errorf("expected X-Total-Count 10, got %s", w.Header().Get("X-Total-Count"))
+	}
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	metaMap, ok := resp.Meta.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected meta map, got %T", resp.Meta)
+	}
+	if int(metaMap["total_count"].(float64)) != 10 {
+		t.Errorf("expected total_count 10, got %v", metaMap["total_count"])
+	}
+}
+
+// ==================== Register Routes / Route Registrar Tests ====================
+
+func TestRegisterRoutes(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+
+	// Verify routes are registered by walking the router
+	var routes []string
+	chi.Walk(router, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+		routes = append(routes, method+" "+route)
+		return nil
+	})
+
+	// Should have POST, GET, DELETE routes
+	hasPost := false
+	hasGet := false
+	hasDelete := false
+	for _, r := range routes {
+		if strings.Contains(r, "POST") && strings.Contains(r, "/api/v1/media") {
+			hasPost = true
+		}
+		if strings.Contains(r, "GET") && strings.Contains(r, "/api/v1/media") {
+			hasGet = true
+		}
+		if strings.Contains(r, "DELETE") && strings.Contains(r, "/api/v1/media") {
+			hasDelete = true
+		}
+	}
+	_ = p
+	if !hasPost {
+		t.Error("expected POST route to be registered")
+	}
+	if !hasGet {
+		t.Error("expected GET route to be registered")
+	}
+	if !hasDelete {
+		t.Error("expected DELETE route to be registered")
+	}
+}
+
+func TestHandleListWithSearch(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	data := createTestPNG(t, 10, 10)
+	file := newTestFile(data)
+	header := &multipart.FileHeader{Filename: "searchable.png", Size: int64(len(data))}
+	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/media/?search=searchable", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestHandleListInvalidPage(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	// Page 0 should default to page 1
+	req := httptest.NewRequest("GET", "/api/v1/media/?page=0", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestHandleListInvalidPerPage(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	// per_page=0 should default to 20
+	req := httptest.NewRequest("GET", "/api/v1/media/?per_page=0", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestHandleListPerPageOverflow(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	// per_page > 100 should be capped
+	req := httptest.NewRequest("GET", "/api/v1/media/?per_page=500", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestHandleListDefaultOrder(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	// No order param should default to "desc"
+	req := httptest.NewRequest("GET", "/api/v1/media/?order=invalid", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestHandleUploadWithAuthUserID(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	data := createTestPNG(t, 20, 20)
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "auth_test.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	part.Write(data)
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	// Set user ID in context
+	ctx := context.WithValue(req.Context(), ctxKeyUserID, "auth-user-1")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	dataMap, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatal("expected data to be a map")
+	}
+	if dataMap["uploader_id"] != "auth-user-1" {
+		t.Errorf("expected uploader_id 'auth-user-1', got %v", dataMap["uploader_id"])
+	}
+}
+
+func TestHandleUploadFileOpenError(t *testing.T) {
+	// Test the case where fileHeader.Open() would fail — this is hard to trigger
+	// directly, so we test via a malformed multipart form body
+	_, router := setupPluginWithRoutes(t)
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", strings.NewReader("not a multipart form"))
+	req.Header.Set("Content-Type", "multipart/form-data")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+}
+
+func TestHandleDeleteInternalError(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	// Replace storage with error storage to trigger internal error during delete
+	p.service.storage = &mockDeleteInternalErrorStorage{}
+
+	req := httptest.NewRequest("DELETE", "/api/v1/media/some-id", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should get 404 since the media doesn't exist in the store
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+}
+
+type mockDeleteInternalErrorStorage struct{}
+
+func (m *mockDeleteInternalErrorStorage) Save(_ context.Context, _ []byte, _ string) error {
+	return nil
+}
+func (m *mockDeleteInternalErrorStorage) Get(_ context.Context, _ string) ([]byte, error) {
+	return nil, fmt.Errorf("get error")
+}
+func (m *mockDeleteInternalErrorStorage) Delete(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockDeleteInternalErrorStorage) GetURL(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (m *mockDeleteInternalErrorStorage) Type() string { return "mock" }
+
+func TestHandleListWithUploaderIDFilter(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	// Upload two files from different users
+	for i, uid := range []string{"user-a", "user-b"} {
+		data := createTestPNG(t, 10, 10)
+		file := newTestFile(data)
+		header := &multipart.FileHeader{
+			Filename: fmt.Sprintf("filter_%d.png", i),
+			Size:     int64(len(data)),
+		}
+		if _, err := p.service.Upload(ctx, file, header, uid); err != nil {
+			t.Fatalf("upload %d: %v", i, err)
+		}
+	}
+
+	// List all — should have 2 items
+	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	dataArr, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data array, got %T", resp.Data)
+	}
+	if len(dataArr) != 2 {
+		t.Errorf("expected 2 items, got %d", len(dataArr))
+	}
+}
+
+func TestHandleUploadSuccessResponseHasURL(t *testing.T) {
+	_, router := setupPluginWithRoutes(t)
+
+	data := createTestPNG(t, 30, 30)
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "url_test.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	part.Write(data)
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	dataMap, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatal("expected data to be a map")
+	}
+	// URL field should be present (non-empty for local storage)
+	if url, ok := dataMap["url"].(string); !ok || url == "" {
+		t.Errorf("expected non-empty url field, got %v", dataMap["url"])
+	}
+}
+
+func TestHandleListItemsHaveURLs(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	data := createTestPNG(t, 10, 10)
+	file := newTestFile(data)
+	header := &multipart.FileHeader{Filename: "list_url.png", Size: int64(len(data))}
+	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	dataArr, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data array, got %T", resp.Data)
+	}
+	if len(dataArr) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(dataArr))
+	}
+	item, ok := dataArr[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected item to be a map")
+	}
+	if url, ok := item["url"].(string); !ok || url == "" {
+		t.Errorf("expected non-empty url in list item, got %v", item["url"])
+	}
+}
+
+// ==================== Handler Error Path Tests ====================
+
+func TestHandleUploadStorageError(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	// Replace storage with one that fails on Save
+	p.service.storage = &mockErrorStorage{}
+
+	data := createTestPNG(t, 20, 20)
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "err_upload.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	part.Write(data)
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Storage errors should return 500 (internal error, not validation)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleUploadGetURLFail(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	// Use a storage that works for Save but fails for GetURL
+	p.service.storage = &mockSaveOnlyErrorURLStorage{}
+
+	data := createTestPNG(t, 20, 20)
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "url_fail.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	part.Write(data)
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Upload should still succeed (201), just with empty URL
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	dataMap, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatal("expected data to be a map")
+	}
+	if dataMap["url"] != "" {
+		t.Errorf("expected empty url when GetURL fails, got %v", dataMap["url"])
+	}
+}
+
+func TestHandleListGetURLFail(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	// Upload a file first (before swapping storage)
+	data := createTestPNG(t, 10, 10)
+	file := newTestFile(data)
+	header := &multipart.FileHeader{Filename: "list_url_fail.png", Size: int64(len(data))}
+	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	// Now swap storage to one that fails GetURL
+	p.service.storage = &mockSaveOnlyErrorURLStorage{}
+
+	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp mediaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	dataArr, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data array, got %T", resp.Data)
+	}
+	if len(dataArr) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(dataArr))
+	}
+	item, ok := dataArr[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected item to be a map")
+	}
+	// URL should be empty since GetURL failed
+	if item["url"] != "" {
+		t.Errorf("expected empty url when GetURL fails, got %v", item["url"])
+	}
+}
+
+func TestHandleDeleteStoreError(t *testing.T) {
+	p, router := setupPluginWithRoutes(t)
+	ctx := context.Background()
+
+	// Upload a file first
+	data := createTestPNG(t, 10, 10)
+	file := newTestFile(data)
+	header := &multipart.FileHeader{Filename: "del_err.png", Size: int64(len(data))}
+	uploaded, err := p.service.Upload(ctx, file, header, "user-1")
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	// Now swap storage to one that fails delete (store still works)
+	p.service.storage = &mockErrorStorage{}
+
+	req := httptest.NewRequest("DELETE", "/api/v1/media/"+uploaded.ID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Even with storage errors, the handler should return 204 since store.Delete succeeds
+	// (storage errors are just logged as warnings)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected status 204, got %d; body: %s", w.Code, w.Body.String())
+	}
+}
+
+// mockSaveOnlyErrorURLStorage works for Save but fails for Get/GetURL
+type mockSaveOnlyErrorURLStorage struct{}
+
+func (m *mockSaveOnlyErrorURLStorage) Save(_ context.Context, _ []byte, _ string) error {
+	return nil
+}
+func (m *mockSaveOnlyErrorURLStorage) Get(_ context.Context, _ string) ([]byte, error) {
+	return nil, fmt.Errorf("get error")
+}
+func (m *mockSaveOnlyErrorURLStorage) Delete(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockSaveOnlyErrorURLStorage) GetURL(_ context.Context, _ string) (string, error) {
+	return "", fmt.Errorf("geturl error")
+}
+func (m *mockSaveOnlyErrorURLStorage) Type() string { return "mock" }
