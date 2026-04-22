@@ -1077,7 +1077,6 @@ func TestSearchExcerptFromFields(t *testing.T) {
 }
 
 func TestBuildSearchDocument_PublishedAt(t *testing.T) {
-	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	c := &interfaces.Content{
 		ID:          "pa-1",
 		ContentType: "post",
@@ -1085,7 +1084,7 @@ func TestBuildSearchDocument_PublishedAt(t *testing.T) {
 		Slug:        "pub-test",
 		AuthorID:    "user-1",
 		Status:      "published",
-		PublishedAt: &now,
+		PublishedAt: new(time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)),
 		Data:        map[string]interface{}{},
 	}
 

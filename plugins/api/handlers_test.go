@@ -922,8 +922,8 @@ func TestListContentTypes_ReturnsRegisteredTypes(t *testing.T) {
 	mock := &mockContentService{
 		listContentTypesFunc: func(_ context.Context) ([]*interfaces.ContentType, error) {
 			return []*interfaces.ContentType{
-				ptrContentType(sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{})),
-				ptrContentType(sampleContentType("page", "pages", "Pages", "Static pages", []interfaces.Field{})),
+				new(sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{})),
+				new(sampleContentType("page", "pages", "Pages", "Static pages", []interfaces.Field{})),
 			}, nil
 		},
 	}

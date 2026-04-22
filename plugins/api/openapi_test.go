@@ -377,7 +377,7 @@ func (m *mockContentSvcForDocs) ListContentTypes(ctx context.Context) ([]*interf
 func TestHandleDocs_Returns200WithValidJSON(t *testing.T) {
 	h := NewHandler(&mockContentSvcForDocs{
 		types: []*interfaces.ContentType{
-			ptrContentType(sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{})),
+			new(sampleContentType("post", "posts", "Posts", "Blog posts", []interfaces.Field{})),
 		},
 	})
 	rec := httptest.NewRecorder()

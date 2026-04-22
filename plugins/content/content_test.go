@@ -1795,8 +1795,7 @@ func TestNilTime(t *testing.T) {
 	})
 
 	t.Run("non-nil time", func(t *testing.T) {
-		now := time.Now().UTC()
-		result := nilTime(&now)
+		result := nilTime(new(time.Now().UTC()))
 		s, ok := result.(string)
 		if !ok {
 			t.Fatalf("expected string, got %T", result)

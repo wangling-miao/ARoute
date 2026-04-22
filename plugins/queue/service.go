@@ -617,8 +617,7 @@ func (s *Service) worker(id int) {
 func (s *Service) executeTask(task *taskEntry) {
 	s.mu.Lock()
 	task.status = interfaces.TaskStatusRunning
-	now := time.Now()
-	task.startedAt = &now
+	task.startedAt = new(time.Now())
 	s.mu.Unlock()
 
 	timeout := task.timeout
@@ -637,8 +636,7 @@ func (s *Service) executeTask(task *taskEntry) {
 		s.mu.Lock()
 		task.status = interfaces.TaskStatusDeadLettered
 		task.err = fmt.Sprintf("task type %q not found", task.name)
-		now := time.Now()
-		task.completedAt = &now
+		task.completedAt = new(time.Now())
 		s.mu.Unlock()
 
 		s.updateTaskStatus(ctx, task)
@@ -672,8 +670,7 @@ func (s *Service) executeTask(task *taskEntry) {
 
 	if handlerErr == nil {
 		task.status = interfaces.TaskStatusCompleted
-		now := time.Now()
-		task.completedAt = &now
+		task.completedAt = new(time.Now())
 		s.logger.Debug("task completed",
 			"task_id", task.id,
 			"name", task.name,

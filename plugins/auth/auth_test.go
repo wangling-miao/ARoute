@@ -3923,9 +3923,8 @@ func TestService_UpdateUser_Password(t *testing.T) {
 
 	user := createTestUser(t, svc, "updpwsvc@example.com", "updpwsvcuser", "password123", nil)
 
-	newPass := "newpassword456"
 	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
-		Password: &newPass,
+		Password: new("newpassword456"),
 	})
 	if err != nil {
 		t.Fatalf("UpdateUser: %v", err)
@@ -3946,9 +3945,8 @@ func TestService_UpdateUser_Status(t *testing.T) {
 
 	user := createTestUser(t, svc, "updstatsvc@example.com", "updstatsvcuser", "password123", nil)
 
-	newStatus := "suspended"
 	updated, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
-		Status: &newStatus,
+		Status: new("suspended"),
 	})
 	if err != nil {
 		t.Fatalf("UpdateUser: %v", err)
@@ -3964,9 +3962,8 @@ func TestService_UpdateUser_InvalidEmail(t *testing.T) {
 
 	user := createTestUser(t, svc, "updinvsvc@example.com", "updinvsvcuser", "password123", nil)
 
-	badEmail := "not-valid-email"
 	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
-		Email: &badEmail,
+		Email: new("not-valid-email"),
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid email")
@@ -3982,9 +3979,8 @@ func TestService_UpdateUser_ShortUsername(t *testing.T) {
 
 	user := createTestUser(t, svc, "updshortsvc@example.com", "updshortsvcuser", "password123", nil)
 
-	shortName := "ab"
 	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
-		Username: &shortName,
+		Username: new("ab"),
 	})
 	if err == nil {
 		t.Fatal("expected error for short username")
@@ -4000,9 +3996,8 @@ func TestService_UpdateUser_ShortPassword(t *testing.T) {
 
 	user := createTestUser(t, svc, "updshortpw@example.com", "updshortpwuser", "password123", nil)
 
-	shortPW := "abc"
 	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
-		Password: &shortPW,
+		Password: new("abc"),
 	})
 	if err == nil {
 		t.Fatal("expected error for short password")
