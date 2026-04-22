@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/wangling-miao/aroute/core"
@@ -532,6 +533,7 @@ func (m *ManagerImpl) buildStartupOrder() ([]string, error) {
 			queue = append(queue, name)
 		}
 	}
+	sort.Strings(queue)
 
 	var order []string
 	for len(queue) > 0 {
@@ -539,11 +541,16 @@ func (m *ManagerImpl) buildStartupOrder() ([]string, error) {
 		queue = queue[1:]
 		order = append(order, current)
 
+		var newReady []string
 		for _, neighbor := range graph[current] {
 			inDegree[neighbor]--
 			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
+				newReady = append(newReady, neighbor)
 			}
+		}
+		if len(newReady) > 0 {
+			sort.Strings(newReady)
+			queue = append(queue, newReady...)
 		}
 	}
 

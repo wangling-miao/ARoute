@@ -80,7 +80,8 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 		return fmt.Errorf("route registrar not available: %w", err)
 	}
 
-	registrar.Handle("/admin/*", http.HandlerFunc(p.serveAdmin))
+	registrar.Handle("/admin", http.HandlerFunc(p.serveAdmin))
+		registrar.Handle("/admin/*", http.HandlerFunc(p.serveAdmin))
 
 	logger.Info("Admin UI plugin initialized successfully",
 		"dev_mode", p.devMode,
