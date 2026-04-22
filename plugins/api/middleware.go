@@ -34,6 +34,13 @@ func userClaimsFromRequest(r *http.Request) *interfaces.UserClaims {
 
 // authMiddleware creates JWT authentication middleware using AuthService.
 // If authSvc is nil, the middleware is a no-op (public API mode).
+// publicPaths are routes that skip authentication entirely.
+var publicPaths = map[string]bool{
+	"POST /api/v1/auth/login":    true,
+	"POST /api/v1/auth/refresh":  true,
+	"POST /api/v1/users":         true, // user registration
+}
+
 func authMiddleware(authSvc interfaces.AuthService) func(http.Handler) http.Handler {
 	if authSvc == nil {
 		return func(next http.Handler) http.Handler {
@@ -43,6 +50,11 @@ func authMiddleware(authSvc interfaces.AuthService) func(http.Handler) http.Hand
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if publicPaths[r.Method+" "+r.URL.Path] {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing authorization header")
