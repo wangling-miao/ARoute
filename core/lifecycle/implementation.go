@@ -169,15 +169,26 @@ func (m *ManagerImpl) Start(ctx context.Context) error {
 		var parts []string
 		for _, name := range order {
 			info := m.plugins[name]
-			if info != nil && info.State == core.StateFailed {
-				if info.LoadError != nil {
-					parts = append(parts, fmt.Sprintf("%s: %v", name, info.LoadError))
-				} else {
-					parts = append(parts, name)
-				}
+			if info == nil || info.State != core.StateFailed {
+				continue
+			}
+			engine := ""
+			if info.Manifest != nil {
+				engine = info.Manifest.Engine
+			}
+			// Non-core (L2/L3) plugin failures are logged but not blocking.
+			if engine != "" && engine != "native" && engine != "l1" {
+				continue
+			}
+			if info.LoadError != nil {
+				parts = append(parts, fmt.Sprintf("%s: %v", name, info.LoadError))
+			} else {
+				parts = append(parts, name)
 			}
 		}
-		return fmt.Errorf("plugins failed to start: %s", strings.Join(parts, "; "))
+		if len(parts) > 0 {
+			return fmt.Errorf("plugins failed to start: %s", strings.Join(parts, "; "))
+		}
 	}
 
 	return nil
