@@ -791,7 +791,7 @@ func TestPerContentTypeAuthMiddleware_NoContentTypeParam_AppliesGlobalPolicy(t *
 	mw := perContentTypeAuthMiddleware(authSvc, false, config)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/content", nil)
 
 	mw(okHandler(t)).ServeHTTP(rec, req)
 

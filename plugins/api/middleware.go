@@ -166,6 +166,12 @@ func perContentTypeAuthMiddleware(authSvc interfaces.AuthService, publicRead boo
 	globalAuth := authMiddlewareWithPublicRead(authSvc, publicRead)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Only apply auth to /api/ routes — skip admin UI and others.
+			if !strings.HasPrefix(r.URL.Path, "/api/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			contentType := chi.URLParam(r, "contentType")
 			if contentType == "" {
 				globalAuth(next).ServeHTTP(w, r)
