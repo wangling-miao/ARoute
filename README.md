@@ -11,7 +11,7 @@
 </p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/license-Apache%20License%202.0-blue" alt="License" />
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
   <a href="README_EN.md">
@@ -469,10 +469,11 @@ make admin-dev
 - [x] Queue 插件（Goroutine worker pool、重试、死信队列）
 - [x] Webhook 插件（HTTP POST 投递、HMAC-SHA256 签名、SSRF 防护、自动禁用）
 - [x] Admin UI（React + Arco Design + TipTap）
+- [x] Plugin SDK（Go SDK + Wasm 模板）
+
 
 ### 🚧 开发中
 
-- [ ] Plugin SDK（Go SDK + Wasm 模板）
 - [ ] 默认主题（Go template 博客主题）
 - [ ] 集成测试与端到端测试
 - [ ] 文档与 Dockerfile
@@ -510,7 +511,7 @@ make admin-dev
 
 ## 许可证
 
-本项目采用 [GNU Affero General Public License v3.0](LICENSE) 许可证。
+本项目采用 [Apache License 2.0](LICENSE) 许可证。
 
 ---
 

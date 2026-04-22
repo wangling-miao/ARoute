@@ -11,7 +11,7 @@
 </p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/license-Apache%20License%202.0-blue" alt="License" />
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
   <a href="README.md">
@@ -469,10 +469,10 @@ make admin-dev
 - [x] Queue plugin (goroutine worker pool, retry, dead letter)
 - [x] Webhook plugin (HTTP POST, HMAC-SHA256, SSRF protection, auto-disable)
 - [x] Admin UI (React + Arco Design + TipTap)
+- [x] Plugin SDK (Go SDK + Wasm template)
 
 ### 🚧 In Progress
 
-- [ ] Plugin SDK (Go SDK + Wasm template)
 - [ ] Default theme (Go template blog theme)
 - [ ] Integration & E2E tests
 - [ ] Documentation & Dockerfile
@@ -510,7 +510,7 @@ We welcome contributions! Whether it's bug reports, feature requests, documentat
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
