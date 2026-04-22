@@ -8,6 +8,7 @@ requires:
   - database
 after:
   - database
+  - http
   - auth
 provides:
   - media.service

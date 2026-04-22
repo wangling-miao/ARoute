@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/wangling-miao/aroute/core"
@@ -176,15 +177,16 @@ func (m *ManagerImpl) Start(ctx context.Context) error {
 			if info.Manifest != nil {
 				engine = info.Manifest.Engine
 			}
+			errMsg := name
+			if info.LoadError != nil {
+				errMsg = fmt.Sprintf("%s: %v", name, info.LoadError)
+			}
 			// Non-core (L2/L3) plugin failures are logged but not blocking.
 			if engine != "" && engine != "native" && engine != "l1" {
+				slog.Warn("plugin failed to start, skipping", "plugin", name, "engine", engine, "error", info.LoadError)
 				continue
 			}
-			if info.LoadError != nil {
-				parts = append(parts, fmt.Sprintf("%s: %v", name, info.LoadError))
-			} else {
-				parts = append(parts, name)
-			}
+			parts = append(parts, errMsg)
 		}
 		if len(parts) > 0 {
 			return fmt.Errorf("plugins failed to start: %s", strings.Join(parts, "; "))

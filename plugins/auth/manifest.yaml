@@ -8,6 +8,7 @@ requires:
   - database
 after:
   - database
+  - http
 provides:
   - auth.service
 keywords:
