@@ -3,17 +3,17 @@ package interfaces
 import (
 	"context"
 	"io"
-	"mime/multipart"
+	"time"
 )
 
 // MediaService defines file upload and media management operations.
 // It handles file uploads, storage (local or S3), thumbnail generation,
 // and media library organization.
 type MediaService interface {
-	// Upload handles file upload from a multipart form, validates MIME type
-	// and file size, stores to configured backend (local or S3), and creates
-	// metadata record.
-	Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, uploaderID string) (*MediaFile, error)
+	// Upload stores a file from an io.Reader with associated metadata.
+	// Validates MIME type and file size, stores to configured backend (local or S3),
+	// and creates a metadata record.
+	Upload(ctx context.Context, reader io.Reader, filename string, contentType string, size int64, uploaderID string) (*MediaFile, error)
 
 	// GetByID retrieves a media file metadata by ID.
 	GetByID(ctx context.Context, id string) (*MediaFile, error)
@@ -32,7 +32,23 @@ type MediaService interface {
 	// GenerateThumbnail creates a thumbnail for an image file.
 	// Returns the thumbnail path or an error if not applicable.
 	GenerateThumbnail(ctx context.Context, id string, width, height int) (string, error)
+}
 
-	// UploadFromReader stores a file from an io.Reader, avoiding HTTP multipart coupling.
-	UploadFromReader(ctx context.Context, reader io.Reader, filename string, contentType string, uploaderID string) (*MediaFile, error)
+// UploadRequest contains parameters for uploading a file via HTTP multipart form.
+// This is used internally by the media plugin and is not part of the MediaService interface.
+type UploadRequest struct {
+	// Filename is the original file name.
+	Filename string `json:"filename"`
+
+	// ContentType is the MIME type (e.g., "image/jpeg").
+	ContentType string `json:"content_type"`
+
+	// Size is the file size in bytes.
+	Size int64 `json:"size"`
+
+	// UploaderID is the ID of the user uploading the file.
+	UploaderID string `json:"uploader_id"`
+
+	// CreatedAt is when the upload was initiated.
+	CreatedAt time.Time `json:"created_at"`
 }

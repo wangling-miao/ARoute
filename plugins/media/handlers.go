@@ -88,7 +88,7 @@ func (p *Plugin) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	mf, err := p.service.Upload(r.Context(), file, fileHeader, extractUploaderID(r))
+	mf, err := p.service.UploadMultipart(r.Context(), file, fileHeader, extractUploaderID(r))
 	if err != nil {
 		if errors.Is(err, interfaces.ErrValidation) {
 			writeMediaError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())

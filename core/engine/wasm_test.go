@@ -515,7 +515,7 @@ func TestHostModuleBuilder_EventSubscribe(t *testing.T) {
 		mem := mod.Memory()
 		mem.Write(0, []byte("test-topic"))
 
-		result := builder.eventSubscribe(ctx, mod, 0, 10)
+		result := builder.eventSubscribe(ctx, mod, 0, 10, 0, 0)
 		if result != 0 {
 			t.Errorf("eventSubscribe = %d, want 0", result)
 		}
@@ -525,7 +525,7 @@ func TestHostModuleBuilder_EventSubscribe(t *testing.T) {
 		container := &mockServiceContainer{keys: []string{}}
 		builder, _, mod, ctx := setupHostModuleTest(t, container, nil)
 
-		result := builder.eventSubscribe(ctx, mod, 0, 5)
+		result := builder.eventSubscribe(ctx, mod, 0, 5, 0, 0)
 		if result != 0 {
 			t.Errorf("eventSubscribe with nil events = %d, want 0", result)
 		}
@@ -536,7 +536,7 @@ func TestHostModuleBuilder_EventSubscribe(t *testing.T) {
 		events := &mockEventBus{}
 		builder, _, mod, ctx := setupHostModuleTest(t, container, events)
 
-		result := builder.eventSubscribe(ctx, mod, 65535, 1000)
+		result := builder.eventSubscribe(ctx, mod, 65535, 1000, 0, 0)
 		if result != 0 {
 			t.Errorf("eventSubscribe with bad read = %d, want 0", result)
 		}

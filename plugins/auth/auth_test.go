@@ -4503,17 +4503,22 @@ func TestPlugin_RegisterRoutes(t *testing.T) {
 	if len(registeredPaths) == 0 {
 		t.Error("expected routes to be registered")
 	}
-	expectedPaths := []string{"/api/v1/auth", "/api/v1/users", "/api/v1/roles", "/api/v1/api-tokens"}
-	for _, ep := range expectedPaths {
+	expectedPrefixes := []string{"/api/v1/auth", "/api/v1/users", "/api/v1/roles", "/api/v1/api-tokens"}
+	for _, ep := range expectedPrefixes {
 		found := false
 		for _, rp := range registeredPaths {
-			if rp == ep {
+			parts := strings.SplitN(rp, " ", 2)
+			path := rp
+			if len(parts) == 2 {
+				path = parts[1]
+			}
+			if strings.HasPrefix(path, ep) {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("expected path %q to be registered", ep)
+			t.Errorf("expected path prefix %q to be registered", ep)
 		}
 	}
 }
@@ -4523,19 +4528,13 @@ type mockRouteRegistrar struct {
 	paths *[]string
 }
 
-func (m *mockRouteRegistrar) Route(pattern string, fn func(chi.Router)) {
+func (m *mockRouteRegistrar) Handle(pattern string, handler http.Handler) {
 	*m.paths = append(*m.paths, pattern)
-	// Create a minimal chi mux to invoke fn without panicking.
-	fn(chi.NewRouter())
 }
 
-func (m *mockRouteRegistrar) Register(pattern string, handler interface{}) {}
-
-func (m *mockRouteRegistrar) Group(fn func(r chi.Router)) {
-	fn(chi.NewRouter())
+func (m *mockRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
+	*m.paths = append(*m.paths, pattern)
 }
-
-func (m *mockRouteRegistrar) Mount(pattern string, router chi.Router) {}
 
 func (m *mockRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {}
 

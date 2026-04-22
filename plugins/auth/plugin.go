@@ -14,8 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
@@ -309,33 +307,19 @@ func parseDurationWithDays(s string) time.Duration {
 }
 
 func (p *Plugin) registerRoutes(registrar interfaces.RouteRegistrar) {
-	registrar.Route("/api/v1/auth", func(r chi.Router) {
-		r.Post("/login", p.handleLogin)
-		r.Post("/refresh", p.handleRefresh)
-		r.Get("/me", p.handleGetCurrentUser)
-	})
+	registrar.HandleFunc("POST /api/v1/auth/login", p.handleLogin)
+	registrar.HandleFunc("POST /api/v1/auth/refresh", p.handleRefresh)
+	registrar.HandleFunc("GET /api/v1/auth/me", p.handleGetCurrentUser)
 
-	registrar.Route("/api/v1/users", func(r chi.Router) {
-		r.Get("/", p.handleListUsers)
-		r.Post("/", p.handleCreateUser)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Put("/", p.handleUpdateUser)
-			r.Delete("/", p.handleDeleteUser)
-		})
-	})
+	registrar.HandleFunc("GET /api/v1/users", p.handleListUsers)
+	registrar.HandleFunc("POST /api/v1/users", p.handleCreateUser)
+	registrar.HandleFunc("PUT /api/v1/users/{id}", p.handleUpdateUser)
+	registrar.HandleFunc("DELETE /api/v1/users/{id}", p.handleDeleteUser)
 
-	registrar.Route("/api/v1/roles", func(r chi.Router) {
-		r.Get("/", p.handleListRoles)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Put("/", p.handleUpdateRole)
-		})
-	})
+	registrar.HandleFunc("GET /api/v1/roles", p.handleListRoles)
+	registrar.HandleFunc("PUT /api/v1/roles/{id}", p.handleUpdateRole)
 
-	registrar.Route("/api/v1/api-tokens", func(r chi.Router) {
-		r.Get("/", p.handleListAPITokens)
-		r.Post("/", p.handleCreateAPIToken)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Delete("/", p.handleRevokeAPIToken)
-		})
-	})
+	registrar.HandleFunc("GET /api/v1/api-tokens", p.handleListAPITokens)
+	registrar.HandleFunc("POST /api/v1/api-tokens", p.handleCreateAPIToken)
+	registrar.HandleFunc("DELETE /api/v1/api-tokens/{id}", p.handleRevokeAPIToken)
 }

@@ -271,17 +271,19 @@ func SubscribeEvent(ctx core.CoreContext, topic string, handler events.Broadcast
 
 // OnContentCreated subscribes to content creation events for all or specific content types.
 // The handler receives the raw events.Event, from which you can read Data["id"], Data["content_type"], etc.
+// Returns a handler ID for later unsubscription.
 //
 // Usage:
 //
-//	sdk.OnContentCreated(ctx, "post", func(ctx context.Context, event events.Event) {
+//	handlerID := sdk.OnContentCreated(ctx, "post", func(ctx context.Context, event events.Event) {
 //	    log.Printf("New post created: %s", event.Data["id"])
 //	})
-func OnContentCreated(ctx core.CoreContext, contentType string, handler events.BroadcastHandler) {
+//	defer ctx.Events().Unsubscribe(handlerID)
+func OnContentCreated(ctx core.CoreContext, contentType string, handler events.BroadcastHandler) string {
 	topic := "content.*.created"
 	if contentType != "" {
 		topic = "content." + contentType + ".created"
 	}
 
-	ctx.Events().SubscribeBroadcast(topic, handler)
+	return ctx.Events().SubscribeBroadcast(topic, handler)
 }

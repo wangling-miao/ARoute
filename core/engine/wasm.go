@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -151,16 +152,24 @@ type WasmPlugin interface {
 type HostModuleBuilder struct {
 	container       core.ServiceContainer
 	events          core.EventBus
+	logger          interface{ Info(string, ...any) }
 	module          api.Module
 	serviceRegistry []string
 	registryMu      sync.RWMutex
 }
 
 // NewHostModuleBuilder creates a new host module builder with Core context.
-func NewHostModuleBuilder(container core.ServiceContainer, events core.EventBus) *HostModuleBuilder {
+func NewHostModuleBuilder(container core.ServiceContainer, events core.EventBus, logger ...interface{ Info(string, ...any) }) *HostModuleBuilder {
+	var l interface{ Info(string, ...any) }
+	if len(logger) > 0 {
+		l = logger[0]
+	} else {
+		l = slog.Default()
+	}
 	b := &HostModuleBuilder{
 		container:       container,
 		events:          events,
+		logger:          l,
 		serviceRegistry: []string{},
 	}
 	b.refreshServiceRegistry()
@@ -183,6 +192,7 @@ func (b *HostModuleBuilder) BuildCMSHostModule(ctx context.Context, runtime waze
 		NewFunctionBuilder().WithFunc(b.serviceHas).Export("service_has").
 		NewFunctionBuilder().WithFunc(b.eventSubscribe).Export("event_subscribe").
 		NewFunctionBuilder().WithFunc(b.eventPublish).Export("event_publish").
+		NewFunctionBuilder().WithFunc(b.hostLog).Export("host_log").
 		NewFunctionBuilder().WithFunc(b.memoryAlloc).Export("memory_alloc").
 		NewFunctionBuilder().WithFunc(b.memoryFree).Export("memory_free").
 		Instantiate(ctx)
@@ -225,7 +235,7 @@ func (b *HostModuleBuilder) serviceHas(ctx context.Context, module api.Module, s
 	return 1
 }
 
-func (b *HostModuleBuilder) eventSubscribe(ctx context.Context, module api.Module, topicPtr, topicLen uint32) uint32 {
+func (b *HostModuleBuilder) eventSubscribe(ctx context.Context, module api.Module, topicPtr, topicLen, callbackPtr, callbackLen uint32) uint32 {
 	if b.events == nil {
 		return 0
 	}
@@ -265,6 +275,13 @@ func (b *HostModuleBuilder) eventPublish(ctx context.Context, module api.Module,
 		Topic: string(topicBytes),
 		Data:  map[string]interface{}{"payload": dataBytes},
 	})
+}
+
+func (b *HostModuleBuilder) hostLog(ctx context.Context, module api.Module, msgPtr, msgLen uint32) {
+	msg := safeReadWasmString(module, msgPtr, msgLen)
+	if b.logger != nil {
+		b.logger.Info("wasm plugin log", "message", msg)
+	}
 }
 
 func (b *HostModuleBuilder) memoryAlloc(ctx context.Context, module api.Module, size uint32) uint32 {
@@ -309,6 +326,14 @@ func safeReadBytes(module api.Module, ptr, length uint32) ([]byte, bool) {
 		return nil, false
 	}
 	return buf, true
+}
+
+func safeReadWasmString(module api.Module, ptr, length uint32) string {
+	buf, ok := safeReadBytes(module, ptr, length)
+	if !ok {
+		return ""
+	}
+	return string(buf)
 }
 
 var _ Engine = (*WasmEngine)(nil)

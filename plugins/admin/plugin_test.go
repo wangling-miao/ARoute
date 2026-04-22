@@ -80,13 +80,11 @@ type httpPluginRouteRegistrar struct {
 	router chi.Router
 }
 
-func (r *httpPluginRouteRegistrar) Register(pattern string, handler interface{}) {}
-func (r *httpPluginRouteRegistrar) Route(pattern string, fn func(chi.Router)) {
-	r.router.Route(pattern, fn)
+func (r *httpPluginRouteRegistrar) Handle(pattern string, handler http.Handler) {
+	r.router.Handle(pattern, handler)
 }
-func (r *httpPluginRouteRegistrar) Group(fn func(chi.Router)) { r.router.Group(fn) }
-func (r *httpPluginRouteRegistrar) Mount(pattern string, router chi.Router) {
-	r.router.Mount(pattern, router)
+func (r *httpPluginRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
+	r.router.HandleFunc(pattern, handler)
 }
 func (r *httpPluginRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {}
 func (r *httpPluginRouteRegistrar) Middlewares() []func(http.Handler) http.Handler     { return nil }

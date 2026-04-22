@@ -70,9 +70,7 @@ handlerID := sdk.SubscribeEvent(ctx, "content.*.created",
 
 ```go
 router, _ := sdk.GetRouter(ctx.Services())
-router.Route("/api/plugins/my-plugin", func(r chi.Router) {
-    r.Get("/hello", myHandler)
-})
+router.HandleFunc("/api/plugins/my-plugin/hello", myHandler)
 ```
 
 ## Using as a Template

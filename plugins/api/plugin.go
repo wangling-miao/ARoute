@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
@@ -123,6 +121,11 @@ func (p *Plugin) registerRoutes() {
 	contentNeg := contentNegotiationMiddleware()
 	rateLimitMW := rateLimitMiddleware(config)
 
+	// Register middleware via Use (applied as outer wrappers by HTTP plugin at start)
+	p.registrar.Use(contentNeg)
+	p.registrar.Use(perContentTypeAuthMiddleware(p.authSvc, publicRead, config))
+	p.registrar.Use(rateLimitMW)
+
 	docsEnabled := true
 	docsUI := "swagger"
 	if config != nil {
@@ -135,44 +138,29 @@ func (p *Plugin) registerRoutes() {
 	}
 
 	if docsEnabled {
-		p.registrar.Route("/api/v1/openapi.json", func(r chi.Router) {
-			r.Get("/", p.handler.handleDocs)
-		})
+		p.registrar.HandleFunc("GET /api/v1/openapi.json", p.handler.handleDocs)
 		uiHandler := p.handler.docsUIHandler(docsUI)
-		p.registrar.Route("/api/docs", func(r chi.Router) {
-			r.Get("/", uiHandler)
-		})
+		p.registrar.HandleFunc("GET /api/docs", uiHandler)
 	}
 
-	p.registrar.Route("/api/v1", func(r chi.Router) {
-		r.Use(contentNeg)
-		r.Use(perContentTypeAuthMiddleware(p.authSvc, publicRead, config))
-		r.Use(rateLimitMW)
+	p.registrar.HandleFunc("GET /api/v1/content-types", p.handler.ListContentTypes)
+	p.registrar.HandleFunc("GET /api/v1/content-types/{name}", p.handler.GetContentType)
+	p.registrar.HandleFunc("POST /api/v1/content-types", p.handler.CreateContentType)
+	p.registrar.HandleFunc("PUT /api/v1/content-types/{name}", p.handler.UpdateContentType)
+	p.registrar.HandleFunc("DELETE /api/v1/content-types/{name}", p.handler.DeleteContentType)
 
-		r.Get("/content-types", p.handler.ListContentTypes)
-		r.Get("/content-types/{name}", p.handler.GetContentType)
-		r.Post("/content-types", p.handler.CreateContentType)
-		r.Put("/content-types/{name}", p.handler.UpdateContentType)
-		r.Delete("/content-types/{name}", p.handler.DeleteContentType)
+	p.registrar.HandleFunc("GET /api/v1/content/{contentType}", p.handler.List)
+	p.registrar.HandleFunc("POST /api/v1/content/{contentType}", p.handler.Create)
+	p.registrar.HandleFunc("GET /api/v1/content/{contentType}/{id}", p.handler.Get)
+	p.registrar.HandleFunc("PUT /api/v1/content/{contentType}/{id}", p.handler.Update)
+	p.registrar.HandleFunc("DELETE /api/v1/content/{contentType}/{id}", p.handler.Delete)
 
-		r.Route("/content/{contentType}", func(cr chi.Router) {
-			cr.Get("/", p.handler.List)
-			cr.Post("/", p.handler.Create)
-
-			cr.Route("/{id}", func(ir chi.Router) {
-				ir.Get("/", p.handler.Get)
-				ir.Put("/", p.handler.Update)
-				ir.Delete("/", p.handler.Delete)
-			})
-		})
-
-		r.Get("/dashboard/stats", p.adminHandler.handleDashboardStats)
-		r.Get("/settings", p.adminHandler.handleGetSettings)
-		r.Put("/settings", p.adminHandler.handleUpdateSettings)
-		r.Get("/plugins", p.adminHandler.handleListPlugins)
-		r.Post("/plugins/{name}/enable", p.adminHandler.handleEnablePlugin)
-		r.Post("/plugins/{name}/disable", p.adminHandler.handleDisablePlugin)
-	})
+	p.registrar.HandleFunc("GET /api/v1/dashboard/stats", p.adminHandler.handleDashboardStats)
+	p.registrar.HandleFunc("GET /api/v1/settings", p.adminHandler.handleGetSettings)
+	p.registrar.HandleFunc("PUT /api/v1/settings", p.adminHandler.handleUpdateSettings)
+	p.registrar.HandleFunc("GET /api/v1/plugins", p.adminHandler.handleListPlugins)
+	p.registrar.HandleFunc("POST /api/v1/plugins/{name}/enable", p.adminHandler.handleEnablePlugin)
+	p.registrar.HandleFunc("POST /api/v1/plugins/{name}/disable", p.adminHandler.handleDisablePlugin)
 }
 
 func (h *Handler) docsUIHandler(uiType string) http.HandlerFunc {

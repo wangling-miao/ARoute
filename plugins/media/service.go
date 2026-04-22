@@ -50,8 +50,8 @@ func NewService(store *Store, storage StorageBackend, ev core.EventBus, logger *
 	}
 }
 
-func (s *Service) Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, uploaderID string) (*interfaces.MediaFile, error) {
-	lr := io.LimitReader(file, maxFileSize+1)
+func (s *Service) Upload(ctx context.Context, reader io.Reader, filename string, contentType string, size int64, uploaderID string) (*interfaces.MediaFile, error) {
+	lr := io.LimitReader(reader, maxFileSize+1)
 	data, err := io.ReadAll(lr)
 	if err != nil {
 		return nil, fmt.Errorf("read file data: %w", err)
@@ -73,7 +73,7 @@ func (s *Service) Upload(ctx context.Context, file multipart.File, header *multi
 	}
 
 	now := time.Now().UTC()
-	ext := filepath.Ext(header.Filename)
+	ext := filepath.Ext(filename)
 	storagePath := filepath.Join(
 		now.Format("2006"),
 		now.Format("01"),
@@ -95,7 +95,7 @@ func (s *Service) Upload(ctx context.Context, file multipart.File, header *multi
 	}
 
 	mf := &interfaces.MediaFile{
-		Filename:      header.Filename,
+		Filename:      filename,
 		MIMEType:      mimeType,
 		Size:          int64(len(data)),
 		Width:         width,
@@ -119,6 +119,12 @@ func (s *Service) Upload(ctx context.Context, file multipart.File, header *multi
 	})
 
 	return mf, nil
+}
+
+// UploadMultipart handles file upload from HTTP multipart forms.
+// It extracts the file from the multipart header and delegates to Upload.
+func (s *Service) UploadMultipart(ctx context.Context, file multipart.File, header *multipart.FileHeader, uploaderID string) (*interfaces.MediaFile, error) {
+	return s.Upload(ctx, file, header.Filename, header.Header.Get("Content-Type"), header.Size, uploaderID)
 }
 
 func (s *Service) GetByID(ctx context.Context, id string) (*interfaces.MediaFile, error) {

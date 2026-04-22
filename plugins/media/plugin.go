@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
@@ -122,11 +121,7 @@ func (p *Plugin) Stop() error {
 }
 
 func (p *Plugin) registerRoutes(registrar interfaces.RouteRegistrar) {
-	registrar.Route("/api/v1/media", func(r chi.Router) {
-		r.Post("/", p.handleUpload)
-		r.Get("/", p.handleList)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Delete("/", p.handleDelete)
-		})
-	})
+	registrar.HandleFunc("POST /api/v1/media", p.handleUpload)
+	registrar.HandleFunc("GET /api/v1/media", p.handleList)
+	registrar.HandleFunc("DELETE /api/v1/media/{id}", p.handleDelete)
 }

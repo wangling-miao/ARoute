@@ -212,32 +212,25 @@ func TestPlugin_StartStop_Idempotent(t *testing.T) {
 
 type mockRouteRegistrar struct {
 	mu     sync.Mutex
-	routes map[string]chi.Router
 	router *chi.Mux
 }
 
 func newMockRouteRegistrar() *mockRouteRegistrar {
 	return &mockRouteRegistrar{
-		routes: make(map[string]chi.Router),
 		router: chi.NewMux(),
 	}
 }
 
-func (m *mockRouteRegistrar) Register(pattern string, handler interface{}) {}
-
-func (m *mockRouteRegistrar) Route(pattern string, fn func(r chi.Router)) {
-	sub := chi.NewRouter()
-	fn(sub)
+func (m *mockRouteRegistrar) Handle(pattern string, handler http.Handler) {
 	m.mu.Lock()
-	m.routes[pattern] = sub
-	m.router.Mount(pattern, sub)
+	m.router.Handle(pattern, handler)
 	m.mu.Unlock()
 }
 
-func (m *mockRouteRegistrar) Group(fn func(r chi.Router)) {}
-
-func (m *mockRouteRegistrar) Mount(pattern string, router chi.Router) {
-	m.router.Mount(pattern, router)
+func (m *mockRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
+	m.mu.Lock()
+	m.router.HandleFunc(pattern, handler)
+	m.mu.Unlock()
 }
 
 func (m *mockRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {}
@@ -523,13 +516,7 @@ func TestPlugin_Init_WithRouteRegistrar(t *testing.T) {
 	require.NoError(t, p.Start())
 	t.Cleanup(func() { p.Stop() })
 
-	// Verify routes were mounted on the registrar's backing router
-	registrar.mu.Lock()
-	sub, ok := registrar.routes["/admin/api/queue"]
-	registrar.mu.Unlock()
-	require.True(t, ok, "expected /admin/api/queue route to be registered")
-	require.NotNil(t, sub)
-
+	// Verify routes are reachable via the registrar's backing router
 	t.Run("list dead letters via registrar", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/admin/api/queue/dead-letter?page=1&page_size=10", nil)
 		w := httptest.NewRecorder()

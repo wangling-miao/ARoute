@@ -146,11 +146,9 @@ func (p *Plugin) registerAdminRoutes() {
 
 	handler := &adminHandler{service: p.service}
 
-	p.registrar.Route("/admin/api/queue", func(r chi.Router) {
-		r.Get("/dead-letter", handler.listDeadLetters)
-		r.Post("/dead-letter/{taskID}/retry", handler.retryDeadLetter)
-		r.Delete("/dead-letter/{taskID}", handler.deleteDeadLetter)
-	})
+	p.registrar.HandleFunc("GET /admin/api/queue/dead-letter", handler.listDeadLetters)
+	p.registrar.HandleFunc("POST /admin/api/queue/dead-letter/{taskID}/retry", handler.retryDeadLetter)
+	p.registrar.HandleFunc("DELETE /admin/api/queue/dead-letter/{taskID}", handler.deleteDeadLetter)
 }
 
 type adminHandler struct {

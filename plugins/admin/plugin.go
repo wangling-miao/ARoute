@@ -14,8 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
@@ -82,9 +80,7 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 		return fmt.Errorf("route registrar not available: %w", err)
 	}
 
-	registrar.Route("/admin", func(r chi.Router) {
-		r.HandleFunc("/*", p.serveAdmin)
-	})
+	registrar.Handle("/admin/*", http.HandlerFunc(p.serveAdmin))
 
 	logger.Info("Admin UI plugin initialized successfully",
 		"dev_mode", p.devMode,

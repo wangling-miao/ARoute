@@ -2,7 +2,7 @@
 
 // Package main implements an L3 Wasm example plugin for Aroute CMS.
 //
-// This plugin demonstrates medium-level interaction with the Core:
+// This plugin demonstrates interaction with the Core via the "cms" host module:
 //   - Queries service availability via host functions
 //   - Publishes lifecycle events to the EventBus
 //   - Uses the shared memory buffer for data exchange
@@ -42,13 +42,6 @@ func writeString(s string) (int32, int32) {
 	return int32(offset), int32(len(s))
 }
 
-func writeBytes(data []byte) (int32, int32) {
-	offset := bufferPos
-	copy(buffer[bufferPos:], data)
-	bufferPos += len(data)
-	return int32(offset), int32(len(data))
-}
-
 //go:export allocate_memory
 func allocateMemory(size uint32) uint32 {
 	offset := uint32(bufferPos)
@@ -60,6 +53,13 @@ func allocateMemory(size uint32) uint32 {
 }
 
 // --- Exported Lifecycle Functions ---
+
+//go:export manifest
+func manifest_() (int32, int32) {
+	resetBuffer()
+	m := `{"name":"` + PluginName + `","version":"` + PluginVersion + `","description":"` + PluginDescription + `","author":"` + PluginAuthor + `","engine":"wasm"}`
+	return writeString(m)
+}
 
 //go:export init
 func init_() int32 {
@@ -81,7 +81,7 @@ func init_() int32 {
 }
 
 //go:export start
-func start() int32 {
+func start_() int32 {
 	resetBuffer()
 
 	// Publish a startup event
@@ -101,7 +101,7 @@ func start() int32 {
 }
 
 //go:export stop
-func stop() int32 {
+func stop_() int32 {
 	resetBuffer()
 
 	// Publish a shutdown event
@@ -129,16 +129,19 @@ func cms_service_has(serviceID uint32) uint32
 func cms_service_get(serviceID uint32) uint32
 
 //go:wasmimport cms event_subscribe
-func cms_event_subscribe(topicPtr, topicLen uint32) uint32
+func cms_event_subscribe(topicPtr, topicLen uint32, callbackPtr, callbackLen uint32) uint32
 
 //go:wasmimport cms event_publish
 func cms_event_publish(topicPtr, topicLen, dataPtr, dataLen uint32)
 
-//go:wasmimport cms memory_free
-func host_memory_free(ptr uint32)
-
-//go:wasmimport aroute host_log
+//go:wasmimport cms host_log
 func host_log(msgOffset, msgLen int32)
+
+//go:wasmimport cms memory_alloc
+func cms_memory_alloc(size uint32) uint32
+
+//go:wasmimport cms memory_free
+func cms_memory_free(ptr uint32)
 
 func main() {}
 

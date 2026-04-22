@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -87,44 +86,30 @@ func (m *pluginMockEventBus) DispatchFilter(_ context.Context, event *events.Eve
 }
 func (m *pluginMockEventBus) Unsubscribe(_ string) {}
 
-// pluginMockRegistrar is a mock routeRegistrar that captures route registrations.
+// pluginMockRegistrar is a mock RouteRegistrar that captures route registrations.
 type pluginMockRegistrar struct {
-	routes []string
-	router *chi.Mux
+	routes      []string
+	middlewares []func(http.Handler) http.Handler
 }
 
 func newPluginMockRegistrar() *pluginMockRegistrar {
-	return &pluginMockRegistrar{
-		router: chi.NewRouter(),
-	}
+	return &pluginMockRegistrar{}
 }
 
-func (m *pluginMockRegistrar) Register(pattern string, handler interface{}) {
+func (m *pluginMockRegistrar) Handle(pattern string, handler http.Handler) {
 	m.routes = append(m.routes, pattern)
-	if h, ok := handler.(http.HandlerFunc); ok {
-		m.router.HandleFunc(pattern, h)
-	}
 }
 
-func (m *pluginMockRegistrar) Route(pattern string, fn func(r chi.Router)) {
-	m.routes = append(m.routes, "route:"+pattern)
-	m.router.Route(pattern, fn)
-}
-
-func (m *pluginMockRegistrar) Group(fn func(r chi.Router)) {
-	m.router.Group(fn)
-}
-
-func (m *pluginMockRegistrar) Mount(pattern string, router chi.Router) {
-	m.router.Mount(pattern, router)
+func (m *pluginMockRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
+	m.routes = append(m.routes, pattern)
 }
 
 func (m *pluginMockRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {
-	m.router.Use(middlewares...)
+	m.middlewares = append(m.middlewares, middlewares...)
 }
 
 func (m *pluginMockRegistrar) Middlewares() []func(http.Handler) http.Handler {
-	return nil
+	return m.middlewares
 }
 
 func newPluginMockCoreContext(svcs ...interface{}) core.CoreContext {
@@ -289,12 +274,13 @@ func TestRegisterRoutes_SetsUpEndpoints(t *testing.T) {
 	require.NoError(t, p.Init(coreCtx))
 
 	// Verify routes were registered on the mock registrar
-	// Should have at least: route:/api/v1
-	routeFound := false
+	assert.NotEmpty(t, registrar.routes, "expected routes to be registered")
+	hasAPIRoute := false
 	for _, r := range registrar.routes {
-		if r == "route:/api/v1" {
-			routeFound = true
+		if len(r) > 0 && r[0] == 'G' {
+			hasAPIRoute = true
+			break
 		}
 	}
-	assert.True(t, routeFound, "expected /api/v1 route to be registered")
+	assert.True(t, hasAPIRoute, "expected API routes to be registered")
 }

@@ -26,10 +26,12 @@ type testRouteRegistrar struct {
 	router chi.Router
 }
 
-func (r *testRouteRegistrar) Register(pattern string, handler interface{})                            {}
-func (r *testRouteRegistrar) Route(pattern string, fn func(chi.Router))                              { fn(r.router) }
-func (r *testRouteRegistrar) Group(fn func(chi.Router))                                               { r.router.Group(fn) }
-func (r *testRouteRegistrar) Mount(pattern string, router chi.Router)                                 {}
+func (r *testRouteRegistrar) Handle(pattern string, handler http.Handler) {
+	r.router.Handle(pattern, handler)
+}
+func (r *testRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
+	r.router.HandleFunc(pattern, handler)
+}
 func (r *testRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler)                      {}
 func (r *testRouteRegistrar) Middlewares() []func(http.Handler) http.Handler                          { return nil }
 

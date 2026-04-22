@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"io"
-	"mime/multipart"
 	"testing"
 	"time"
 )
@@ -378,7 +377,7 @@ func (m *mockContentService) ListContentTypes(ctx context.Context) ([]*ContentTy
 
 type mockMediaService struct{}
 
-func (m *mockMediaService) Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, uploaderID string) (*MediaFile, error) {
+func (m *mockMediaService) Upload(ctx context.Context, reader io.Reader, filename string, contentType string, size int64, uploaderID string) (*MediaFile, error) {
 	return nil, nil
 }
 
@@ -400,10 +399,6 @@ func (m *mockMediaService) GetURL(ctx context.Context, id string) (string, error
 
 func (m *mockMediaService) GenerateThumbnail(ctx context.Context, id string, width, height int) (string, error) {
 	return "", nil
-}
-
-func (m *mockMediaService) UploadFromReader(ctx context.Context, reader io.Reader, filename string, contentType string, uploaderID string) (*MediaFile, error) {
-	return nil, nil
 }
 
 type mockSearchService struct{}

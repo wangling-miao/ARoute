@@ -4,7 +4,6 @@
 package http
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -13,21 +12,11 @@ import (
 // RouteRegistrar defines the interface for route registration.
 // Plugins use this service to register their HTTP routes.
 type RouteRegistrar interface {
-	// Register registers a route pattern with handler.
-	// Pattern: HTTP method and path (e.g., "GET /api/users")
-	Register(pattern string, handler interface{})
+	// Handle registers a route pattern with an http.Handler.
+	Handle(pattern string, handler http.Handler)
 
-	// Route creates a sub-router for a path prefix.
-	// Useful for organizing routes by domain.
-	Route(pattern string, fn func(r chi.Router))
-
-	// Group creates a new route group with shared middleware.
-	// Middleware applied to the group affects all routes in it.
-	Group(fn func(r chi.Router))
-
-	// Mount mounts another router at a path prefix.
-	// Useful for mounting sub-applications or API versions.
-	Mount(pattern string, router chi.Router)
+	// HandleFunc registers a route pattern with an http.HandlerFunc.
+	HandleFunc(pattern string, handler http.HandlerFunc)
 
 	// Use collects middleware to be applied to all routes.
 	// Middleware is collected during the init phase and applied
@@ -52,31 +41,14 @@ func NewRouteRegistrar(router chi.Router) RouteRegistrar {
 	}
 }
 
-// Register registers a route pattern with handler.
-// Supports standard chi patterns: "GET /path", "POST /path", etc.
-func (r *routeRegistrar) Register(pattern string, handler interface{}) {
-	if h, ok := handler.(http.HandlerFunc); ok {
-		r.router.HandleFunc(pattern, h)
-	} else if h, ok := handler.(func(http.ResponseWriter, *http.Request)); ok {
-		r.router.HandleFunc(pattern, h)
-	} else {
-		log.Printf("[http] WARNING: Register() received unsupported handler type %T, ignoring", handler)
-	}
+// Handle registers a route pattern with an http.Handler.
+func (r *routeRegistrar) Handle(pattern string, handler http.Handler) {
+	r.router.Handle(pattern, handler)
 }
 
-// Route creates a sub-router for a path prefix.
-func (r *routeRegistrar) Route(pattern string, fn func(r chi.Router)) {
-	r.router.Route(pattern, fn)
-}
-
-// Group creates a new route group with shared middleware.
-func (r *routeRegistrar) Group(fn func(r chi.Router)) {
-	r.router.Group(fn)
-}
-
-// Mount mounts another router at a path prefix.
-func (r *routeRegistrar) Mount(pattern string, router chi.Router) {
-	r.router.Mount(pattern, router)
+// HandleFunc registers a route pattern with an http.HandlerFunc.
+func (r *routeRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
+	r.router.HandleFunc(pattern, handler)
 }
 
 // Use collects middleware to be applied later.

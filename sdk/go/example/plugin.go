@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/events"
 	sdk "github.com/wangling-miao/aroute/sdk/go"
@@ -86,10 +85,8 @@ func (p *ExamplePlugin) Init(ctx core.CoreContext) error {
 	if err != nil {
 		logger.Warn("Route registrar not available, skipping route registration", "error", err)
 	} else {
-		router.Route("/api/plugins/example", func(r chi.Router) {
-			r.Get("/hello", p.handleHello)
-			r.Get("/info", p.handleInfo)
-		})
+		router.HandleFunc("/api/plugins/example/hello", p.handleHello)
+			router.HandleFunc("/api/plugins/example/info", p.handleInfo)
 		logger.Info("Registered custom routes at /api/plugins/example/*")
 	}
 

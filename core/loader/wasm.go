@@ -102,7 +102,7 @@ func (p *FilesystemWasmPlugin) Init(ctx core.CoreContext) error {
 			return serviceID + 1
 		}).Export("service_get").
 		NewFunctionBuilder().
-		WithFunc(func(c context.Context, m api.Module, topicPtr, topicLen uint32) uint32 {
+		WithFunc(func(c context.Context, m api.Module, topicPtr, topicLen, callbackPtr, callbackLen uint32) uint32 {
 			return 1
 		}).Export("event_subscribe").
 		NewFunctionBuilder().
@@ -111,6 +111,11 @@ func (p *FilesystemWasmPlugin) Init(ctx core.CoreContext) error {
 			data := readWasmString(m, dataPtr, dataLen)
 			logger.Info("Wasm plugin published event", "topic", topic, "data", data)
 		}).Export("event_publish").
+		NewFunctionBuilder().
+		WithFunc(func(c context.Context, m api.Module, msgPtr, msgLen uint32) {
+			msg := readWasmString(m, msgPtr, msgLen)
+			logger.Info("wasm plugin log", "message", msg)
+		}).Export("host_log").
 		NewFunctionBuilder().
 		WithFunc(func(c context.Context, m api.Module, size uint32) uint32 {
 			return 256

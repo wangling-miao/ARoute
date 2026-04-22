@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/events"
 	"github.com/wangling-miao/aroute/core/services"
@@ -138,7 +136,7 @@ func TestMustNewBasePlugin_PanicsOnEmptyName(t *testing.T) {
 		if r == nil {
 			t.Fatal("Expected panic for empty name")
 		}
-		if !strings.Contains(r.(string), "plugin name is required") {
+		if !strings.Contains(r.(string), "name is required") {
 			t.Fatalf("Unexpected panic message: %v", r)
 		}
 	}()
@@ -643,9 +641,13 @@ func TestOnContentCreated_AllTypes(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	OnContentCreated(mockCtx, "", func(ctx context.Context, event events.Event) {
+	handlerID := OnContentCreated(mockCtx, "", func(ctx context.Context, event events.Event) {
 		close(done)
 	})
+
+	if handlerID == "" {
+		t.Fatal("OnContentCreated should return non-empty handler ID")
+	}
 
 	bus.Emit(context.Background(), events.Event{
 		Topic: "content.post.created",
@@ -671,9 +673,13 @@ func TestOnContentCreated_SpecificType(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	OnContentCreated(mockCtx, "post", func(ctx context.Context, event events.Event) {
+	handlerID := OnContentCreated(mockCtx, "post", func(ctx context.Context, event events.Event) {
 		close(done)
 	})
+
+	if handlerID == "" {
+		t.Fatal("OnContentCreated should return non-empty handler ID")
+	}
 
 	bus.Emit(context.Background(), events.Event{
 		Topic: "content.post.created",
@@ -973,7 +979,7 @@ func (m *mockContentSvc) ListContentTypes(ctx context.Context) ([]*interfaces.Co
 
 type mockMediaSvc struct{}
 
-func (m *mockMediaSvc) Upload(ctx context.Context, f multipart.File, h *multipart.FileHeader, uid string) (*interfaces.MediaFile, error) {
+func (m *mockMediaSvc) Upload(ctx context.Context, r io.Reader, filename string, contentType string, size int64, uid string) (*interfaces.MediaFile, error) {
 	return nil, nil
 }
 func (m *mockMediaSvc) GetByID(ctx context.Context, id string) (*interfaces.MediaFile, error) {
@@ -986,9 +992,6 @@ func (m *mockMediaSvc) List(ctx context.Context, q *interfaces.ListQuery) (*inte
 func (m *mockMediaSvc) GetURL(ctx context.Context, id string) (string, error) { return "", nil }
 func (m *mockMediaSvc) GenerateThumbnail(ctx context.Context, id string, w, h int) (string, error) {
 	return "", nil
-}
-func (m *mockMediaSvc) UploadFromReader(ctx context.Context, r io.Reader, fn, ct, uid string) (*interfaces.MediaFile, error) {
-	return nil, nil
 }
 
 type mockSearchSvc struct{}
@@ -1040,9 +1043,7 @@ func (m *mockThemeSvc) InstallTheme(ctx context.Context, path string) error {
 
 type mockRouteRegistrar struct{}
 
-func (m *mockRouteRegistrar) Register(pattern string, handler interface{})  {}
-func (m *mockRouteRegistrar) Route(pattern string, fn func(chi.Router))     {}
-func (m *mockRouteRegistrar) Group(fn func(chi.Router))                     {}
-func (m *mockRouteRegistrar) Mount(pattern string, router chi.Router)       {}
-func (m *mockRouteRegistrar) Use(mw ...func(http.Handler) http.Handler)     {}
+func (m *mockRouteRegistrar) Handle(pattern string, handler http.Handler)                   {}
+func (m *mockRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc)            {}
+func (m *mockRouteRegistrar) Use(mw ...func(http.Handler) http.Handler)                     {}
 func (m *mockRouteRegistrar) Middlewares() []func(http.Handler) http.Handler { return nil }

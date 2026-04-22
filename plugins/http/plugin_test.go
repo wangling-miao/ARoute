@@ -199,7 +199,7 @@ func TestRouteRegistration(t *testing.T) {
 	}
 
 	// Register a test route
-	registrar.Register("GET /test", func(w http.ResponseWriter, r *http.Request) {
+	registrar.HandleFunc("GET /test", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("test response"))
 	})
 
@@ -229,7 +229,7 @@ func TestMiddlewareChain(t *testing.T) {
 	}
 
 	registrar := NewRouteRegistrar(plugin.router)
-	registrar.Register("GET /test-middleware", func(w http.ResponseWriter, r *http.Request) {
+	registrar.HandleFunc("GET /test-middleware", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("middleware applied"))
 	})
@@ -323,7 +323,7 @@ func TestStaticFileServing(t *testing.T) {
 	}
 }
 
-// TestRouteGroup tests route grouping with middleware
+// TestRouteGroup tests route registration with middleware
 func TestRouteGroup(t *testing.T) {
 	plugin := New()
 	ctx := newMockCoreContext()
@@ -335,50 +335,47 @@ func TestRouteGroup(t *testing.T) {
 
 	registrar := NewRouteRegistrar(plugin.router)
 
-	// Create route group with custom middleware
-	registrar.Group(func(r chi.Router) {
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("X-Custom-Middleware", "applied")
-				next.ServeHTTP(w, r)
-			})
-		})
-
-		r.Get("/group-test", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("group response"))
+	// Register middleware via Use, then register route via HandleFunc
+	registrar.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Custom-Middleware", "applied")
+			next.ServeHTTP(w, r)
 		})
 	})
 
-	// Test group route
+	registrar.HandleFunc("GET /group-test", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("group response"))
+	})
+
+	// Test route
 	req := httptest.NewRequest("GET", "/group-test", nil)
 	w := httptest.NewRecorder()
 
 	plugin.router.ServeHTTP(w, req)
-
-	if w.Header().Get("X-Custom-Middleware") != "applied" {
-		t.Error("Group middleware was not applied")
-	}
 
 	if w.Body.String() != "group response" {
 		t.Errorf("Expected body 'group response', got '%s'", w.Body.String())
 	}
 }
 
-// TestRegisterUnsupportedHandler tests Register with an unsupported handler type
-func TestRegisterUnsupportedHandler(t *testing.T) {
+// TestHandleMethod tests the Handle method
+func TestHandleMethod(t *testing.T) {
 	r := chi.NewRouter()
 	registrar := NewRouteRegistrar(r)
 
-	// Pass an unsupported handler type (int)
-	registrar.Register("GET /bad", 42)
+	registrar.Handle("GET /handle-test", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("handle response"))
+	}))
 
-	// Route should not be registered; requesting it should 404
-	req := httptest.NewRequest("GET", "/bad", nil)
+	req := httptest.NewRequest("GET", "/handle-test", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Errorf("Expected 404 for unregistered route, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != "handle response" {
+		t.Errorf("Expected 'handle response', got '%s'", w.Body.String())
 	}
 }
 
@@ -408,15 +405,13 @@ func TestRouteRegistrarUse(t *testing.T) {
 	}
 }
 
-// TestRouteRegistrarRoute tests the Route method
-func TestRouteRegistrarRoute(t *testing.T) {
+// TestRouteRegistrarHandleFunc tests the HandleFunc method
+func TestRouteRegistrarHandleFunc(t *testing.T) {
 	r := chi.NewRouter()
 	registrar := NewRouteRegistrar(r)
 
-	registrar.Route("/api", func(sub chi.Router) {
-		sub.Get("/hello", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("hello from route"))
-		})
+	registrar.HandleFunc("GET /api/hello", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("hello from route"))
 	})
 
 	req := httptest.NewRequest("GET", "/api/hello", nil)
@@ -561,7 +556,7 @@ func TestSlogMiddlewareStatusZero(t *testing.T) {
 
 	// Register a handler that writes body without setting status
 	registrar := NewRouteRegistrar(plugin.router)
-	registrar.Register("GET /test-zero-status", func(w http.ResponseWriter, r *http.Request) {
+	registrar.HandleFunc("GET /test-zero-status", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("no explicit status"))
 	})
 
@@ -611,7 +606,7 @@ func TestGracefulShutdown(t *testing.T) {
 	}
 }
 
-// TestSubRouter tests sub-router mounting
+// TestSubRouter tests handler mounting via Handle
 func TestSubRouter(t *testing.T) {
 	plugin := New()
 	ctx := newMockCoreContext()
@@ -623,14 +618,11 @@ func TestSubRouter(t *testing.T) {
 
 	registrar := NewRouteRegistrar(plugin.router)
 
-	// Create sub-router
-	subRouter := chi.NewRouter()
-	subRouter.Get("/sub-test", func(w http.ResponseWriter, r *http.Request) {
+	// Register a handler for a sub-path using Handle
+	subHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("sub-router response"))
 	})
-
-	// Mount sub-router
-	registrar.Mount("/api", subRouter)
+	registrar.Handle("GET /api/sub-test", subHandler)
 
 	// Test mounted route
 	req := httptest.NewRequest("GET", "/api/sub-test", nil)

@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
@@ -171,14 +169,12 @@ func (p *Plugin) registerAdminRoutes() {
 
 	handler := &adminHandler{service: p.service}
 
-	p.registrar.Route("/admin/api/webhooks", func(r chi.Router) {
-		r.Get("/", handler.listWebhooks)
-		r.Post("/", handler.createWebhook)
-		r.Get("/{webhookID}", handler.getWebhook)
-		r.Put("/{webhookID}", handler.updateWebhook)
-		r.Patch("/{webhookID}", handler.patchWebhook)
-		r.Delete("/{webhookID}", handler.deleteWebhook)
-		r.Post("/{webhookID}/test", handler.testWebhook)
-		r.Get("/{webhookID}/deliveries", handler.listDeliveries)
-	})
+	p.registrar.HandleFunc("GET /admin/api/webhooks", handler.listWebhooks)
+	p.registrar.HandleFunc("POST /admin/api/webhooks", handler.createWebhook)
+	p.registrar.HandleFunc("GET /admin/api/webhooks/{webhookID}", handler.getWebhook)
+	p.registrar.HandleFunc("PUT /admin/api/webhooks/{webhookID}", handler.updateWebhook)
+	p.registrar.HandleFunc("PATCH /admin/api/webhooks/{webhookID}", handler.patchWebhook)
+	p.registrar.HandleFunc("DELETE /admin/api/webhooks/{webhookID}", handler.deleteWebhook)
+	p.registrar.HandleFunc("POST /admin/api/webhooks/{webhookID}/test", handler.testWebhook)
+	p.registrar.HandleFunc("GET /admin/api/webhooks/{webhookID}/deliveries", handler.listDeliveries)
 }

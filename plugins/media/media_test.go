@@ -699,7 +699,7 @@ func TestUpload(t *testing.T) {
 		Size:     int64(len(data)),
 	}
 
-	mf, err := svc.Upload(ctx, file, header, "user-1")
+	mf, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -748,7 +748,7 @@ func TestUploadExceedsMaxSize(t *testing.T) {
 		Size:     int64(len(bigData)),
 	}
 
-	_, err := svc.Upload(ctx, file, header, "user-1")
+	_, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err == nil {
 		t.Fatal("expected error for file exceeding max size")
 	}
@@ -769,7 +769,7 @@ func TestUploadInvalidMIME(t *testing.T) {
 		Size:     int64(len(invalidData)),
 	}
 
-	_, err := svc.Upload(ctx, file, header, "user-1")
+	_, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err == nil {
 		t.Fatal("expected error for invalid MIME type")
 	}
@@ -785,7 +785,7 @@ func TestGetByID(t *testing.T) {
 	data := createTestPNG(t, 50, 50)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "get.png", Size: int64(len(data))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -819,7 +819,7 @@ func TestDelete(t *testing.T) {
 	data := createTestPNG(t, 50, 50)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "del.png", Size: int64(len(data))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -855,7 +855,7 @@ func TestList(t *testing.T) {
 			Filename: fmt.Sprintf("list%d.png", i),
 			Size:     int64(len(data)),
 		}
-		if _, err := svc.Upload(ctx, file, header, fmt.Sprintf("user-%d", i)); err != nil {
+		if _, err := svc.UploadMultipart(ctx, file, header, fmt.Sprintf("user-%d", i)); err != nil {
 			t.Fatalf("upload %d: %v", i, err)
 		}
 	}
@@ -887,7 +887,7 @@ func TestListPagination(t *testing.T) {
 			Filename: fmt.Sprintf("page%d.png", i),
 			Size:     int64(len(data)),
 		}
-		if _, err := svc.Upload(ctx, file, header, "user-1"); err != nil {
+		if _, err := svc.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 			t.Fatalf("upload %d: %v", i, err)
 		}
 	}
@@ -915,7 +915,7 @@ func TestListNilQuery(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "nilq.png", Size: int64(len(data))}
-	if _, err := svc.Upload(ctx, file, header, "user-1"); err != nil {
+	if _, err := svc.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
@@ -941,7 +941,7 @@ func TestGetURL(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "url.png", Size: int64(len(data))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -975,7 +975,7 @@ func TestServiceGenerateThumbnail(t *testing.T) {
 	data := createTestPNG(t, 100, 100)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "thumb.png", Size: int64(len(data))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -1009,7 +1009,7 @@ func TestServiceGenerateThumbnailNonImage(t *testing.T) {
 	pdfData := []byte("%PDF-1.4 fake pdf content for testing purposes")
 	file := newTestFile(pdfData)
 	header := &multipart.FileHeader{Filename: "doc.pdf", Size: int64(len(pdfData))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload pdf: %v", err)
 	}
@@ -1327,7 +1327,7 @@ func TestServiceDeleteWithThumbnail(t *testing.T) {
 	data := createTestPNG(t, 50, 50)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "delthumb.png", Size: int64(len(data))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -1384,7 +1384,7 @@ func TestEmitEventNilEventBus(t *testing.T) {
 	header := &multipart.FileHeader{Filename: "nilevt.png", Size: int64(len(data))}
 
 	// Should not panic with nil event bus
-	mf, err := svc.Upload(ctx, file, header, "user-1")
+	mf, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload with nil event bus: %v", err)
 	}
@@ -1601,7 +1601,7 @@ func TestServiceUploadNonImage(t *testing.T) {
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "test.png", Size: int64(len(data))}
 
-	mf, err := svc.Upload(ctx, file, header, "user-1")
+	mf, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload image: %v", err)
 	}
@@ -1676,7 +1676,7 @@ func TestServiceListPageMeta(t *testing.T) {
 			Filename: fmt.Sprintf("meta%d.png", i),
 			Size:     int64(len(data)),
 		}
-		if _, err := svc.Upload(ctx, file, header, "user-1"); err != nil {
+		if _, err := svc.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 			t.Fatalf("upload %d: %v", i, err)
 		}
 	}
@@ -1707,7 +1707,7 @@ func TestServiceUploadLargeDataSniffsMIME(t *testing.T) {
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "large.png", Size: int64(len(data))}
 
-	mf, err := svc.Upload(ctx, file, header, "user-1")
+	mf, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload large data: %v", err)
 	}
@@ -1723,7 +1723,7 @@ func TestServiceListPerPageOverflow(t *testing.T) {
 	data := createTestPNG(t, 5, 5)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "overflow.png", Size: int64(len(data))}
-	if _, err := svc.Upload(ctx, file, header, "user-1"); err != nil {
+	if _, err := svc.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
@@ -1745,7 +1745,7 @@ func TestServiceUploadStorageError(t *testing.T) {
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "fail.png", Size: int64(len(data))}
 
-	_, err := svc.Upload(ctx, file, header, "user-1")
+	_, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err == nil {
 		t.Fatal("expected error when storage fails")
 	}
@@ -1761,7 +1761,7 @@ func TestServiceDeleteStorageErrors(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "delerr.png", Size: int64(len(data))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -1781,7 +1781,7 @@ func TestServiceGenerateThumbnailStorageGetError(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "thumberr.png", Size: int64(len(data))}
-	uploaded, err := svc.Upload(ctx, file, header, "user-1")
+	uploaded, err := svc.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -2090,12 +2090,12 @@ type testRouteRegistrar struct {
 	router *chi.Mux
 }
 
-func (r *testRouteRegistrar) Register(pattern string, handler interface{}) {}
-func (r *testRouteRegistrar) Route(pattern string, fn func(r2 chi.Router)) {
-	r.router.Route(pattern, fn)
+func (r *testRouteRegistrar) Handle(pattern string, handler http.Handler) {
+	r.router.Handle(pattern, handler)
 }
-func (r *testRouteRegistrar) Group(fn func(r2 chi.Router))        { r.router.Group(fn) }
-func (r *testRouteRegistrar) Mount(pattern string, h chi.Router)   { r.router.Mount(pattern, h) }
+func (r *testRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
+	r.router.HandleFunc(pattern, handler)
+}
 func (r *testRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {
 	r.router.Use(middlewares...)
 }
@@ -2138,7 +2138,7 @@ func TestHandleUploadSuccess(t *testing.T) {
 	}
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2167,7 +2167,7 @@ func TestHandleUploadNoFile(t *testing.T) {
 	writer := multipart.NewWriter(&buf)
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2190,7 +2190,7 @@ func TestHandleUploadInvalidMIME(t *testing.T) {
 	part.Write(invalidData)
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2216,7 +2216,7 @@ func TestHandleUploadOversized(t *testing.T) {
 	part.Write(bigData)
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2229,7 +2229,7 @@ func TestHandleUploadOversized(t *testing.T) {
 func TestHandleListEmpty(t *testing.T) {
 	_, router := setupPluginWithRoutes(t)
 
-	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2262,11 +2262,11 @@ func TestHandleListWithItems(t *testing.T) {
 	data := createTestPNG(t, 30, 30)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "list_test.png", Size: int64(len(data))}
-	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+	if _, err := p.service.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2299,13 +2299,13 @@ func TestHandleListPagination(t *testing.T) {
 			Filename: fmt.Sprintf("page_test_%d.png", i),
 			Size:     int64(len(data)),
 		}
-		if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+		if _, err := p.service.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 			t.Fatalf("upload %d: %v", i, err)
 		}
 	}
 
 	// Request page 1 with per_page=2
-	req := httptest.NewRequest("GET", "/api/v1/media/?page=1&per_page=2", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media?page=1&per_page=2", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2334,12 +2334,12 @@ func TestHandleListSortOrder(t *testing.T) {
 		data := createTestPNG(t, 5, 5)
 		file := newTestFile(data)
 		header := &multipart.FileHeader{Filename: name, Size: int64(len(data))}
-		if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+		if _, err := p.service.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 			t.Fatalf("upload %s: %v", name, err)
 		}
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/media/?sort=filename&order=asc", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media?sort=filename&order=asc", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2355,7 +2355,7 @@ func TestHandleDeleteSuccess(t *testing.T) {
 	data := createTestPNG(t, 20, 20)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "delete_test.png", Size: int64(len(data))}
-	uploaded, err := p.service.Upload(ctx, file, header, "user-1")
+	uploaded, err := p.service.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -2391,7 +2391,7 @@ func TestHandleDeleteEmptyID(t *testing.T) {
 	_, router := setupPluginWithRoutes(t)
 
 	// chi won't route to /{id} without an id segment, so this hits 404 from router
-	req := httptest.NewRequest("DELETE", "/api/v1/media/", nil)
+	req := httptest.NewRequest("DELETE", "/api/v1/media", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2560,11 +2560,11 @@ func TestHandleListWithSearch(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "searchable.png", Size: int64(len(data))}
-	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+	if _, err := p.service.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/media/?search=searchable", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media?search=searchable", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2577,7 +2577,7 @@ func TestHandleListInvalidPage(t *testing.T) {
 	_, router := setupPluginWithRoutes(t)
 
 	// Page 0 should default to page 1
-	req := httptest.NewRequest("GET", "/api/v1/media/?page=0", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media?page=0", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2590,7 +2590,7 @@ func TestHandleListInvalidPerPage(t *testing.T) {
 	_, router := setupPluginWithRoutes(t)
 
 	// per_page=0 should default to 20
-	req := httptest.NewRequest("GET", "/api/v1/media/?per_page=0", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media?per_page=0", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2603,7 +2603,7 @@ func TestHandleListPerPageOverflow(t *testing.T) {
 	_, router := setupPluginWithRoutes(t)
 
 	// per_page > 100 should be capped
-	req := httptest.NewRequest("GET", "/api/v1/media/?per_page=500", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media?per_page=500", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2616,7 +2616,7 @@ func TestHandleListDefaultOrder(t *testing.T) {
 	_, router := setupPluginWithRoutes(t)
 
 	// No order param should default to "desc"
-	req := httptest.NewRequest("GET", "/api/v1/media/?order=invalid", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media?order=invalid", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2638,7 +2638,7 @@ func TestHandleUploadWithAuthUserID(t *testing.T) {
 	part.Write(data)
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	// Set user ID in context
 	ctx := context.WithValue(req.Context(), ctxKeyUserID, "auth-user-1")
@@ -2668,7 +2668,7 @@ func TestHandleUploadFileOpenError(t *testing.T) {
 	// directly, so we test via a malformed multipart form body
 	_, router := setupPluginWithRoutes(t)
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", strings.NewReader("not a multipart form"))
+	req := httptest.NewRequest("POST", "/api/v1/media", strings.NewReader("not a multipart form"))
 	req.Header.Set("Content-Type", "multipart/form-data")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2721,13 +2721,13 @@ func TestHandleListWithUploaderIDFilter(t *testing.T) {
 			Filename: fmt.Sprintf("filter_%d.png", i),
 			Size:     int64(len(data)),
 		}
-		if _, err := p.service.Upload(ctx, file, header, uid); err != nil {
+		if _, err := p.service.UploadMultipart(ctx, file, header, uid); err != nil {
 			t.Fatalf("upload %d: %v", i, err)
 		}
 	}
 
 	// List all — should have 2 items
-	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2761,7 +2761,7 @@ func TestHandleUploadSuccessResponseHasURL(t *testing.T) {
 	part.Write(data)
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2791,11 +2791,11 @@ func TestHandleListItemsHaveURLs(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "list_url.png", Size: int64(len(data))}
-	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+	if _, err := p.service.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2840,7 +2840,7 @@ func TestHandleUploadStorageError(t *testing.T) {
 	part.Write(data)
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2866,7 +2866,7 @@ func TestHandleUploadGetURLFail(t *testing.T) {
 	part.Write(data)
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/v1/media/", &buf)
+	req := httptest.NewRequest("POST", "/api/v1/media", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -2897,14 +2897,14 @@ func TestHandleListGetURLFail(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "list_url_fail.png", Size: int64(len(data))}
-	if _, err := p.service.Upload(ctx, file, header, "user-1"); err != nil {
+	if _, err := p.service.UploadMultipart(ctx, file, header, "user-1"); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
 	// Now swap storage to one that fails GetURL
 	p.service.storage = &mockSaveOnlyErrorURLStorage{}
 
-	req := httptest.NewRequest("GET", "/api/v1/media/", nil)
+	req := httptest.NewRequest("GET", "/api/v1/media", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2941,7 +2941,7 @@ func TestHandleDeleteStoreError(t *testing.T) {
 	data := createTestPNG(t, 10, 10)
 	file := newTestFile(data)
 	header := &multipart.FileHeader{Filename: "del_err.png", Size: int64(len(data))}
-	uploaded, err := p.service.Upload(ctx, file, header, "user-1")
+	uploaded, err := p.service.UploadMultipart(ctx, file, header, "user-1")
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
