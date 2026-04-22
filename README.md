@@ -470,11 +470,11 @@ make admin-dev
 - [x] Webhook 插件（HTTP POST 投递、HMAC-SHA256 签名、SSRF 防护、自动禁用）
 - [x] Admin UI（React + Arco Design + TipTap）
 - [x] Plugin SDK（Go SDK + Wasm 模板）
-
+- [x] 默认主题（Go template 博客主题）
 
 ### 🚧 开发中
 
-- [ ] 默认主题（Go template 博客主题）
+
 - [ ] 集成测试与端到端测试
 - [ ] 文档与 Dockerfile
 

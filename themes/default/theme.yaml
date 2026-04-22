@@ -1,12 +1,17 @@
 name: "ARoute Default"
 version: "1.0.0"
-author: "ARoute Team"
-description: "Default blog theme for ARoute CMS with responsive design"
+author: "wangling"
+description: "A modern, clean blog theme for ARoute CMS with responsive design, smooth animations, and elegant typography"
 engine: "gotemplate"
 aroute_version: ">=1.0.0"
 settings:
-  primary_color: "#2563eb"
+  primary_color: "#4f46e5"
+  accent_color: "#06b6d4"
   show_sidebar: true
   posts_per_page: 10
   show_author: true
   show_date: true
+  show_reading_time: true
+  hero_enabled: true
+  hero_title: "Welcome to Our Blog"
+  hero_subtitle: "Thoughts, stories and ideas worth sharing"

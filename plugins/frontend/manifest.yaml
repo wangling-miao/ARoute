@@ -1,0 +1,20 @@
+name: frontend
+version: 1.0.0
+description: Frontend page rendering plugin that serves theme-rendered HTML pages
+author: wangling
+license: MIT
+engine: native
+requires:
+  - http
+  - theme
+  - content
+after:
+  - http
+  - theme
+  - content
+provides:
+  - frontend.service
+keywords:
+  - frontend
+  - theme
+  - pages

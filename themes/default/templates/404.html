@@ -1,10 +1,38 @@
-{{template "layouts/base.html" .}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
 
-{{define "content"}}
-<div class="error-page">
-  <h1 class="error-title">404</h1>
-  <p class="error-message">Page not found</p>
-  <p class="error-description">The page you are looking for does not exist or has been moved.</p>
-  <a href="/" class="error-link">&larr; Back to homepage</a>
-</div>
-{{end}}
+  <main class="main-content">
+  <section class="error-page">
+    <div class="container">
+      <div class="error-page__inner">
+        <div class="error-page__graphic">
+          <span class="error-page__code">404</span>
+          <div class="error-page__orbit">
+            <span class="error-page__dot"></span>
+            <span class="error-page__dot"></span>
+            <span class="error-page__dot"></span>
+          </div>
+        </div>
+        <h1 class="error-page__title">Page not found</h1>
+        <p class="error-page__text">The page you're looking for doesn't exist or has been moved.</p>
+        <div class="error-page__actions">
+          <a href="/" class="btn btn--primary">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l-6 6h3v5h6V8h3L8 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            Go Home
+          </a>
+          <a href="/posts" class="btn btn--secondary">Browse Posts</a>
+        </div>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

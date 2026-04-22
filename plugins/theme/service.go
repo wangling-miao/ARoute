@@ -70,8 +70,9 @@ func (s *Service) LoadThemes(themesDir string) error {
 			)
 			continue
 		}
-		s.themes[manifest.Name] = manifest
+		s.themes[entry.Name()] = manifest
 		s.logger.Info("Loaded theme manifest",
+			"slug", entry.Name(),
 			"name", manifest.Name,
 			"engine", manifest.Engine,
 			"version", manifest.Version,

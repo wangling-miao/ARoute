@@ -1,10 +1,25 @@
-{{template "layouts/base.html" .}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
 
-{{define "content"}}
-<article class="page">
-  <h1 class="page-title">{{.Page.Title}}</h1>
-  <div class="page-body">
-    {{safeHTML .Page.Body}}
-  </div>
-</article>
-{{end}}
+  <main class="main-content">
+  <article class="static-page">
+    <div class="container container--narrow">
+      <header class="page-header">
+        <h1 class="page-header__title">{{.Page.Title}}</h1>
+      </header>
+      <div class="page-body prose">
+        {{safeHTML .Page.Body}}
+      </div>
+    </div>
+  </article>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

@@ -35,7 +35,7 @@ func setupTestService(t *testing.T) *Service {
 	}
 
 	dbSvc := database.NewService(db, database.DriverSQLite)
-	store := NewStore(dbSvc)
+	store := NewStore(dbSvc, "sqlite")
 
 	ctx := context.Background()
 	if err := store.CreateTables(ctx); err != nil {

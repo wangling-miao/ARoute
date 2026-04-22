@@ -48,16 +48,17 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 		return fmt.Errorf("database service not available: %w", err)
 	}
 
-	store := NewStore(dbSvc)
+	var driverName string
+	if ctx.Config() != nil {
+		driverName = ctx.Config().GetString("database.driver")
+	}
+
+	store := NewStore(dbSvc, driverName)
 	if err := store.CreateTables(ctx.Context()); err != nil {
 		return fmt.Errorf("create content tables: %w", err)
 	}
 	logger.Info("Content tables created or verified")
 
-	var driverName string
-	if ctx.Config() != nil {
-		driverName = ctx.Config().GetString("database.driver")
-	}
 	svc := NewService(store, ctx.Events(), logger, driverName)
 	p.service = svc
 

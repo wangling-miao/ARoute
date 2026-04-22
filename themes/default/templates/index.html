@@ -1,38 +1,106 @@
-{{template "layouts/base.html" .}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
 
-{{define "content"}}
-<h1 class="page-title">{{.Title}}</h1>
-
-{{if .Posts}}
-<section class="post-list">
-  {{range .Posts}}
-  <article class="post-item">
-    <h2 class="post-title">
-      <a href="/posts/{{.Slug}}">{{.Title}}</a>
-    </h2>
-    <div class="post-meta">
-      {{if .Author}}<span class="post-author">{{.Author}}</span>{{end}}
-      {{if .Date}}<time datetime="{{.Date}}">{{formatDate .Date "Jan 02, 2006"}}</time>{{end}}
+  <main class="main-content">
+  {{if .Hero}}
+  <section class="hero">
+    <div class="container">
+      <div class="hero-content">
+        <h1 class="hero-title">{{default "Welcome to Our Blog" .Hero.Title}}</h1>
+        <p class="hero-subtitle">{{default "Thoughts, stories and ideas worth sharing" .Hero.Subtitle}}</p>
+        <a href="/posts" class="hero-cta">Browse Posts
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
     </div>
-    {{if .Excerpt}}
-    <p class="post-excerpt">{{truncate .Excerpt 200}}</p>
-    {{end}}
-  </article>
+  </section>
   {{end}}
-</section>
 
-{{if .Pagination}}
-<nav class="pagination">
-  {{if .Pagination.HasPrev}}
-  <a href="?page={{.Pagination.PrevPage}}" class="pagination-link pagination-prev">&laquo; Newer posts</a>
-  {{end}}
-  {{if .Pagination.HasNext}}
-  <a href="?page={{.Pagination.NextPage}}" class="pagination-link pagination-next">Older posts &raquo;</a>
-  {{end}}
-</nav>
-{{end}}
+  <section class="section">
+    <div class="container">
+      {{if .Posts}}
+      <div class="section-header">
+        <h2 class="section-title">Latest Posts</h2>
+        <a href="/posts" class="section-link">View all &rarr;</a>
+      </div>
 
-{{else}}
-<p class="no-posts">No posts yet.</p>
-{{end}}
-{{end}}
+      <div class="post-grid">
+        {{range $i, $post := .Posts}}
+        {{if eq $i 0}}
+        <article class="post-card post-card--featured">
+          <div class="post-card__body">
+            <div class="post-card__meta">
+              {{if $post.Date}}<time datetime="{{$post.Date}}">{{formatDate $post.Date "Jan 02, 2006"}}</time>{{end}}
+            </div>
+            <h2 class="post-card__title">
+              <a href="/posts/{{$post.Slug}}">{{$post.Title}}</a>
+            </h2>
+            {{if $post.Excerpt}}
+            <p class="post-card__excerpt">{{$post.Excerpt}}</p>
+            {{end}}
+            <a href="/posts/{{$post.Slug}}" class="post-card__link">Read article &rarr;</a>
+          </div>
+        </article>
+        {{else}}
+        <article class="post-card">
+          <div class="post-card__body">
+            <div class="post-card__meta">
+              {{if $post.Date}}<time datetime="{{$post.Date}}">{{formatDate $post.Date "Jan 02, 2006"}}</time>{{end}}
+            </div>
+            <h3 class="post-card__title">
+              <a href="/posts/{{$post.Slug}}">{{$post.Title}}</a>
+            </h3>
+            {{if $post.Excerpt}}
+            <p class="post-card__excerpt">{{truncate $post.Excerpt 140}}</p>
+            {{end}}
+          </div>
+        </article>
+        {{end}}
+        {{end}}
+      </div>
+
+      {{if .Pagination}}
+      <nav class="pagination">
+        {{if .Pagination.HasPrev}}
+        <a href="?page={{.Pagination.PrevPage}}" class="pagination-btn pagination-btn--prev">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Newer
+        </a>
+        {{end}}
+        <span class="pagination-info">Page {{.Pagination.CurrentPage}} of {{.Pagination.TotalPages}}</span>
+        {{if .Pagination.HasNext}}
+        <a href="?page={{.Pagination.NextPage}}" class="pagination-btn pagination-btn--next">
+          Older
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        {{end}}
+      </nav>
+      {{end}}
+
+      {{else}}
+      <div class="empty-state">
+        <div class="empty-state__icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect x="8" y="6" width="32" height="36" rx="3" stroke="currentColor" stroke-width="2"/>
+            <line x1="14" y1="16" x2="34" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <line x1="14" y1="22" x2="34" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <line x1="14" y1="28" x2="26" y2="28" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3 class="empty-state__title">No posts yet</h3>
+        <p class="empty-state__text">Check back soon for new content.</p>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

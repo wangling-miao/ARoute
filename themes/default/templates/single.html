@@ -1,19 +1,40 @@
-{{template "layouts/base.html" .}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
 
-{{define "content"}}
-<article class="single-content">
-  <h1 class="content-title">{{.Title}}</h1>
-  {{if .Date}}
-  <div class="content-meta">
-    <time datetime="{{.Date}}">{{formatDate .Date "Jan 02, 2006"}}</time>
-  </div>
-  {{end}}
-  <div class="content-body">
-    {{safeHTML .Body}}
-  </div>
+  <main class="main-content">
+  <article class="single-post">
+    <div class="container container--narrow">
+      <header class="post-header">
+        {{if .Date}}
+        <div class="post-header__meta">
+          <time datetime="{{.Date}}">{{formatDate .Date "Jan 02, 2006"}}</time>
+        </div>
+        {{end}}
+        <h1 class="post-header__title">{{.Title}}</h1>
+      </header>
 
-  <nav class="post-nav">
-    <a href="/">&larr; Back to home</a>
-  </nav>
-</article>
-{{end}}
+      <div class="post-body prose">
+        {{safeHTML .Body}}
+      </div>
+
+      <footer class="post-footer">
+        <nav class="post-nav">
+          <a href="/" class="post-nav__link">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Back to home
+          </a>
+        </nav>
+      </footer>
+    </div>
+  </article>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

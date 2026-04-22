@@ -1,14 +1,36 @@
 {{define "partials/header.html"}}
-<header class="site-header">
-  <div class="container">
-    <h1 class="site-name">
-      <a href="/">{{.Site.Title}}</a>
-    </h1>
-    {{if .Site.Tagline}}
-    <p class="site-tagline">{{.Site.Tagline}}</p>
-    {{end}}
-    <nav class="site-nav">
-      <a href="/">Home</a>
+<header class="site-header" id="site-header">
+  <div class="container header-inner">
+    <div class="brand">
+      <a href="/" class="logo">
+        <span class="logo-icon">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="28" height="28" rx="6" fill="url(#logo-grad)"/>
+            <path d="M8 14h12M14 8v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+            <defs>
+              <linearGradient id="logo-grad" x1="0" y1="0" x2="28" y2="28">
+                <stop stop-color="#4f46e5"/>
+                <stop offset="1" stop-color="#06b6d4"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </span>
+        <span class="logo-text">{{.Site.Title}}</span>
+      </a>
+      {{if .Site.Tagline}}
+      <span class="tagline">{{.Site.Tagline}}</span>
+      {{end}}
+    </div>
+
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+      <span class="hamburger"></span>
+    </button>
+
+    <nav class="main-nav" id="main-nav" role="navigation">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/posts" class="nav-link">Posts</a>
+      <a href="/archive" class="nav-link">Archive</a>
+      <a href="/about" class="nav-link">About</a>
     </nav>
   </div>
 </header>

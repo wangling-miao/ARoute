@@ -39,11 +39,12 @@ func validateIdentifier(name string) error {
 }
 
 type Store struct {
-	db interfaces.DatabaseService
+	db       interfaces.DatabaseService
+	driver   string
 }
 
-func NewStore(db interfaces.DatabaseService) *Store {
-	return &Store{db: db}
+func NewStore(db interfaces.DatabaseService, driver string) *Store {
+	return &Store{db: db, driver: driver}
 }
 
 func (s *Store) MigratePartialUniqueIndex(ctx context.Context, tableName string) {
@@ -383,7 +384,11 @@ func (s *Store) ListContent(ctx context.Context, ct *interfaces.ContentType, que
 	if query != nil && len(query.Filters) > 0 {
 		if statusVal, ok := query.Filters["status"]; ok {
 			if sv, _ := statusVal.(string); sv == "published" {
-				whereClauses = append(whereClauses, "(published_at IS NULL OR published_at <= datetime('now'))")
+				nowFn := "datetime('now')"
+				if s.driver == "postgres" {
+					nowFn = "NOW()"
+				}
+				whereClauses = append(whereClauses, fmt.Sprintf("(published_at IS NULL OR published_at <= %s)", nowFn))
 			}
 		}
 	}

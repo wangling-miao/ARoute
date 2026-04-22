@@ -470,10 +470,11 @@ make admin-dev
 - [x] Webhook plugin (HTTP POST, HMAC-SHA256, SSRF protection, auto-disable)
 - [x] Admin UI (React + Arco Design + TipTap)
 - [x] Plugin SDK (Go SDK + Wasm template)
+- [x] Default theme (Go template blog theme)
 
 ### 🚧 In Progress
 
-- [ ] Default theme (Go template blog theme)
+
 - [ ] Integration & E2E tests
 - [ ] Documentation & Dockerfile
 

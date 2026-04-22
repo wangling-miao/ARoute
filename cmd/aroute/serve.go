@@ -28,6 +28,7 @@ import (
 	"github.com/wangling-miao/aroute/plugins/cache"
 	"github.com/wangling-miao/aroute/plugins/content"
 	"github.com/wangling-miao/aroute/plugins/database"
+	"github.com/wangling-miao/aroute/plugins/frontend"
 	httpplugin "github.com/wangling-miao/aroute/plugins/http"
 	"github.com/wangling-miao/aroute/plugins/media"
 	"github.com/wangling-miao/aroute/plugins/queue"
@@ -178,6 +179,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 	pluginLoader.Register("admin", func() core.Plugin {
 		return admin.New()
+	})
+	pluginLoader.Register("frontend", func() core.Plugin {
+		return frontend.New()
 	})
 
 	// L3 Wasm loader: loads community plugins from data/plugins/ at runtime
