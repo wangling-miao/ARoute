@@ -70,7 +70,6 @@ export default function Login() {
                 value={email}
                 onChange={setEmail}
                 placeholder="admin@example.com"
-                style={{ paddingLeft: 42 }}
                 autoComplete="email"
               />
             </div>
@@ -86,7 +85,6 @@ export default function Login() {
                 value={password}
                 onChange={setPassword}
                 placeholder="••••••••"
-                style={{ paddingLeft: 42 }}
                 autoComplete="current-password"
               />
             </div>

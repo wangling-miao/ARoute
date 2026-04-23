@@ -1,5 +1,5 @@
 // Package admin provides the Admin UI plugin for Aroute CMS.
-// It serves the React SPA embedded via go:embed at /admin/,
+// It serves the React SPA from data/plugin_data/admin/ at /admin/,
 // with support for development mode proxy to Vite dev server.
 package admin
 
@@ -7,10 +7,12 @@ import (
 	_ "embed"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -44,6 +46,75 @@ func New() *Plugin {
 	}
 }
 
+// seedAdminAssets copies admin frontend assets from the project's admin/dist
+// directory into the plugin's data directory if they don't already exist.
+func seedAdminAssets(adminDir string, logger *slog.Logger) {
+	var sourceDir string
+	candidates := []string{"admin/dist"}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "admin", "dist"),
+			filepath.Join(exeDir, "..", "admin", "dist"),
+		)
+	}
+
+	for _, dir := range candidates {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			sourceDir = dir
+			break
+		}
+	}
+
+	if sourceDir == "" {
+		logger.Warn("Admin frontend assets not found, admin UI will not be available")
+		return
+	}
+
+	// Skip if already seeded (avoid overwriting user customizations)
+	if _, err := os.Stat(filepath.Join(adminDir, "index.html")); err == nil {
+		return
+	}
+
+	if err := os.MkdirAll(adminDir, 0o755); err != nil {
+		logger.Error("Failed to create admin assets directory", "error", err)
+		return
+	}
+
+	if err := copyDir(sourceDir, adminDir); err != nil {
+		logger.Error("Failed to seed admin assets", "error", err)
+		return
+	}
+
+	logger.Info("Seeded admin frontend assets")
+}
+
+// copyDir recursively copies all files from src to dst.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(destPath, 0o755)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destPath, data, 0o644)
+	})
+}
+
 // Init initializes the Admin UI plugin.
 func (p *Plugin) Init(ctx core.CoreContext) error {
 	p.mu.Lock()
@@ -57,18 +128,20 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	// Check dev mode
 	p.devMode = os.Getenv("AROUTE_DEV_MODE") == "true"
 
+	adminDir := ctx.DataDir()
+
 	if p.devMode {
 		logger.Info("Admin UI running in development mode (proxy to Vite)")
 		viteURL, _ := url.Parse("http://localhost:5173")
 		p.devProxy = httputil.NewSingleHostReverseProxy(viteURL)
-		// Rewrite to preserve /admin/ prefix
 		defaultDirector := p.devProxy.Director
 		p.devProxy.Director = func(req *http.Request) {
 			defaultDirector(req)
 			req.Host = viteURL.Host
 		}
 	} else {
-		logger.Info("Admin UI running in production mode (embedded assets)")
+		logger.Info("Admin UI running in production mode (file system)")
+		seedAdminAssets(adminDir, logger)
 	}
 
 	// Build the handler
@@ -81,7 +154,7 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	}
 
 	registrar.Handle("/admin", http.HandlerFunc(p.serveAdmin))
-		registrar.Handle("/admin/*", http.HandlerFunc(p.serveAdmin))
+	registrar.Handle("/admin/*", http.HandlerFunc(p.serveAdmin))
 
 	logger.Info("Admin UI plugin initialized successfully",
 		"dev_mode", p.devMode,
@@ -98,27 +171,19 @@ func (p *Plugin) buildHandler() http.Handler {
 		})
 	}
 
-	subFS, err := fs.Sub(adminDistFS, "dist")
-	if err != nil {
-		p.ctx.Logger().Error("Failed to create sub filesystem for admin UI", "error", err)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "Admin UI assets not available", http.StatusInternalServerError)
-		})
-	}
-
-	fileServer := http.FileServer(http.FS(subFS))
+	adminDir := p.ctx.DataDir()
+	fileServer := http.FileServer(http.Dir(adminDir))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/admin")
 		if path == "" || path == "/" {
-			p.serveIndexHTML(w, subFS)
+			p.serveIndexHTML(w, adminDir)
 			return
 		}
 
 		cleanPath := strings.TrimPrefix(path, "/")
-		f, err := subFS.Open(cleanPath)
-		if err == nil {
-			f.Close()
+		targetPath := filepath.Join(adminDir, filepath.Clean(cleanPath))
+		if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
 			if strings.Contains(path, "/assets/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
@@ -127,14 +192,14 @@ func (p *Plugin) buildHandler() http.Handler {
 			return
 		}
 
-		p.serveIndexHTML(w, subFS)
+		p.serveIndexHTML(w, adminDir)
 	})
 }
 
-func (p *Plugin) serveIndexHTML(w http.ResponseWriter, fsys fs.FS) {
+func (p *Plugin) serveIndexHTML(w http.ResponseWriter, adminDir string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	data, err := fs.ReadFile(fsys, "index.html")
+	data, err := os.ReadFile(filepath.Join(adminDir, "index.html"))
 	if err != nil {
 		http.Error(w, "Admin UI not available", http.StatusInternalServerError)
 		return

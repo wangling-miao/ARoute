@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -32,10 +33,22 @@ func newMockCoreContext() *mockCoreContext {
 		services:  services.NewContainer(),
 		config:    &mockConfig{data: map[string]interface{}{}},
 		logger:    slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		dataDir:   os.TempDir(),
+		dataDir:   createMockAdminDir(),
 		pluginDir: os.TempDir(),
 		ctx:       context.Background(),
 	}
+}
+
+// createMockAdminDir creates a temp directory with a mock index.html.
+func createMockAdminDir() string {
+	dir, err := os.MkdirTemp("", "admin-test-*")
+	if err != nil {
+		panic(err)
+	}
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><html><head></head><body>admin</body></html>"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
+	os.WriteFile(filepath.Join(dir, "assets", "index-CamzK9Cm.js"), []byte("// js"), 0o644)
+	return dir
 }
 
 func (m *mockCoreContext) Services() core.ServiceContainer { return m.services }

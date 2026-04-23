@@ -242,10 +242,19 @@
   border-radius: 14px !important;
   color: var(--color-text) !important;
   height: 48px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
   font-size: 0.9375rem !important;
+  padding-left: 42px !important;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+/* Inner input inside Input.Password wrapper needs left padding reset */
+.inputWrap :global(.arco-input-wrapper) :global(.arco-input) {
+  padding-left: 0 !important;
+  height: 100% !important;
 }
 
 [data-theme='dark'] .inputWrap :global(.arco-input),

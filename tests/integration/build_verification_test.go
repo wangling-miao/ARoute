@@ -37,7 +37,7 @@ func TestBuild_GoreleaserConfig(t *testing.T) {
 }
 
 // TestBuild_CurrentPlatform verifies the project compiles successfully
-// on the current platform (excluding packages that need frontend assets).
+// on the current platform.
 func TestBuild_CurrentPlatform(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
 
@@ -68,12 +68,7 @@ func TestBuild_CurrentPlatform(t *testing.T) {
 		t.Logf("Core packages build succeeded on %s/%s", runtime.GOOS, runtime.GOARCH)
 	})
 
-	// Full binary build requires admin/dist in the plugins/admin/ location
 	t.Run("go_build_full_binary", func(t *testing.T) {
-		embedDistDir := filepath.Join(projectRoot, "plugins", "admin", "dist")
-		if _, err := os.Stat(embedDistDir); os.IsNotExist(err) {
-			t.Skip("plugins/admin/dist not built (run 'npm run build' in admin/ and copy dist/ to plugins/admin/dist/)")
-		}
 		cmd := exec.Command("go", "build", "-o", os.DevNull, "./cmd/aroute/")
 		cmd.Dir = projectRoot
 		output, err := cmd.CombinedOutput()
@@ -125,7 +120,7 @@ func TestBuild_CrossPlatformTargets(t *testing.T) {
 func TestBuild_GoVet(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
 
-	// Vet only packages that don't require admin/dist
+	// Vet core packages
 	pkgs := []string{
 		"./core/...",
 		"./sdk/...",

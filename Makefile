@@ -20,9 +20,7 @@ LDFLAGS := -s -w \
 all: lint test build
 
 build:
-	@rm -rf plugins/admin/dist && cp -r $(ADMIN_DIR)/dist plugins/admin/dist
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
-	@rm -rf plugins/admin/dist
 
 test:
 	go test -race -coverprofile=coverage.txt -covermode=atomic ./...
