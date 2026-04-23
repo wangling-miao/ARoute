@@ -82,6 +82,9 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	// Theme asset serving
 	registrar.Handle("/themes/{theme}/assets/*", http.HandlerFunc(handler.serveThemeAsset))
 
+	// Catch-all: render themed 404 for any unmatched public URL
+	registrar.HandleFunc("/*", handler.render404)
+
 	logger.Info("Frontend plugin initialized successfully")
 	return nil
 }
