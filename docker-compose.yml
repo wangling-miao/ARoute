@@ -1,0 +1,86 @@
+# ARoute CMS — Production Docker Compose
+#
+# Usage:
+#   docker compose up -d
+#
+# Override secrets via .env file:
+#   AROUTE_AUTH_JWT_SECRET=<your-secret>
+#   AROUTE_AUTH_ADMIN_PASSWORD=<admin-password>
+#   POSTGRES_USER=aroute
+#   POSTGRES_PASSWORD=<db-password>
+#   POSTGRES_DB=aroute
+
+services:
+  aroute:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${AROUTE_VERSION:-dev}
+        COMMIT: ${AROUTE_COMMIT:-unknown}
+        BUILD_DATE: ${AROUTE_BUILD_DATE:-unknown}
+    image: aroute/cms:${AROUTE_VERSION:-latest}
+    container_name: aroute
+    restart: unless-stopped
+    ports:
+      - "${AROUTE_PORT:-8080}:8080"
+    environment:
+      AROUTE_SERVER_HOST: "0.0.0.0"
+      AROUTE_SERVER_PORT: "8080"
+      AROUTE_DATABASE_DRIVER: "postgres"
+      AROUTE_DATABASE_POSTGRES_HOST: "postgres"
+      AROUTE_DATABASE_POSTGRES_PORT: "5432"
+      AROUTE_DATABASE_POSTGRES_USER: "${POSTGRES_USER:-aroute}"
+      AROUTE_DATABASE_POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      AROUTE_DATABASE_POSTGRES_DBNAME: "${POSTGRES_DB:-aroute}"
+      AROUTE_DATABASE_POSTGRES_SSLMODE: "disable"
+      AROUTE_AUTH_JWT_SECRET: "${AROUTE_AUTH_JWT_SECRET:?Set AROUTE_AUTH_JWT_SECRET in .env}"
+      AROUTE_AUTH_ADMIN_EMAIL: "${AROUTE_AUTH_ADMIN_EMAIL:-admin@localhost}"
+      AROUTE_AUTH_ADMIN_PASSWORD: "${AROUTE_AUTH_ADMIN_PASSWORD:?Set AROUTE_AUTH_ADMIN_PASSWORD in .env}"
+      AROUTE_LOG_LEVEL: "${AROUTE_LOG_LEVEL:-info}"
+      AROUTE_LOG_FORMAT: "json"
+      AROUTE_DATA_DIR: "/data"
+    volumes:
+      - aroute_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks:
+      - aroute-net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aroute-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-aroute}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: "${POSTGRES_DB:-aroute}"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aroute} -d ${POSTGRES_DB:-aroute}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - aroute-net
+
+volumes:
+  aroute_data:
+    name: aroute_data
+  postgres_data:
+    name: aroute_postgres_data
+
+networks:
+  aroute-net:
+    name: aroute-network
+    driver: bridge

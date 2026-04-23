@@ -471,12 +471,12 @@ make admin-dev
 - [x] Admin UI (React + Arco Design + TipTap)
 - [x] Plugin SDK (Go SDK + Wasm template)
 - [x] Default theme (Go template blog theme)
+- [x] Integration & E2E tests
+- [x] Documentation & Dockerfile
 
 ### 🚧 In Progress
 
-
-- [ ] Integration & E2E tests
-- [ ] Documentation & Dockerfile
+none
 
 ### 🔮 Planned (v1.x+)
 

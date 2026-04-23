@@ -57,7 +57,7 @@ license.bin
 .agent/
 .opencode/
 openspec/
-docs/
+内部文档/
 .claude/
 .omc/
 

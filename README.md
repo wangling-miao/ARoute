@@ -33,10 +33,6 @@
 
 <br/>
 
-> **⚠️ 开发中**
->
-> ARoute CMS 正在积极开发中，尚未达到 v1.0.0。Core 微内核和基础插件（HTTP、Database、Auth、CLI）已可用。参见 [路线图](#路线图) 了解进度。
->
 > **English** · [README_EN.md](README_EN.md)
 
 <br/>
@@ -50,7 +46,7 @@ Go 生态中缺少一个同时具备微内核架构、三层插件沙箱隔离�
 | Ponzu | 🚫 已废弃 | ❌ | ❌ | ❌ | ✅ |
 | FastSchema | 维护中 | ❌ | ❌ | ✅ | ✅ |
 | Hugo | 维护中 | ❌ | ❌ | ❌ | ✅ |
-| **ARoute** | **开发中** | **✅** | **✅ (L1/L3)** | **✅** | **✅** |
+| **ARoute** | **v1.0** | **✅** | **✅ (L1/L3)** | **✅** | **✅** |
 
 ---
 
@@ -110,7 +106,7 @@ $ aroute serve
 
 ### 安装
 
-**下载预编译二进制**（发布后可用）：
+**下载预编译二进制：**
 
 ```bash
 curl -sL https://github.com/wangling-miao/aroute/releases/latest/download/aroute_$(uname -s)_$(uname -m).tar.gz | tar xz
@@ -471,12 +467,13 @@ make admin-dev
 - [x] Admin UI（React + Arco Design + TipTap）
 - [x] Plugin SDK（Go SDK + Wasm 模板）
 - [x] 默认主题（Go template 博客主题）
+- [x] 集成测试与端到端测试
+- [x] 文档与 Dockerfile
+
 
 ### 🚧 开发中
 
-
-- [ ] 集成测试与端到端测试
-- [ ] 文档与 Dockerfile
+无
 
 ### 🔮 计划中（v1.x+）
 
