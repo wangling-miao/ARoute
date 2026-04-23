@@ -21,6 +21,7 @@
 <p align="center">
   <a href="#特性">特性</a> ·
   <a href="#快速开始">快速开始</a> ·
+  <a href="#文档">文档</a> ·
   <a href="#架构概览">架构</a> ·
   <a href="#插件">插件</a> ·
   <a href="#配置">配置</a> ·
@@ -86,7 +87,7 @@ Core **不包含任何业务逻辑** — 仅负责插件生命周期管理、服
 | 层级 | 引擎 | 隔离级别 | 适用场景 |
 |------|------|---------|---------|
 | **L1** | Native Go | 进程级 | 官方插件、可信扩展 |
-| **L3** | Wasm (wazero) | 沙箱隔离 | 不受信的第三方插件 |
+| **L3** | Wasm (wazero) | 沙箱隔离 | 第三方插件 |
 
 ### 🚀 单二进制，零依赖
 
@@ -169,7 +170,19 @@ aroute version                  # 打印版本信息
 ```
 
 ---
+## 文档
 
+详细文档位于 [`docs/`](docs/) 目录：
+
+| 文档 | 说明 |
+|------|------|
+| [快速开始](docs/getting-started.md) | 安装、初始化与首次内容创建指南 |
+| [配置参考](docs/configuration.md) | 完整配置项说明（YAML/TOML、环境变量、CLI 参数） |
+| [API 参考](docs/api-reference.md) | REST API 端点、认证方式与请求/响应格式 |
+| [主题开发](docs/theme-development.md) | 三种模板引擎（Go Template / Lua / React SSR）使用指南 |
+| [插件开发](docs/plugin-development.md) | L1 Go 插件与 L3 Wasm 插件开发指南 |
+
+---
 ## 架构概览
 
 ```

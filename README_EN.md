@@ -21,6 +21,7 @@
 <p align="center">
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick Start</a> ·
+  <a href="#documentation">Documentation</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#plugins">Plugins</a> ·
   <a href="#configuration">Configuration</a> ·
@@ -33,10 +34,6 @@
 
 <br/>
 
-> **⚠️ Work in Progress**
->
-> ARoute CMS is under active development and has not yet reached v1.0.0. The Core microkernel and foundational plugins (HTTP, Database, Auth, CLI) are functional. See [Roadmap](#roadmap) for progress.
->
 > **中文** · [README.md](README.md)
 
 <br/>
@@ -50,7 +47,7 @@ The Go ecosystem lacks a CMS that simultaneously delivers microkernel architectu
 | Ponzu | 🚫 Abandoned | ❌ | ❌ | ❌ | ✅ |
 | FastSchema | Active | ❌ | ❌ | ✅ | ✅ |
 | Hugo | Active | ❌ | ❌ | ❌ | ✅ |
-| **ARoute** | **Active** | **✅** | **✅ (L1/L3)** | **✅** | **✅** |
+| **ARoute** | **v1.0** | **✅** | **✅ (L1/L3)** | **✅** | **✅** |
 
 ---
 
@@ -90,7 +87,7 @@ Three template engines to suit every use case, switchable at runtime:
 | Tier | Engine | Isolation | Use Case |
 |------|--------|-----------|----------|
 | **L1** | Native Go | Process-level | Official plugins, trusted extensions |
-| **L3** | Wasm (wazero) | Sandbox | Untrusted third-party plugins |
+| **L3** | Wasm (wazero) | Sandbox | third-party plugins |
 
 ### 🚀 Single Binary, Zero Dependencies
 
@@ -171,6 +168,20 @@ aroute config show              # Show current configuration
 aroute config validate          # Validate configuration
 aroute version                  # Print version info
 ```
+
+---
+
+## Documentation
+
+Full documentation is available in the [`docs/`](docs/) directory:
+
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/getting-started.md) | Installation, initialization, and first content creation guide |
+| [Configuration](docs/configuration.md) | Complete configuration reference (YAML/TOML, env vars, CLI flags) |
+| [API Reference](docs/api-reference.md) | REST API endpoints, authentication, and request/response formats |
+| [Theme Development](docs/theme-development.md) | Template engine guide (Go Template / Lua / React SSR) |
+| [Plugin Development](docs/plugin-development.md) | L1 Go plugin and L3 Wasm plugin development guide |
 
 ---
 
