@@ -322,10 +322,16 @@ export default function ContentEdit() {
 
       if (id) {
         const item: ContentItem = await content.get(contentType, id);
-        const fieldNames = new Set(ctDef?.fields?.map(f => f.name) ?? []);
+        const fieldNames = new Set(ct.fields?.map(f => f.name) ?? []);
         const itemFields: Record<string, unknown> = {};
         for (const [key, val] of Object.entries(item)) {
           if (fieldNames.has(key)) itemFields[key] = val;
+        }
+        const nestedData = item.data as Record<string, unknown> | undefined;
+        if (nestedData && typeof nestedData === 'object') {
+          for (const [key, val] of Object.entries(nestedData)) {
+            if (fieldNames.has(key)) itemFields[key] = val;
+          }
         }
         const data: Record<string, unknown> = { ...defaults, ...itemFields };
         setFormData(data);
