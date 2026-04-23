@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
   <a href="README_EN.md">
-    <img src="https://img.shields.io/badge/README-English-blue?style=flat-square" alt="English README" />
+    <img src="https://img.shields.io/badge/README-Chinese-blue?style=flat-square" alt="Chinese README" />
   </a>
 </p>
 <p align="center">
