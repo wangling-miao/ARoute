@@ -24,6 +24,7 @@ type Aroute struct {
 	dispatcher EngineDispatcher
 	license    LicenseValidator
 	ddl        DDLRegistry
+	routing    RoutingRegistry
 
 	// Configuration
 	config *Config
@@ -48,6 +49,12 @@ type PluginRegistry interface {
 	Enable(name string) error
 	Disable(name string) error
 	Close() error
+}
+
+// RoutingRegistry provides unified route management with cross-type dependency ordering.
+// Implemented by registry.BoltUnifiedRegistry; nil when the unified registry is unavailable.
+type RoutingRegistry interface {
+	PluginStartupOrder() ([]string, error)
 }
 
 // PluginEntry represents a registered plugin with its manifest and state.
@@ -172,7 +179,7 @@ func WithLogger(logger *slog.Logger) Option {
 
 // New creates a new Aroute engine.
 // The subsystems must be injected - this allows for flexible testing and configuration.
-func New(ctx context.Context, container ServiceContainer, eventBus EventBus, registry PluginRegistry, lifecycle LifecycleManager, dispatcher EngineDispatcher, license LicenseValidator, opts ...Option) (*Aroute, error) {
+func New(ctx context.Context, container ServiceContainer, eventBus EventBus, registry PluginRegistry, lifecycle LifecycleManager, dispatcher EngineDispatcher, license LicenseValidator, routing RoutingRegistry, opts ...Option) (*Aroute, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("determine home directory: %w", err)
@@ -219,6 +226,7 @@ func New(ctx context.Context, container ServiceContainer, eventBus EventBus, reg
 		lifecycle:  lifecycle,
 		dispatcher: dispatcher,
 		license:    license,
+		routing:    routing,
 		config:     cfg,
 		ctx:        engineCtx,
 		cancel:     cancel,
@@ -299,6 +307,11 @@ func (a *Aroute) Events() EventBus {
 // Registry returns the plugin registry.
 func (a *Aroute) Registry() PluginRegistry {
 	return a.registry
+}
+
+// Routing returns the unified routing registry, or nil if not available.
+func (a *Aroute) Routing() RoutingRegistry {
+	return a.routing
 }
 
 // Lifecycle returns the lifecycle manager.

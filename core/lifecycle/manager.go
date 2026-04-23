@@ -194,6 +194,7 @@ type ManagerImpl struct {
 	eventBus     core.EventBus
 	container    core.ServiceContainer
 	ctxFactory   CoreContextFactory
+	resolver     CrossTypeResolver
 	plugins      map[string]*PluginLoadInfo
 	order        []string
 }
@@ -204,6 +205,12 @@ type PluginRegistry interface {
 	List() ([]core.Manifest, error)
 	Get(name string) (core.Manifest, error)
 	IsEnabled(name string) (bool, error)
+}
+
+// CrossTypeResolver provides cross-type dependency ordering from a unified routing registry.
+// If available, the lifecycle manager uses it instead of its built-in topological sort.
+type CrossTypeResolver interface {
+	PluginStartupOrder() ([]string, error)
 }
 
 // PluginLoader creates Plugin instances from manifests.
@@ -221,4 +228,16 @@ func NewManager(registry PluginRegistry, loader PluginLoader, eventBus core.Even
 		ctxFactory:   ctxFactory,
 		plugins:      make(map[string]*PluginLoadInfo),
 	}
+}
+
+// WithResolver sets the cross-type resolver for dependency ordering.
+func WithResolver(r CrossTypeResolver) func(*ManagerImpl) {
+	return func(m *ManagerImpl) { m.resolver = r }
+}
+
+// NewManagerWithResolver creates a lifecycle manager with an optional cross-type resolver.
+func NewManagerWithResolver(registry PluginRegistry, loader PluginLoader, eventBus core.EventBus, container core.ServiceContainer, ctxFactory CoreContextFactory, resolver CrossTypeResolver) *ManagerImpl {
+	m := NewManager(registry, loader, eventBus, container, ctxFactory)
+	m.resolver = resolver
+	return m
 }

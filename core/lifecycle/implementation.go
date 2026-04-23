@@ -486,6 +486,32 @@ func hasFailedDependencies(info *PluginLoadInfo, failedPlugins []string) bool {
 }
 
 func (m *ManagerImpl) buildStartupOrder() ([]string, error) {
+	// Use cross-type resolver if available for richer dependency ordering.
+	if m.resolver != nil {
+		order, err := m.resolver.PluginStartupOrder()
+		if err != nil {
+			return nil, err
+		}
+		// Filter to only plugins that are actually loaded
+		var filtered []string
+		for _, name := range order {
+			if _, exists := m.plugins[name]; exists {
+				filtered = append(filtered, name)
+			}
+		}
+		// Append any loaded plugins not in the resolved order (e.g. no manifest deps)
+		inOrder := make(map[string]bool, len(filtered))
+		for _, n := range filtered {
+			inOrder[n] = true
+		}
+		for name := range m.plugins {
+			if !inOrder[name] {
+				filtered = append(filtered, name)
+			}
+		}
+		return filtered, nil
+	}
+
 	graph := make(map[string][]string)
 	inDegree := make(map[string]int)
 

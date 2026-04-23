@@ -458,6 +458,7 @@ func TestAroute_New(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	aroute, err := New(ctx, container, eventBus, registry, lifecycle, dispatcher, license,
+		nil,
 		WithDataDir(tmpDir+"/data"),
 		WithPluginDir(tmpDir+"/plugins"),
 	)
@@ -499,6 +500,7 @@ func TestAroute_StartStop(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	aroute, err := New(ctx, container, eventBus, registry, lifecycle, dispatcher, license,
+		nil,
 		WithDataDir(tmpDir+"/data"),
 		WithPluginDir(tmpDir+"/plugins"),
 	)
@@ -552,6 +554,7 @@ func TestAroute_RegisterPlugin(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	aroute, err := New(ctx, container, eventBus, registry, lifecycle, dispatcher, license,
+		nil,
 		WithDataDir(tmpDir+"/data"),
 		WithPluginDir(tmpDir+"/plugins"),
 	)
@@ -597,6 +600,7 @@ func TestAroute_EventDispatch(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	aroute, err := New(ctx, container, eventBus, registry, lifecycle, dispatcher, license,
+		nil,
 		WithDataDir(tmpDir+"/data"),
 		WithPluginDir(tmpDir+"/plugins"),
 	)

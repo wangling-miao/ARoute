@@ -97,10 +97,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	eventBus := events.NewEventBus()
 
 	registryPath := filepath.Join(dataDir, "registry.db")
-	reg, err := registry.NewBoltRegistry(registryPath)
+	unifiedReg, err := registry.NewBoltUnifiedRegistry(registryPath)
 	if err != nil {
 		return fmt.Errorf("create registry: %w", err)
 	}
+	reg := registry.NewLegacyRegistry(unifiedReg)
 
 	dispatcher := engine.NewDispatcher()
 	licenseValidator := license.NewValidator(nil, (*ecdsa.PublicKey)(nil))
@@ -189,16 +190,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	compositeLoader := loader.NewCompositeLoader(pluginLoader, wasmLoader)
 
-	lifecycleManager := lifecycle.NewManager(
-		&registryAdapterForLifecycle{registry: reg},
+	lifecycleManager := lifecycle.NewManagerWithResolver(
+		registry.NewLegacyDiscoveryRegistry(unifiedReg),
 		&pluginLoaderAdapter{loader: compositeLoader},
 		eventBus,
 		container,
 		ctxFactory,
+		unifiedReg,
 	)
 
 	// Create Aroute engine
-	aroute, err := core.New(ctx, container, eventBus, &pluginRegistryAdapter{reg: reg}, lifecycleManager, &dispatcherAdapter{d: dispatcher}, &licenseAdapter{v: licenseValidator},
+	aroute, err := core.New(ctx, container, eventBus, &pluginRegistryAdapter{reg: reg}, lifecycleManager, &dispatcherAdapter{d: dispatcher}, &licenseAdapter{v: licenseValidator}, unifiedReg,
 		core.WithDataDir(dataDir),
 		core.WithPluginDir(pluginDir),
 		core.WithLogger(logger),
@@ -282,7 +284,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 // Adapter types to bridge between core interfaces and concrete implementations
 
 type pluginRegistryAdapter struct {
-	reg *registry.BoltRegistry
+	reg *registry.LegacyRegistry
 }
 
 func (a *pluginRegistryAdapter) Register(entry *core.PluginEntry) error {
@@ -351,38 +353,6 @@ func (a *licenseAdapter) Validate() error                      { return a.v.Vali
 func (a *licenseAdapter) LicenseInfo() core.LicenseInfoResult {
 	info := a.v.LicenseInfo()
 	return core.LicenseInfoResult{Tier: a.Tier(), Features: info.Features, ExpiresAt: info.ExpiresAt}
-}
-
-type registryAdapterForLifecycle struct {
-	registry registry.Registry
-}
-
-func (a *registryAdapterForLifecycle) List() ([]core.Manifest, error) {
-	entries, err := a.registry.List()
-	if err != nil {
-		return nil, err
-	}
-	manifests := make([]core.Manifest, len(entries))
-	for i, e := range entries {
-		manifests[i] = e.Manifest
-	}
-	return manifests, nil
-}
-
-func (a *registryAdapterForLifecycle) Get(name string) (core.Manifest, error) {
-	entry, err := a.registry.Get(name)
-	if err != nil {
-		return core.Manifest{}, err
-	}
-	return entry.Manifest, nil
-}
-
-func (a *registryAdapterForLifecycle) IsEnabled(name string) (bool, error) {
-	entry, err := a.registry.Get(name)
-	if err != nil {
-		return false, err
-	}
-	return entry.Enabled, nil
 }
 
 type pluginLoaderAdapter struct {

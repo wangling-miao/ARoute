@@ -23,6 +23,7 @@ type Builder struct {
 	lifecycleOverride  LifecycleManager
 	dispatcherOverride EngineDispatcher
 	licenseOverride    LicenseValidator
+	routingOverride    RoutingRegistry
 }
 
 // NewBuilder creates a new Aroute engine builder.
@@ -100,6 +101,12 @@ func (b *Builder) WithLicenseValidator(validator LicenseValidator) *Builder {
 	return b
 }
 
+// WithRouting overrides the unified routing registry.
+func (b *Builder) WithRouting(routing RoutingRegistry) *Builder {
+	b.routingOverride = routing
+	return b
+}
+
 // Build creates a new Aroute engine with all subsystems initialized.
 // This method requires concrete implementations to be provided via the
 // InitializeFunc type - the actual wiring is done by importing packages
@@ -114,6 +121,7 @@ func (b *Builder) Build(ctx context.Context) (*Aroute, error) {
 		b.lifecycleOverride,
 		b.dispatcherOverride,
 		b.licenseOverride,
+		b.routingOverride,
 		WithDataDir(b.config.DataDir),
 		WithPluginDir(b.config.PluginDir),
 		WithLicensePath(b.config.LicensePath),
@@ -204,7 +212,7 @@ func (b *Builder) BuildWithFactories(ctx context.Context, factories *Factories) 
 		}
 	}
 
-	return New(ctx, container, eventBus, registry, lifecycle, dispatcher, license,
+	return New(ctx, container, eventBus, registry, lifecycle, dispatcher, license, b.routingOverride,
 		WithDataDir(b.config.DataDir),
 		WithPluginDir(b.config.PluginDir),
 		WithLogger(logger),

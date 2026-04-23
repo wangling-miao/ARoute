@@ -78,11 +78,20 @@ func init() {
 	pluginCmd.AddCommand(pluginRemoveCmd)
 }
 
+// openRegistry creates a BoltUnifiedRegistry wrapped as a legacy Registry.
+func openRegistry(registryPath string) (*registry.LegacyRegistry, error) {
+	unifiedReg, err := registry.NewBoltUnifiedRegistry(registryPath)
+	if err != nil {
+		return nil, err
+	}
+	return registry.NewLegacyRegistry(unifiedReg), nil
+}
+
 func runPluginList(cmd *cobra.Command, args []string) error {
 	dataDir := getDataDir()
 	registryPath := filepath.Join(dataDir, "registry.db")
 
-	reg, err := registry.NewReadOnlyBoltRegistry(registryPath)
+	reg, err := openRegistry(registryPath)
 	if err != nil {
 		return listFromManifests()
 	}
@@ -318,7 +327,7 @@ func installPluginFromPath(sourcePath, pluginDir, registryPath string) error {
 	}
 
 	// Open registry
-	reg, err := registry.NewBoltRegistry(registryPath)
+	reg, err := openRegistry(registryPath)
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
@@ -356,7 +365,7 @@ func runPluginEnable(cmd *cobra.Command, args []string) error {
 	dataDir := getDataDir()
 	registryPath := filepath.Join(dataDir, "registry.db")
 
-	reg, err := registry.NewBoltRegistry(registryPath)
+	reg, err := openRegistry(registryPath)
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
@@ -381,7 +390,7 @@ func runPluginDisable(cmd *cobra.Command, args []string) error {
 	dataDir := getDataDir()
 	registryPath := filepath.Join(dataDir, "registry.db")
 
-	reg, err := registry.NewBoltRegistry(registryPath)
+	reg, err := openRegistry(registryPath)
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
@@ -407,7 +416,7 @@ func runPluginRemove(cmd *cobra.Command, args []string) error {
 	pluginDir := getPluginDir()
 	registryPath := filepath.Join(dataDir, "registry.db")
 
-	reg, err := registry.NewBoltRegistry(registryPath)
+	reg, err := openRegistry(registryPath)
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
