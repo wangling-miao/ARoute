@@ -2994,9 +2994,9 @@ func TestValidateRelationCircular(t *testing.T) {
 	err := svc.validator.Validate(ctx, ct, map[string]interface{}{
 		"parent": "some-id",
 	})
-	if err == nil {
-		t.Error("expected error for self-referencing relation")
-	}
+		if err != nil {
+			t.Errorf("self-referencing relations should be allowed, got: %v", err)
+		}
 }
 
 func TestValidateRelationArrayWithStore(t *testing.T) {

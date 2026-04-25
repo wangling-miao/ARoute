@@ -1,6 +1,7 @@
 package frontend
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"log/slog"
@@ -140,8 +141,97 @@ func (h *frontendHandler) siteData() map[string]interface{} {
 	}
 }
 
+type navItem struct {
+	Title    string
+	URL      string
+	Children []navItem
+}
+
+func (h *frontendHandler) menuData(ctx context.Context) []navItem {
+	menus, err := h.contentSvc.List(ctx, "menu", &interfaces.ListQuery{
+		PerPage: 200,
+		Filters: map[string]interface{}{"status": "published"},
+		Sort:    "sort_order",
+		Order:   "asc",
+	})
+	if err != nil || menus == nil {
+		return nil
+	}
+
+	items := convertMenuItems(menus.Data)
+	if len(items) == 0 {
+		return nil
+	}
+
+	// Build tree using pointers so children are visible after attachment.
+	type node struct {
+		id       string
+		parentID string
+		item     *navItem
+	}
+
+	idMap := make(map[string]*node, len(items))
+	for _, m := range items {
+		id := strVal(m["ID"])
+		n := &node{
+			id:       id,
+			parentID: strVal(m["Parent"]),
+			item:     &navItem{Title: strVal(m["Title"]), URL: strVal(m["URL"]), Children: []navItem{}},
+		}
+		idMap[id] = n
+	}
+
+	// Attach children to parents.
+	for _, n := range idMap {
+		if n.parentID == "" {
+			continue
+		}
+		if parent, ok := idMap[n.parentID]; ok {
+			parent.item.Children = append(parent.item.Children, *n.item)
+		}
+	}
+
+	// Collect roots (items whose parent is empty or parent not found).
+	var roots []navItem
+	for _, n := range idMap {
+		if n.parentID == "" {
+			roots = append(roots, *n.item)
+		} else if _, parentExists := idMap[n.parentID]; !parentExists {
+			roots = append(roots, *n.item)
+		}
+	}
+
+	return roots
+}
+
+func convertMenuItems(data interface{}) []map[string]interface{} {
+	var raw []map[string]interface{}
+	switch v := data.(type) {
+	case []map[string]interface{}:
+		raw = v
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				raw = append(raw, m)
+			}
+		}
+	}
+
+	result := make([]map[string]interface{}, len(raw))
+	for i, row := range raw {
+		result[i] = map[string]interface{}{
+			"ID":     strVal(row["id"]),
+			"Title":  strVal(row["title"]),
+			"URL":    strVal(row["url"]),
+			"Parent": strVal(row["parent"]),
+		}
+	}
+	return result
+}
+
 func (h *frontendHandler) render(w http.ResponseWriter, r *http.Request, templateName string, data map[string]interface{}) {
 	data["Site"] = h.siteData()
+	data["NavMenu"] = h.menuData(r.Context())
 
 	html, err := h.themeSvc.Render(r.Context(), templateName, data)
 	if err != nil {
@@ -260,7 +350,7 @@ func (h *frontendHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 
 	postMap := items[0]
 	data := map[string]interface{}{
-		"Title": strVal(postMap["title"]),
+		"Title": strVal(postMap["Title"]),
 		"Post":  postMap,
 	}
 
@@ -288,11 +378,8 @@ func (h *frontendHandler) handlePage(w http.ResponseWriter, r *http.Request) {
 
 	pageMap := items[0]
 	data := map[string]interface{}{
-		"Title": strVal(pageMap["title"]),
-		"Page": map[string]interface{}{
-			"Title": strVal(pageMap["title"]),
-			"Body":  strVal(pageMap["body"]),
-		},
+		"Title": strVal(pageMap["Title"]),
+		"Page":  pageMap,
 	}
 
 	h.render(w, r, "page.html", data)

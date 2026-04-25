@@ -94,6 +94,7 @@ export default function AdminLayout() {
     const p = location.pathname;
     if (p === '/admin/' || p === '/admin') return ['/admin/'];
     if (p.startsWith('/admin/content-types')) return ['/admin/content-types'];
+    if (p.startsWith('/admin/menus')) return ['/admin/menus'];
     if (p.startsWith('/admin/content/')) {
       const seg = p.split('/');
       if (seg[3]) return [`/admin/content/${seg[3]}`];
@@ -124,7 +125,7 @@ export default function AdminLayout() {
       if (seg[0]) {
         const ct = ctList.find(c => c.name === seg[0]);
         items.push({
-          label: ct?.display_name || seg[0],
+          label: ct ? t(`content_type_names.${ct.name}`, ct.display_name) : seg[0],
           path: `/admin/content/${seg[0]}`,
         });
       }
@@ -138,6 +139,7 @@ export default function AdminLayout() {
 
     const map: Record<string, string> = {
       '/admin/content-types': t('nav.content_types'),
+      '/admin/menus': t('nav.menus'),
       '/admin/media': t('nav.media'),
       '/admin/users': t('nav.users'),
       '/admin/roles': t('nav.roles'),
@@ -207,9 +209,9 @@ export default function AdminLayout() {
               </span>
             }
           >
-            {ctList.map(ct => (
+            {ctList.filter(ct => ct.name !== 'menu').map(ct => (
               <MenuItem key={`/admin/content/${ct.name}`}>
-                {ct.display_name}
+                {t(`content_type_names.${ct.name}`, ct.display_name)}
               </MenuItem>
             ))}
           </SubMenu>
@@ -217,6 +219,11 @@ export default function AdminLayout() {
           <MenuItem key="/admin/content-types">
             <span className={styles.menuIcon}><Layers size={18} /></span>
             {!collapsed && t('nav.content_types')}
+          </MenuItem>
+
+          <MenuItem key="/admin/menus">
+            <span className={styles.menuIcon}><MenuIcon size={18} /></span>
+            {!collapsed && t('nav.menus')}
           </MenuItem>
 
           <MenuItem key="/admin/media">

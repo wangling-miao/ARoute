@@ -90,6 +90,33 @@ func NewTagContentType() *interfaces.ContentType {
 	}
 }
 
+// NewMenuContentType returns the built-in Menu content type definition.
+func NewMenuContentType() *interfaces.ContentType {
+	return &interfaces.ContentType{
+		ID:          uuid.New().String(),
+		Name:        "menu",
+		Slug:        "menus",
+		DisplayName: "Menu",
+		Description: "Navigation menu item",
+		TableName:   "content_menus",
+		Fields: []interfaces.Field{
+			{Name: "title", DisplayName: "Title", Type: "text", Required: true},
+			{Name: "slug", DisplayName: "Slug", Type: "slug", Required: true, Unique: true},
+			{Name: "menu_type", DisplayName: "Menu Type", Type: "enum", Required: true,
+				ValidationRules: map[string]interface{}{"enum": []string{"custom_page", "post", "custom_link", "tag", "category"}}},
+			{Name: "url", DisplayName: "URL", Type: "text"},
+			{Name: "target_id", DisplayName: "Target ID", Type: "text"},
+			{Name: "parent", DisplayName: "Parent Menu Item", Type: "relation",
+				RelationConfig: &interfaces.RelationConfig{
+					TargetContentType: "menu",
+					RelationType:      "one-to-many",
+				}},
+			{Name: "sort_order", DisplayName: "Sort Order", Type: "number"},
+			{Name: "is_active", DisplayName: "Is Active", Type: "boolean"},
+		},
+	}
+}
+
 // InitializeBuiltInContentTypes creates built-in content types if they don't already exist.
 func (s *Service) InitializeBuiltInContentTypes(ctx context.Context) error {
 	builtins := []func() *interfaces.ContentType{
@@ -97,6 +124,7 @@ func (s *Service) InitializeBuiltInContentTypes(ctx context.Context) error {
 		NewPostContentType,
 		NewCategoryContentType,
 		NewTagContentType,
+		NewMenuContentType,
 	}
 
 	for _, fn := range builtins {
@@ -107,6 +135,7 @@ func (s *Service) InitializeBuiltInContentTypes(ctx context.Context) error {
 		}
 		if exists {
 			s.migratePartialUniqueIndex(ctx, ct)
+			s.migrateTableSchema(ctx, ct)
 			continue
 		}
 

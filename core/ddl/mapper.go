@@ -43,7 +43,7 @@ func (m *TypeMapper) mapSQLiteType(fieldType FieldType, constraints *Constraints
 	case FieldTypeJSON:
 		return "TEXT"
 	case FieldTypeRelation:
-		return "INTEGER"
+		return "TEXT"
 	default:
 		return "TEXT"
 	}
@@ -67,7 +67,7 @@ func (m *TypeMapper) mapPostgreSQLType(fieldType FieldType, constraints *Constra
 	case FieldTypeJSON:
 		return "JSONB"
 	case FieldTypeRelation:
-		return "BIGINT"
+		return "TEXT"
 	default:
 		return "TEXT"
 	}

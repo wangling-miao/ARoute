@@ -331,7 +331,8 @@ func (v *FieldValidator) validateRelation(ctx context.Context, contentType strin
 	}
 
 	if field.RelationConfig.TargetContentType == contentType {
-		verrs.Add(name, "self-referencing relations are not allowed", "circular_relation")
+		// Self-referencing is allowed for tree structures (e.g. menu parent, category parent).
+		// Skip the target-exists check below since the target row is in the same table.
 		return
 	}
 

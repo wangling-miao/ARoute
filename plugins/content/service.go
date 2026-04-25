@@ -498,6 +498,45 @@ func (s *Service) migratePartialUniqueIndex(ctx context.Context, ct *interfaces.
 	s.store.MigratePartialUniqueIndex(ctx, ct.TableName)
 }
 
+func (s *Service) migrateTableSchema(ctx context.Context, ct *interfaces.ContentType) {
+	var dialect ddl.Dialect
+	if s.driverName == "postgres" || s.driverName == "postgresql" || s.driverName == "pg" {
+		dialect = ddl.DialectPostgreSQL
+	} else {
+		dialect = ddl.DialectSQLite
+	}
+
+	introspector := ddl.NewIntrospector(s.store.db, dialect)
+	actual, err := introspector.IntrospectTable(ctx, ct.TableName)
+	if err != nil {
+		s.logger.Warn("schema introspection failed, skipping migration", "table", ct.TableName, "error", err)
+		return
+	}
+	if actual == nil {
+		return
+	}
+
+	desired := &ddl.Schema{
+		Name:      ct.Name,
+		TableName: ct.TableName,
+		Fields:    s.buildDDLFields(ct),
+	}
+
+	diffResult, err := ddl.NewDiffEngine().Diff(desired, actual)
+	if err != nil {
+		s.logger.Warn("schema diff failed", "table", ct.TableName, "error", err)
+		return
+	}
+
+	if len(diffResult.Operations) > 0 {
+		if err := s.newDDLExecutor().Execute(ctx, diffResult.Operations, false); err != nil {
+			s.logger.Warn("schema migration failed", "table", ct.TableName, "error", err)
+		} else {
+			s.logger.Info("schema migrated", "table", ct.TableName, "ops", len(diffResult.Operations))
+		}
+	}
+}
+
 func resolveTargetTable(store *Store, targetContentType string) string {
 	ct, err := store.GetContentType(context.Background(), targetContentType)
 	if err == nil && ct.TableName != "" {

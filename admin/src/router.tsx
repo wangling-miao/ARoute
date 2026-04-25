@@ -9,6 +9,7 @@ const ContentList = lazy(() => import('@/pages/ContentList'));
 const ContentEdit = lazy(() => import('@/pages/ContentEdit'));
 const ContentTypeList = lazy(() => import('@/pages/ContentTypeList'));
 const ContentTypeBuilder = lazy(() => import('@/pages/ContentTypeBuilder'));
+const MenuManagement = lazy(() => import('@/pages/MenuManagement'));
 const MediaLibrary = lazy(() => import('@/pages/MediaLibrary'));
 const UserManagement = lazy(() => import('@/pages/UserManagement'));
 const RoleManagement = lazy(() => import('@/pages/RoleManagement'));
@@ -59,6 +60,7 @@ export const router = createBrowserRouter([
           { path: 'content-types', element: <LazyPage Component={ContentTypeList} /> },
           { path: 'content-types/new', element: <LazyPage Component={ContentTypeBuilder} /> },
           { path: 'content-types/:name', element: <LazyPage Component={ContentTypeBuilder} /> },
+          { path: 'menus', element: <LazyPage Component={MenuManagement} /> },
           { path: 'media', element: <LazyPage Component={MediaLibrary} /> },
           { path: 'users', element: <LazyPage Component={UserManagement} /> },
           { path: 'roles', element: <LazyPage Component={RoleManagement} /> },

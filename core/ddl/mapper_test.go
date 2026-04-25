@@ -46,10 +46,10 @@ func TestTypeMapper_MapColumnType_SQLite_AllTypes(t *testing.T) {
 			expected:    "TEXT",
 		},
 		{
-			name:        "relation maps to INTEGER",
+			name:        "relation maps to TEXT",
 			fieldType:   FieldTypeRelation,
 			constraints: nil,
-			expected:    "INTEGER",
+			expected:    "TEXT",
 		},
 		{
 			name:        "unknown maps to TEXT",
@@ -131,10 +131,10 @@ func TestTypeMapper_MapColumnType_PostgreSQL_AllTypes(t *testing.T) {
 			expected:    "JSONB",
 		},
 		{
-			name:        "relation maps to BIGINT",
+			name:        "relation maps to TEXT",
 			fieldType:   FieldTypeRelation,
 			constraints: nil,
-			expected:    "BIGINT",
+			expected:    "TEXT",
 		},
 		{
 			name:        "unknown maps to TEXT",
