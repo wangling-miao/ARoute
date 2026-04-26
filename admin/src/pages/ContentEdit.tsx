@@ -22,6 +22,7 @@ import { content, contentTypes } from '@/api/endpoints';
 import type { ContentType, ContentItem, Field } from '@/types';
 import { showSuccess, showError } from '@/components/Toast';
 import RichTextEditor from '@/components/RichTextEditor';
+import RelationSelector from '@/components/RelationSelector';
 import styles from './ContentEdit.module.css';
 
 const { Option } = Select;
@@ -54,9 +55,11 @@ function FieldRenderer({ field, value, onChange, errors, ctDef, formData }: Fiel
   const numVal = typeof value === 'number' ? value : undefined;
   const boolVal = typeof value === 'boolean' ? value : false;
 
+  const displayName = t(`field_names.${field.name}`, field.display_name);
+
   const label = (
     <span className={`${styles.formLabel} ${field.required ? styles.formRequired : ''}`}>
-      {field.display_name}
+      {displayName}
     </span>
   );
 
@@ -204,18 +207,34 @@ function FieldRenderer({ field, value, onChange, errors, ctDef, formData }: Fiel
         </div>
       );
 
-    case 'relation':
+    case 'relation': {
+      const rc = field.relation_config;
+      if (!rc) {
+        return (
+          <div className={styles.formRow}>
+            {label}
+            <Input
+              value={strVal}
+              onChange={(v: string) => onChange(v)}
+              placeholder={t('content.relation_placeholder')}
+            />
+            {errorEl}
+          </div>
+        );
+      }
       return (
         <div className={styles.formRow}>
           {label}
-          <Input
-            value={strVal}
-            onChange={(v: string) => onChange(v)}
+          <RelationSelector
+            relationConfig={rc}
+            value={value}
+            onChange={onChange}
             placeholder={t('content.relation_placeholder')}
           />
           {errorEl}
         </div>
       );
+    }
 
     case 'enum': {
       const enumValues = field.validation?.values || [];

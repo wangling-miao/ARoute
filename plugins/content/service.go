@@ -103,6 +103,7 @@ func (s *Service) GetByID(ctx context.Context, id string) (*interfaces.Content, 
 	if err != nil {
 		return nil, err
 	}
+	s.resolveManyToMany(ctx, ct, data, id)
 	return s.mapToContent(data), nil
 }
 
@@ -975,6 +976,36 @@ func (s *Service) createJunctionTablesForNewFields(ctx context.Context, oldCT, n
 					s.logger.Warn("failed to create junction table", "error", err)
 				}
 			}
+		}
+	}
+}
+
+func (s *Service) resolveManyToMany(ctx context.Context, ct *interfaces.ContentType, data map[string]interface{}, contentID string) {
+	for _, f := range ct.Fields {
+		if f.Type != "relation" || f.RelationConfig == nil || f.RelationConfig.RelationType != "many-to-many" {
+			continue
+		}
+		junctionTable := s.junctionTableName(ct.TableName, f)
+		ids, err := s.store.GetJunctionIDs(ctx, junctionTable, ct.Name, f.RelationConfig.TargetContentType, contentID)
+		if err != nil {
+			s.logger.Warn("failed to resolve m2m", "field", f.Name, "error", err)
+			continue
+		}
+		if ids == nil {
+			ids = []string{}
+		}
+		data[f.Name] = ids
+	}
+}
+
+func (s *Service) ensureJunctionTables(ctx context.Context, ct *interfaces.ContentType) {
+	for _, f := range ct.Fields {
+		if f.Type != "relation" || f.RelationConfig == nil || f.RelationConfig.RelationType != "many-to-many" {
+			continue
+		}
+		junctionTable := s.junctionTableName(ct.TableName, f)
+		if err := s.store.CreateJunctionTable(ctx, junctionTable, ct.Name, f.RelationConfig.TargetContentType); err != nil {
+			s.logger.Warn("failed to create junction table", "table", junctionTable, "error", err)
 		}
 	}
 }

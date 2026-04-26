@@ -125,50 +125,61 @@ const SLASH_ITEMS: SlashItem[] = [
 const slashPluginKey = new PluginKey('slashCommand');
 
 function SlashMenu({ editor }: { editor: any }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState(0);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const [, forceRender] = useState(0);
+  const stateRef = useRef({ open: false, query: '', selected: 0, top: 0, left: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const filtered = SLASH_ITEMS.filter(
-    (item) => item.title.toLowerCase().includes(query.toLowerCase()) || item.description.toLowerCase().includes(query.toLowerCase())
-  );
+  const rerender = useCallback(() => forceRender(n => n + 1), []);
+
+  const getFiltered = useCallback((q: string) =>
+    SLASH_ITEMS.filter(
+      (item) => item.title.toLowerCase().includes(q.toLowerCase()) || item.description.toLowerCase().includes(q.toLowerCase())
+    ), []);
 
   const close = useCallback(() => {
-    setOpen(false);
-    setQuery('');
-    setSelected(0);
-  }, []);
+    const s = stateRef.current;
+    if (!s.open) return;
+    s.open = false;
+    s.query = '';
+    s.selected = 0;
+    rerender();
+  }, [rerender]);
 
   const execute = useCallback((item: SlashItem) => {
+    const s = stateRef.current;
     const { from } = editor.state.selection;
-    const slashPos = from - query.length - 1;
+    const slashPos = from - s.query.length - 1;
     editor.chain().focus().deleteRange({ from: slashPos, to: from }).run();
     item.command(editor);
     close();
-  }, [editor, query, close]);
+  }, [editor, close]);
 
   useEffect(() => {
     if (!editor) return;
 
     const handleKeyDown = (_view: any, event: KeyboardEvent) => {
-      if (!open) return false;
+      const s = stateRef.current;
+      if (!s.open) return false;
 
       if (event.key === 'Escape') { close(); return true; }
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        setSelected((s) => (s + 1) % filtered.length);
+        const filtered = getFiltered(s.query);
+        s.selected = (s.selected + 1) % filtered.length;
+        rerender();
         return true;
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        setSelected((s) => (s - 1 + filtered.length) % filtered.length);
+        const filtered = getFiltered(s.query);
+        s.selected = (s.selected - 1 + filtered.length) % filtered.length;
+        rerender();
         return true;
       }
       if (event.key === 'Enter') {
         event.preventDefault();
-        if (filtered[selected]) execute(filtered[selected]);
+        const filtered = getFiltered(s.query);
+        if (filtered[s.selected]) execute(filtered[s.selected]);
         return true;
       }
       return false;
@@ -185,20 +196,20 @@ function SlashMenu({ editor }: { editor: any }) {
               Math.max(0, from - 30), from, '\n'
             );
             const match = textBefore.match(/\/([^\s]*)$/);
+            const s = stateRef.current;
             if (match) {
               const q = match[1];
-              setQuery(q);
-              setSelected(0);
-              if (!open) {
+              s.query = q;
+              s.selected = 0;
+              if (!s.open) {
                 const coords = view.coordsAtPos(from);
                 const editorRect = view.dom.parentElement?.getBoundingClientRect();
-                setCoords({
-                  top: coords.bottom - (editorRect?.top ?? 0) + 8,
-                  left: coords.left - (editorRect?.left ?? 0),
-                });
+                s.top = coords.bottom - (editorRect?.top ?? 0) + 8;
+                s.left = coords.left - (editorRect?.left ?? 0);
               }
-              setOpen(true);
-            } else if (open) {
+              s.open = true;
+              rerender();
+            } else if (s.open) {
               close();
             }
           },
@@ -209,24 +220,36 @@ function SlashMenu({ editor }: { editor: any }) {
 
     editor.registerPlugin(plugin);
     return () => { editor.unregisterPlugin(slashPluginKey); };
-  }, [editor, open, filtered, selected, query, close, execute]);
+  }, [editor, close, execute, getFiltered, rerender]);
 
-  if (!open || filtered.length === 0) return null;
+  // Scroll active item into view
+  useEffect(() => {
+    if (!menuRef.current) return;
+    const active = menuRef.current.querySelector(`[data-active="true"]`);
+    active?.scrollIntoView({ block: 'nearest' });
+  });
+
+  const s = stateRef.current;
+  if (!s.open) return null;
+
+  const filtered = getFiltered(s.query);
+  if (filtered.length === 0) return null;
 
   return (
     <div
       ref={menuRef}
       className={styles.slashMenu}
-      style={{ top: coords.top, left: coords.left }}
+      style={{ top: s.top, left: s.left }}
     >
       <div className={styles.slashMenuLabel}>Blocks</div>
       {filtered.map((item, idx) => (
         <button
           key={item.title}
           type="button"
-          className={`${styles.slashMenuItem} ${idx === selected ? styles.slashMenuItemActive : ''}`}
+          data-active={idx === s.selected}
+          className={`${styles.slashMenuItem} ${idx === s.selected ? styles.slashMenuItemActive : ''}`}
           onClick={() => execute(item)}
-          onMouseEnter={() => setSelected(idx)}
+          onMouseEnter={() => { s.selected = idx; rerender(); }}
         >
           <span className={styles.slashMenuIcon}>{item.icon}</span>
           <span className={styles.slashMenuText}>

@@ -9,6 +9,8 @@ import {
   Inbox,
   ChevronRight,
   ArrowUpDown,
+  FolderOpen,
+  Tags,
 } from 'lucide-react';
 import { content, contentTypes } from '@/api/endpoints';
 import type { ContentItem, ContentType, ListParams, PaginatedResponse } from '@/types';
@@ -33,6 +35,8 @@ export default function ContentList() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isPost = contentType === 'post';
 
   const fetchContentType = useCallback(async () => {
     if (!contentType) return;
@@ -61,7 +65,6 @@ export default function ContentList() {
         params.filter = { status: statusFilter };
       }
       const res: PaginatedResponse<ContentItem> = await content.list(contentType, params);
-      // Backend may return data: null when there are no items
       setItems(res.data ?? []);
       setPagination(prev => ({
         ...prev,
@@ -128,7 +131,6 @@ export default function ContentList() {
     setPagination({ ...pagination, page, perPage });
   };
 
-  // fields may be null from the API even when ctDef is set — use ?. on both ctDef and fields
   const titleField = ctDef?.fields?.find(f => f.type === 'text' || f.type === 'slug')?.name || 'title';
 
   const getTitle = (item: ContentItem): string => {
@@ -157,7 +159,7 @@ export default function ContentList() {
     {
       title: (
         <button type="button" className={styles.sortHeader} onClick={() => handleSort(titleField)}>
-          {titleField} <ArrowUpDown size={12} />
+          {t(`field_names.${titleField}`, titleField)} <ArrowUpDown size={12} />
         </button>
       ),
       dataIndex: 'data',
@@ -232,11 +234,27 @@ export default function ContentList() {
             {t('content.list', { type: ctDef?.display_name || contentType })}
           </h2>
         </div>
-        <Link to={`/admin/content/${contentType}/new`}>
-          <Button type="primary" icon={<Plus size={16} />}>
-            {t('common.create')}
-          </Button>
-        </Link>
+        <div className={styles.headerActions}>
+          {isPost && (
+            <>
+              <Link to="/admin/content/category">
+                <Button icon={<FolderOpen size={16} />}>
+                  {t('content_type_names.category')}
+                </Button>
+              </Link>
+              <Link to="/admin/content/tag">
+                <Button icon={<Tags size={16} />}>
+                  {t('content_type_names.tag')}
+                </Button>
+              </Link>
+            </>
+          )}
+          <Link to={`/admin/content/${contentType}/new`}>
+            <Button type="primary" icon={<Plus size={16} />}>
+              {t('common.create')}
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className={styles.toolbar}>

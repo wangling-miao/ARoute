@@ -48,6 +48,12 @@ export interface ContentType {
   fields: Field[];
 }
 
+export interface RelationConfig {
+  target_content_type: string;
+  relation_type: 'one-to-one' | 'one-to-many' | 'many-to-many';
+  through_table?: string;
+}
+
 export interface Field {
   name: string;
   display_name: string;
@@ -56,6 +62,7 @@ export interface Field {
   unique: boolean;
   default_value?: unknown;
   validation?: ValidationRules;
+  relation_config?: RelationConfig;
 }
 
 export type FieldType =

@@ -46,6 +46,21 @@ export default function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [ctList, setCtList] = useState<ContentType[]>([]);
+
+  const contentNavItems = useMemo(() => {
+    const order = ['page', 'post'];
+    const hidden = new Set(['menu', 'category', 'tag']);
+    return ctList
+      .filter(ct => !hidden.has(ct.name))
+      .sort((a, b) => {
+        const ai = order.indexOf(a.name);
+        const bi = order.indexOf(b.name);
+        if (ai !== -1 && bi !== -1) return ai - bi;
+        if (ai !== -1) return -1;
+        if (bi !== -1) return 1;
+        return a.display_name.localeCompare(b.display_name);
+      });
+  }, [ctList]);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
 
   useEffect(() => {
@@ -209,7 +224,7 @@ export default function AdminLayout() {
               </span>
             }
           >
-            {ctList.filter(ct => ct.name !== 'menu').map(ct => (
+            {contentNavItems.map(ct => (
               <MenuItem key={`/admin/content/${ct.name}`}>
                 {t(`content_type_names.${ct.name}`, ct.display_name)}
               </MenuItem>

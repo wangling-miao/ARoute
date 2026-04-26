@@ -168,7 +168,7 @@ function ActivitySection({ items }: { items: ActivityItem[] }) {
             </div>
             <div className={styles.activityInfo}>
               <div className={styles.activityAction}>
-                {t(`dashboard.action_${item.action}`)} {item.resource_type}
+                {t(`dashboard.action_${item.action}`)} {t(`content_type_names.${item.resource_type}`, item.resource_type)}
               </div>
               <div className={styles.activityMeta}>
                 ID: {item.resource_id.slice(0, 8)}…
@@ -272,7 +272,7 @@ export default function Dashboard() {
                   <IconComp size={22} />
                 </div>
                 <div className={styles.statCount}>{count}</div>
-                <div className={styles.statLabel}>{type.replace(/_/g, ' ')}</div>
+                <div className={styles.statLabel}>{t(`content_type_names.${type}`, type.replace(/_/g, ' '))}</div>
               </Card>
             );
           })}

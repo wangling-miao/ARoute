@@ -46,6 +46,16 @@ func NewPostContentType() *interfaces.ContentType {
 			{Name: "status", DisplayName: "Status", Type: "enum", ValidationRules: map[string]interface{}{"enum": []string{"draft", "published"}}},
 			{Name: "published_at", DisplayName: "Published At", Type: "datetime"},
 			{Name: "featured_image", DisplayName: "Featured Image", Type: "media"},
+			{Name: "categories", DisplayName: "Categories", Type: "relation",
+				RelationConfig: &interfaces.RelationConfig{
+					TargetContentType: "category",
+					RelationType:      "many-to-many",
+				}},
+			{Name: "tags", DisplayName: "Tags", Type: "relation",
+				RelationConfig: &interfaces.RelationConfig{
+					TargetContentType: "tag",
+					RelationType:      "many-to-many",
+				}},
 			{Name: "seo_title", DisplayName: "SEO Title", Type: "text"},
 			{Name: "seo_description", DisplayName: "SEO Description", Type: "text"},
 		},
@@ -136,6 +146,10 @@ func (s *Service) InitializeBuiltInContentTypes(ctx context.Context) error {
 		if exists {
 			s.migratePartialUniqueIndex(ctx, ct)
 			s.migrateTableSchema(ctx, ct)
+			s.ensureJunctionTables(ctx, ct)
+			if err := s.store.UpdateContentType(ctx, ct); err != nil {
+				s.logger.Warn("failed to update built-in content type definition", "name", ct.Name, "error", err)
+			}
 			continue
 		}
 

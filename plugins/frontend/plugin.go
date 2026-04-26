@@ -191,9 +191,14 @@ func (h *frontendHandler) menuData(ctx context.Context) []navItem {
 		}
 	}
 
-	// Collect roots (items whose parent is empty or parent not found).
+	// Collect roots in original sort_order, then attach children.
 	var roots []navItem
-	for _, n := range idMap {
+	for _, m := range items {
+		id := strVal(m["ID"])
+		n, ok := idMap[id]
+		if !ok {
+			continue
+		}
 		if n.parentID == "" {
 			roots = append(roots, *n.item)
 		} else if _, parentExists := idMap[n.parentID]; !parentExists {
