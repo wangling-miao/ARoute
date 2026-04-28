@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"sync"
@@ -113,14 +114,14 @@ func (p *Plugin) Start() error {
 		defer ticker.Stop()
 
 		if p.service != nil {
-			p.service.PruneOldDeliveries()
+			p.service.PruneOldDeliveries(context.Background())
 		}
 
 		for {
 			select {
 			case <-ticker.C:
 				if p.service != nil {
-					p.service.PruneOldDeliveries()
+					p.service.PruneOldDeliveries(context.Background())
 				}
 			case <-p.stopPrune:
 				return

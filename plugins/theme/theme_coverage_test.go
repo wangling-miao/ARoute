@@ -978,6 +978,8 @@ func (m *mockConfigProvider) GetBool(key string) bool                        { r
 func (m *mockConfigProvider) GetStringSlice(key string) []string             { return nil }
 func (m *mockConfigProvider) Get(key string) interface{}                     { return m.values[key] }
 func (m *mockConfigProvider) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockConfigProvider) Set(key string, value interface{})              { m.values[key] = fmt.Sprintf("%v", value) }
+func (m *mockConfigProvider) Save() error                                    { return nil }
 
 // mockServiceContainer implements core.ServiceContainer with a database service.
 type mockServiceContainer struct {

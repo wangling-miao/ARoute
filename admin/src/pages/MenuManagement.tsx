@@ -377,10 +377,13 @@ export default function MenuManagement() {
     }
 
     try {
-      await Promise.all(updates);
+      for (const update of updates) {
+        await update;
+      }
       fetchItems();
     } catch {
       showError(t('common.error_occurred'));
+      fetchItems();
     }
   };
 

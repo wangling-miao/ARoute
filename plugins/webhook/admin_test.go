@@ -143,9 +143,9 @@ func TestAdmin_ListWebhooks_Empty(t *testing.T) {
 func TestAdmin_ListWebhooks_WithItems(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	_, err := svc.Create("https://example.com/a", []string{"a"}, "secret123")
+	_, err := svc.Create(context.Background(), "https://example.com/a", []string{"a"}, "secret123")
 	require.NoError(t, err)
-	_, err = svc.Create("https://example.com/b", []string{"b"}, "secret456")
+	_, err = svc.Create(context.Background(), "https://example.com/b", []string{"b"}, "secret456")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "GET", "/admin/api/webhooks", "")
@@ -162,7 +162,7 @@ func TestAdmin_ListWebhooks_WithItems(t *testing.T) {
 func TestAdmin_GetWebhook_Success(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "GET", "/admin/api/webhooks/"+wh.ID, "")
@@ -217,7 +217,7 @@ func TestAdmin_GetWebhook_WithDeliveries(t *testing.T) {
 func TestAdmin_UpdateWebhook_Success(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "PUT", "/admin/api/webhooks/"+wh.ID, `{"url":"https://example.com/new","events":["content.updated"]}`)
@@ -233,7 +233,7 @@ func TestAdmin_UpdateWebhook_Success(t *testing.T) {
 func TestAdmin_UpdateWebhook_InvalidJSON(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "PUT", "/admin/api/webhooks/"+wh.ID, `{invalid}`)
@@ -250,7 +250,7 @@ func TestAdmin_UpdateWebhook_NotFound(t *testing.T) {
 func TestAdmin_UpdateWebhook_InvalidURL(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "PUT", "/admin/api/webhooks/"+wh.ID, `{"url":"bad-url","events":["a"]}`)
@@ -262,41 +262,41 @@ func TestAdmin_UpdateWebhook_InvalidURL(t *testing.T) {
 func TestAdmin_PatchWebhook_EnableDisable(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	// Disable
 	w := doRequest(t, router, "PATCH", "/admin/api/webhooks/"+wh.ID, `{"enabled":false}`)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.False(t, got.Enabled)
 
 	// Re-enable
 	w = doRequest(t, router, "PATCH", "/admin/api/webhooks/"+wh.ID, `{"enabled":true}`)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	got, _ = svc.Get(wh.ID)
+	got, _ = svc.Get(context.Background(),wh.ID)
 	assert.True(t, got.Enabled)
 }
 
 func TestAdmin_PatchWebhook_UpdateSecret(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "PATCH", "/admin/api/webhooks/"+wh.ID, `{"secret":"new-secret-value"}`)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, "new-secret-value", got.Secret)
 }
 
 func TestAdmin_PatchWebhook_InvalidJSON(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "PATCH", "/admin/api/webhooks/"+wh.ID, `{invalid}`)
@@ -322,7 +322,7 @@ func TestAdmin_PatchWebhook_SecretNotFound(t *testing.T) {
 func TestAdmin_DeleteWebhook_Success(t *testing.T) {
 	svc, router := setupAdminRouter(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	w := doRequest(t, router, "DELETE", "/admin/api/webhooks/"+wh.ID, "")
@@ -333,7 +333,7 @@ func TestAdmin_DeleteWebhook_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ok", result["status"])
 
-	list := svc.List()
+	list := svc.List(context.Background())
 	assert.Empty(t, list)
 }
 

@@ -262,6 +262,20 @@ function SlashMenu({ editor }: { editor: any }) {
   );
 }
 
+function sanitizeUrl(url: string, mode: 'link' | 'image'): string | null {
+  if (url.startsWith('/') || url.startsWith('#')) return url;
+  try {
+    const parsed = new URL(url);
+    const allowed = mode === 'image'
+      ? ['http:', 'https:', 'data:']
+      : ['http:', 'https:', 'mailto:', 'tel:'];
+    if (!allowed.includes(parsed.protocol)) return null;
+    return url;
+  } catch {
+    return url;
+  }
+}
+
 interface RichTextEditorProps {
   value: string;
   onChange: (html: string) => void;
@@ -315,10 +329,12 @@ export default function RichTextEditor({ value, onChange, placeholder, notion }:
 
   const handleUrlConfirm = useCallback((url: string) => {
     if (!editor || !url) return;
+    const sanitized = sanitizeUrl(url.trim(), urlPopover.mode);
+    if (!sanitized) return;
     if (urlPopover.mode === 'link') {
-      editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+      editor.chain().focus().extendMarkRange('link').setLink({ href: sanitized }).run();
     } else {
-      editor.chain().focus().setImage({ src: url }).run();
+      editor.chain().focus().setImage({ src: sanitized }).run();
     }
   }, [editor, urlPopover.mode]);
 

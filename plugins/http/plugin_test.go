@@ -91,6 +91,8 @@ func (m *mockConfigProvider) Get(key string) interface{} {
 func (m *mockConfigProvider) Unmarshal(key string, target interface{}) error {
 	return nil
 }
+func (m *mockConfigProvider) Set(key string, value interface{})              { m.data[key] = value }
+func (m *mockConfigProvider) Save() error                                    { return nil }
 
 // TestPluginInitialization tests basic plugin initialization
 func TestPluginInitialization(t *testing.T) {

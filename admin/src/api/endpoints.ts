@@ -24,9 +24,9 @@ import type {
 export type { User, ContentItem, ContentType, MediaFile, Plugin, Role, Settings, DashboardStats, ApiToken };
 
 export const auth = {
-  async login(email: string, password: string): Promise<AuthTokens> {
+  async login(email: string, password: string, remember?: boolean): Promise<AuthTokens> {
     const tokens = await fetchClient.post<AuthTokens>('/auth/login', { email, password });
-    setTokens(tokens.access_token, tokens.refresh_token);
+    setTokens(tokens.access_token, tokens.refresh_token, remember);
     return tokens;
   },
 

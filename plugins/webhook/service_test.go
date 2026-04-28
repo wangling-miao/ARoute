@@ -87,7 +87,7 @@ func createTestWebhook(svc *Service, rawURL string, events []string, secret stri
 func TestCreate_Success(t *testing.T) {
 	svc := newTestService(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "secret123")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "secret123")
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, wh.ID)
@@ -102,7 +102,7 @@ func TestCreate_Success(t *testing.T) {
 func TestCreate_InvalidURL(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Create("Not-a-url", []string{"content.created"}, "test-secret")
+	_, err := svc.Create(context.Background(), "Not-a-url", []string{"content.created"}, "test-secret")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid URL")
 }
@@ -110,7 +110,7 @@ func TestCreate_InvalidURL(t *testing.T) {
 func TestCreate_EmptyEvents(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Create("https://example.com/hook", []string{}, "test-secret")
+	_, err := svc.Create(context.Background(), "https://example.com/hook", []string{}, "test-secret")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "events must not be empty")
 }
@@ -118,10 +118,10 @@ func TestCreate_EmptyEvents(t *testing.T) {
 func TestGet_Success(t *testing.T) {
 	svc := newTestService(t)
 
-	created, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	created, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
-	got, err := svc.Get(created.ID)
+	got, err := svc.Get(context.Background(),created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, created.ID, got.ID)
 	assert.Equal(t, created.URL, got.URL)
@@ -131,7 +131,7 @@ func TestGet_Success(t *testing.T) {
 func TestGet_NotFound(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Get("nonexistent-id")
+	_, err := svc.Get(context.Background(),"nonexistent-id")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -139,31 +139,31 @@ func TestGet_NotFound(t *testing.T) {
 func TestList(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Create("https://example.com/a", []string{"a"}, "test-s1x")
+	_, err := svc.Create(context.Background(), "https://example.com/a", []string{"a"}, "test-s1x")
 	require.NoError(t, err)
-	_, err = svc.Create("https://example.com/b", []string{"b"}, "test-s2x")
+	_, err = svc.Create(context.Background(), "https://example.com/b", []string{"b"}, "test-s2x")
 	require.NoError(t, err)
-	_, err = svc.Create("https://example.com/c", []string{"c"}, "test-s3x")
+	_, err = svc.Create(context.Background(), "https://example.com/c", []string{"c"}, "test-s3x")
 	require.NoError(t, err)
 
-	list := svc.List()
+	list := svc.List(context.Background())
 	assert.Len(t, list, 3)
 }
 
 func TestList_Empty(t *testing.T) {
 	svc := newTestService(t)
 
-	list := svc.List()
+	list := svc.List(context.Background())
 	assert.Empty(t, list)
 }
 
 func TestUpdate_Success(t *testing.T) {
 	svc := newTestService(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
-	updated, err := svc.Update(wh.ID, "https://example.com/new-hook", []string{"content.updated", "content.deleted"})
+	updated, err := svc.Update(context.Background(),wh.ID, "https://example.com/new-hook", []string{"content.updated", "content.deleted"})
 	require.NoError(t, err)
 	assert.Equal(t, "https://example.com/new-hook", updated.URL)
 	assert.Equal(t, []string{"content.updated", "content.deleted"}, updated.Events)
@@ -173,10 +173,10 @@ func TestUpdate_Success(t *testing.T) {
 func TestUpdate_InvalidURL(t *testing.T) {
 	svc := newTestService(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
-	_, err = svc.Update(wh.ID, "bad-url", []string{"content.updated"})
+	_, err = svc.Update(context.Background(),wh.ID, "bad-url", []string{"content.updated"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid URL")
 }
@@ -184,7 +184,7 @@ func TestUpdate_InvalidURL(t *testing.T) {
 func TestUpdate_NotFound(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Update("nonexistent", "https://example.com/hook", []string{"content.updated"})
+	_, err := svc.Update(context.Background(),"nonexistent", "https://example.com/hook", []string{"content.updated"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -192,20 +192,20 @@ func TestUpdate_NotFound(t *testing.T) {
 func TestDelete_Success(t *testing.T) {
 	svc := newTestService(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
-	err = svc.Delete(wh.ID)
+	err = svc.Delete(context.Background(),wh.ID)
 	require.NoError(t, err)
 
-	list := svc.List()
+	list := svc.List(context.Background())
 	assert.Empty(t, list)
 }
 
 func TestDelete_NotFound(t *testing.T) {
 	svc := newTestService(t)
 
-	err := svc.Delete("nonexistent")
+	err := svc.Delete(context.Background(),"nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -223,14 +223,14 @@ func TestDelete_RemovesDeliveries(t *testing.T) {
 	svc.HandleEvent(ctx, events.Event{Topic: "content.created", Data: map[string]any{"test": true}})
 	assert.Equal(t, int32(1), received.Load())
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 1, total)
 	assert.Len(t, deliveries, 1)
 
-	err := svc.Delete(wh.ID)
+	err := svc.Delete(context.Background(),wh.ID)
 	require.NoError(t, err)
 
-	deliveries, total = svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total = svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 0, total)
 	assert.Empty(t, deliveries)
 }
@@ -238,22 +238,22 @@ func TestDelete_RemovesDeliveries(t *testing.T) {
 func TestSetEnabled(t *testing.T) {
 	svc := newTestService(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 	assert.True(t, wh.Enabled)
 
 	// Disable
-	err = svc.SetEnabled(wh.ID, false)
+	err = svc.SetEnabled(context.Background(),wh.ID, false)
 	require.NoError(t, err)
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.False(t, got.Enabled)
 
 	// Enable — resets ConsecutiveFailures and DisabledReason
 	got.ConsecutiveFailures = 5
 	got.DisabledReason = "consecutive_failures"
-	err = svc.SetEnabled(wh.ID, true)
+	err = svc.SetEnabled(context.Background(),wh.ID, true)
 	require.NoError(t, err)
-	got, _ = svc.Get(wh.ID)
+	got, _ = svc.Get(context.Background(),wh.ID)
 	assert.True(t, got.Enabled)
 	assert.Equal(t, 0, got.ConsecutiveFailures)
 	assert.Equal(t, "", got.DisabledReason)
@@ -262,13 +262,13 @@ func TestSetEnabled(t *testing.T) {
 func TestUpdateSecret(t *testing.T) {
 	svc := newTestService(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "old-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "old-secret")
 	require.NoError(t, err)
 	assert.Equal(t, "old-secret", wh.Secret)
 
-	err = svc.UpdateSecret(wh.ID, "new-secret")
+	err = svc.UpdateSecret(context.Background(),wh.ID, "new-secret")
 	require.NoError(t, err)
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, "new-secret", got.Secret)
 }
 
@@ -409,7 +409,7 @@ func TestHandleEvent_DisabledWebhook(t *testing.T) {
 	})
 
 	wh := createTestWebhook(svc, server.URL, []string{"content.created"}, "test-secret")
-	err := svc.SetEnabled(wh.ID, false)
+	err := svc.SetEnabled(context.Background(),wh.ID, false)
 	require.NoError(t, err)
 
 	svc.HandleEvent(context.Background(), events.Event{
@@ -450,10 +450,10 @@ func TestDelivery_Success_2xx(t *testing.T) {
 		Data:  map[string]any{"test": true},
 	})
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, 0, got.ConsecutiveFailures)
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 1, total)
 	require.Len(t, deliveries, 1)
 	assert.True(t, deliveries[0].Success)
@@ -472,7 +472,7 @@ func TestDelivery_Success_201(t *testing.T) {
 		Data:  nil,
 	})
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 1, total)
 	require.Len(t, deliveries, 1)
 	assert.True(t, deliveries[0].Success)
@@ -491,7 +491,7 @@ func TestDelivery_ClientError_4xx(t *testing.T) {
 		Data:  nil,
 	})
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 1, total, "4xx should be a permanent failure with no retry")
 	require.Len(t, deliveries, 1)
 	assert.False(t, deliveries[0].Success)
@@ -516,14 +516,14 @@ func TestDelivery_ServerError_5xx(t *testing.T) {
 	// MaxRetries=2, so 1 initial + 2 retries = 3 attempts
 	assert.Equal(t, int32(3), requests.Load(), "5xx should trigger retries")
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 3, total)
 	for _, d := range deliveries {
 		assert.False(t, d.Success)
 		assert.Equal(t, 500, d.StatusCode)
 	}
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, 1, got.ConsecutiveFailures)
 }
 
@@ -544,7 +544,7 @@ func TestDelivery_RateLimited_429(t *testing.T) {
 	// 429 is retryable: 1 initial + 2 retries = 3 attempts
 	assert.Equal(t, int32(3), requests.Load(), "429 should trigger retries")
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 3, total)
 	for _, d := range deliveries {
 		assert.False(t, d.Success)
@@ -574,14 +574,14 @@ func TestRetry_ExponentialBackoff(t *testing.T) {
 
 	assert.Equal(t, int32(3), requests.Load(), "should succeed on 3rd attempt")
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 3, total, "should have 3 delivery logs")
 
 	last := deliveries[0] // reverse chronological — newest first
 	assert.True(t, last.Success)
 	assert.Equal(t, 200, last.StatusCode)
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, 0, got.ConsecutiveFailures, "success should reset failures")
 }
 
@@ -602,13 +602,13 @@ func TestRetry_MaxRetriesExhausted(t *testing.T) {
 	// MaxRetries=2 → 3 total attempts
 	assert.Equal(t, int32(3), requests.Load())
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 3, total)
 	for _, d := range deliveries {
 		assert.False(t, d.Success)
 	}
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, 1, got.ConsecutiveFailures, "failed delivery should increment ConsecutiveFailures")
 }
 
@@ -627,7 +627,7 @@ func TestAutoDisable_AfterConsecutiveFailures(t *testing.T) {
 		svc.HandleEvent(ctx, events.Event{Topic: "content.created", Data: nil})
 	}
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.False(t, got.Enabled, "webhook should be auto-disabled after 3 consecutive failures")
 	assert.Equal(t, "consecutive_failures", got.DisabledReason)
 }
@@ -650,16 +650,16 @@ func TestAutoDisable_SuccessResetsCounter(t *testing.T) {
 
 	// 2 failed deliveries → ConsecutiveFailures = 2
 	svc.HandleEvent(ctx, events.Event{Topic: "content.created", Data: nil})
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, 1, got.ConsecutiveFailures)
 
 	svc.HandleEvent(ctx, events.Event{Topic: "content.created", Data: nil})
-	got, _ = svc.Get(wh.ID)
+	got, _ = svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, 2, got.ConsecutiveFailures)
 
 	// Success resets counter
 	svc.HandleEvent(ctx, events.Event{Topic: "content.created", Data: nil})
-	got, _ = svc.Get(wh.ID)
+	got, _ = svc.Get(context.Background(),wh.ID)
 	assert.Equal(t, 0, got.ConsecutiveFailures)
 	assert.True(t, got.Enabled, "webhook should remain enabled after success resets counter")
 }
@@ -677,14 +677,14 @@ func TestAutoDisable_ReEnableResetsCounter(t *testing.T) {
 		svc.HandleEvent(ctx, events.Event{Topic: "content.created", Data: nil})
 	}
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.False(t, got.Enabled)
 	assert.Equal(t, "consecutive_failures", got.DisabledReason)
 
 	// Re-enable
-	err := svc.SetEnabled(wh.ID, true)
+	err := svc.SetEnabled(context.Background(),wh.ID, true)
 	require.NoError(t, err)
-	got, _ = svc.Get(wh.ID)
+	got, _ = svc.Get(context.Background(),wh.ID)
 	assert.True(t, got.Enabled)
 	assert.Equal(t, 0, got.ConsecutiveFailures)
 	assert.Equal(t, "", got.DisabledReason)
@@ -708,22 +708,22 @@ func TestGetDeliveries_Pagination(t *testing.T) {
 	}
 
 	// Page 1: limit=2, offset=0 → newest 2
-	page1, total := svc.GetDeliveries(wh.ID, 2, 0)
+	page1, total := svc.GetDeliveries(context.Background(),wh.ID, 2, 0)
 	assert.Equal(t, 5, total)
 	assert.Len(t, page1, 2)
 
 	// Page 2: limit=2, offset=2
-	page2, total := svc.GetDeliveries(wh.ID, 2, 2)
+	page2, total := svc.GetDeliveries(context.Background(),wh.ID, 2, 2)
 	assert.Equal(t, 5, total)
 	assert.Len(t, page2, 2)
 
 	// Page 3: limit=2, offset=4 → only 1 remaining
-	page3, total := svc.GetDeliveries(wh.ID, 2, 4)
+	page3, total := svc.GetDeliveries(context.Background(),wh.ID, 2, 4)
 	assert.Equal(t, 5, total)
 	assert.Len(t, page3, 1)
 
 	// Beyond range
-	page4, total := svc.GetDeliveries(wh.ID, 2, 10)
+	page4, total := svc.GetDeliveries(context.Background(),wh.ID, 2, 10)
 	assert.Equal(t, 5, total)
 	assert.Empty(t, page4)
 }
@@ -743,7 +743,7 @@ func TestGetDeliveries_ReverseChronological(t *testing.T) {
 		})
 	}
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 3, total)
 	require.Len(t, deliveries, 3)
 
@@ -755,10 +755,10 @@ func TestGetDeliveries_ReverseChronological(t *testing.T) {
 func TestGetDeliveries_Empty(t *testing.T) {
 	svc := newTestService(t)
 
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
-	deliveries, total := svc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Empty(t, deliveries)
 	assert.Equal(t, 0, total)
 }
@@ -767,7 +767,7 @@ func TestGetDeliveries_Empty(t *testing.T) {
 
 func TestPruneOldDeliveries_RemovesOld(t *testing.T) {
 	svc := newTestService(t)
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	now := time.Now()
@@ -783,15 +783,15 @@ func TestPruneOldDeliveries_RemovesOld(t *testing.T) {
 	}
 	svc.mu.Unlock()
 
-	svc.PruneOldDeliveries()
+	svc.PruneOldDeliveries(context.Background())
 
-	_, total := svc.GetDeliveries(wh.ID, 10, 0)
+	_, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 2, total, "entries older than 30 days should be pruned")
 }
 
 func TestPruneOldDeliveries_NothingToRemove(t *testing.T) {
 	svc := newTestService(t)
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	svc.mu.Lock()
@@ -801,20 +801,20 @@ func TestPruneOldDeliveries_NothingToRemove(t *testing.T) {
 	}
 	svc.mu.Unlock()
 
-	svc.PruneOldDeliveries()
+	svc.PruneOldDeliveries(context.Background())
 
-	_, total := svc.GetDeliveries(wh.ID, 10, 0)
+	_, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 2, total, "recent entries should not be pruned")
 }
 
 func TestPruneOldDeliveries_EmptyService(t *testing.T) {
 	svc := newTestService(t)
-	assert.NotPanics(t, func() { svc.PruneOldDeliveries() })
+	assert.NotPanics(t, func() { svc.PruneOldDeliveries(context.Background()) })
 }
 
 func TestPruneOldDeliveries_AllOld(t *testing.T) {
 	svc := newTestService(t)
-	wh, err := svc.Create("https://example.com/hook", []string{"content.created"}, "test-secret")
+	wh, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "test-secret")
 	require.NoError(t, err)
 
 	svc.mu.Lock()
@@ -823,9 +823,9 @@ func TestPruneOldDeliveries_AllOld(t *testing.T) {
 	}
 	svc.mu.Unlock()
 
-	svc.PruneOldDeliveries()
+	svc.PruneOldDeliveries(context.Background())
 
-	_, total := svc.GetDeliveries(wh.ID, 10, 0)
+	_, total := svc.GetDeliveries(context.Background(),wh.ID, 10, 0)
 	assert.Equal(t, 0, total, "all old entries should be pruned")
 }
 
@@ -878,7 +878,7 @@ func TestAutoDisabled_NoEventWithoutBus(t *testing.T) {
 		svc.HandleEvent(ctx, events.Event{Topic: "content.created", Data: nil})
 	}
 
-	got, _ := svc.Get(wh.ID)
+	got, _ := svc.Get(context.Background(),wh.ID)
 	assert.False(t, got.Enabled, "should still auto-disable without EventBus")
 	assert.Equal(t, "consecutive_failures", got.DisabledReason)
 }
@@ -937,7 +937,7 @@ func TestTestDelivery_DisabledWebhook(t *testing.T) {
 
 	wh := createTestWebhook(svc, server.URL, []string{"content.created"}, "test-secret")
 
-	err := svc.SetEnabled(wh.ID, false)
+	err := svc.SetEnabled(context.Background(),wh.ID, false)
 	require.NoError(t, err)
 
 	d, err := svc.TestDelivery(context.Background(), wh.ID)
@@ -1000,7 +1000,7 @@ func TestDeliverEvent_DisabledWebhook(t *testing.T) {
 	})
 
 	wh := createTestWebhook(svc, server.URL, []string{"content.created"}, "test-secret")
-	svc.SetEnabled(wh.ID, false)
+	svc.SetEnabled(context.Background(),wh.ID, false)
 
 	svc.DeliverEvent(context.Background(), interfaces.WebhookEvent{
 		Topic:     "content.created",
@@ -1082,7 +1082,7 @@ func TestValidateWebhookURL_InvalidURL(t *testing.T) {
 func TestSetEnabled_NotFound(t *testing.T) {
 	svc := newTestService(t)
 
-	err := svc.SetEnabled("nonexistent", true)
+	err := svc.SetEnabled(context.Background(),"nonexistent", true)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -1090,7 +1090,7 @@ func TestSetEnabled_NotFound(t *testing.T) {
 func TestUpdateSecret_NotFound(t *testing.T) {
 	svc := newTestService(t)
 
-	err := svc.UpdateSecret("nonexistent", "new-secret")
+	err := svc.UpdateSecret(context.Background(),"nonexistent", "new-secret")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -1100,7 +1100,7 @@ func TestUpdateSecret_NotFound(t *testing.T) {
 func TestCreate_ShortSecret(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Create("https://example.com/hook", []string{"content.created"}, "short")
+	_, err := svc.Create(context.Background(), "https://example.com/hook", []string{"content.created"}, "short")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "secret must be at least 8 characters")
 }

@@ -556,6 +556,9 @@ type txRef struct {
 
 // getLocked reads a route assuming the caller already holds the read lock.
 func (r *BoltUnifiedRegistry) getLocked(ref txRef) (*Route, error) {
+	if r.db == nil {
+		return nil, ErrRegistryClosed
+	}
 	var route Route
 	err := r.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(routeBucketName(ref.Type)))

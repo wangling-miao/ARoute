@@ -33,3 +33,11 @@ func (c *ViperConfig) Get(key string) interface{} {
 func (c *ViperConfig) Unmarshal(key string, target interface{}) error {
 	return c.v.UnmarshalKey(key, target)
 }
+
+func (c *ViperConfig) Set(key string, value interface{}) {
+	c.v.Set(key, value)
+}
+
+func (c *ViperConfig) Save() error {
+	return c.v.WriteConfig()
+}

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -272,14 +273,15 @@ func extractTarGz(tarGzPath, destDir string) error {
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(fullPath, os.FileMode(hdr.Mode)); err != nil {
+			if err := os.MkdirAll(fullPath, os.FileMode(hdr.Mode)&0755); err != nil {
 				return fmt.Errorf("create directory %s: %w", cleanedName, err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 				return fmt.Errorf("create parent directory for %s: %w", cleanedName, err)
 			}
-			outFile, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			fileMode := os.FileMode(hdr.Mode) & 0755
+			outFile, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileMode)
 			if err != nil {
 				return fmt.Errorf("create file %s: %w", cleanedName, err)
 			}
@@ -324,6 +326,14 @@ func installPluginFromPath(sourcePath, pluginDir, registryPath string) error {
 	manifest, err := core.LoadManifest(manifestPath)
 	if err != nil {
 		return fmt.Errorf("load manifest: %w", err)
+	}
+
+	// Validate manifest name does not contain path traversal characters
+	if strings.Contains(manifest.Name, "..") || strings.Contains(manifest.Name, "/") || strings.Contains(manifest.Name, "\\") {
+		return fmt.Errorf("invalid plugin name %q: must not contain '..', '/', or '\\'", manifest.Name)
+	}
+	if !regexp.MustCompile(`^[a-z0-9_-]+$`).MatchString(manifest.Name) {
+		return fmt.Errorf("invalid plugin name %q: must match ^[a-z0-9_-]+$", manifest.Name)
 	}
 
 	// Open registry
@@ -438,6 +448,20 @@ func runPluginRemove(cmd *cobra.Command, args []string) error {
 	if entry.DiscoveredPath != "" {
 		pluginPath = entry.DiscoveredPath
 	}
+
+	// Validate that the resolved path is within the plugin directory
+	absPluginPath, err := filepath.Abs(pluginPath)
+	if err != nil {
+		return fmt.Errorf("resolve plugin path: %w", err)
+	}
+	absPluginDir, err := filepath.Abs(pluginDir)
+	if err != nil {
+		return fmt.Errorf("resolve plugin directory: %w", err)
+	}
+	if !strings.HasPrefix(absPluginPath, absPluginDir+string(os.PathSeparator)) && absPluginPath != absPluginDir {
+		return fmt.Errorf("plugin path %q is outside the plugin directory %q — possible corrupted registry entry", pluginPath, pluginDir)
+	}
+
 	if err := os.RemoveAll(pluginPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not remove plugin files: %v\n", err)
 	}

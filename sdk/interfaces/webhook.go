@@ -11,28 +11,28 @@ import (
 type WebhookService interface {
 	// Create registers a new webhook endpoint.
 	// Returns the created webhook with a unique ID.
-	Create(url string, events []string, secret string) (*Webhook, error)
+	Create(ctx context.Context, url string, events []string, secret string) (*Webhook, error)
 
 	// Get retrieves a webhook by ID.
 	// Returns an error if the webhook is not found.
-	Get(id string) (*Webhook, error)
+	Get(ctx context.Context, id string) (*Webhook, error)
 
 	// List returns all registered webhooks.
-	List() []*Webhook
+	List(ctx context.Context) []*Webhook
 
 	// Update modifies a webhook's URL and event subscriptions.
-	Update(id string, url string, events []string) (*Webhook, error)
+	Update(ctx context.Context, id string, url string, events []string) (*Webhook, error)
 
 	// Delete removes a webhook and its delivery history.
-	Delete(id string) error
+	Delete(ctx context.Context, id string) error
 
 	// SetEnabled enables or disables a webhook.
 	// Re-enabling resets the consecutive failure counter.
-	SetEnabled(id string, enabled bool) error
+	SetEnabled(ctx context.Context, id string, enabled bool) error
 
 	// UpdateSecret rotates the webhook's shared secret for HMAC signing.
 	// In-flight deliveries continue using the old secret.
-	UpdateSecret(id string, secret string) error
+	UpdateSecret(ctx context.Context, id string, secret string) error
 
 	// DeliverEvent delivers an event to all matching, enabled webhooks.
 	DeliverEvent(ctx context.Context, event WebhookEvent)
@@ -40,14 +40,14 @@ type WebhookService interface {
 	// GetDeliveries returns paginated delivery logs for a webhook.
 	// Results are in reverse chronological order.
 	// Returns the deliveries and total count for pagination.
-	GetDeliveries(webhookID string, limit int, offset int) ([]*WebhookDelivery, int)
+	GetDeliveries(ctx context.Context, webhookID string, limit int, offset int) ([]*WebhookDelivery, int)
 
 	// TestDelivery sends a test payload to a webhook endpoint.
 	// Works even for disabled webhooks.
 	TestDelivery(ctx context.Context, webhookID string) (*WebhookDelivery, error)
 
 	// PruneOldDeliveries removes delivery logs older than the retention period.
-	PruneOldDeliveries()
+	PruneOldDeliveries(ctx context.Context)
 
 	// Close shuts down the service, closing idle HTTP connections.
 	Close() error

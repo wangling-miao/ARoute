@@ -229,6 +229,9 @@ func (e *PostgreSQLExecutor) addIndex(ctx context.Context, tx *sql.Tx, op DiffOp
 		uniqueStr, op.IndexName, op.TableName, strings.Join(cols, ", "))
 
 	if op.IndexWhere != "" {
+		if strings.Contains(op.IndexWhere, ";") || strings.Contains(op.IndexWhere, "--") || strings.Contains(op.IndexWhere, "/*") {
+			return fmt.Errorf("invalid index WHERE clause: potential SQL injection")
+		}
 		query += " WHERE " + op.IndexWhere
 	}
 

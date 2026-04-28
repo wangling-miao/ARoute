@@ -186,6 +186,9 @@ func (c *Container) Get(target interface{}) error {
 	if err != nil {
 		return fmt.Errorf("services: failed to create instance of %s: %w", targetType, err)
 	}
+	if instance == nil {
+		return fmt.Errorf("services: provider for %s returned nil instance", targetType)
+	}
 
 	// Re-acquire lock to cache instance
 	c.mu.Lock()
@@ -318,6 +321,9 @@ func (c *Container) GetNamed(name string, target interface{}) error {
 	instance, err := provider()
 	if err != nil {
 		return fmt.Errorf("services: failed to create instance of %s:%s: %w", targetType, name, err)
+	}
+	if instance == nil {
+		return fmt.Errorf("services: provider for %s:%s returned nil instance", targetType, name)
 	}
 
 	// Re-acquire lock

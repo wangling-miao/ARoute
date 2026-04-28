@@ -106,6 +106,15 @@ func (h *AdminHandler) handleUpdateSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	cfg := h.ctx.Config()
+	for key, value := range body {
+		cfg.Set(key, value)
+	}
+	if err := cfg.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, "SAVE_FAILED", "failed to save settings")
+		return
+	}
+
 	h.handleGetSettings(w, r)
 }
 

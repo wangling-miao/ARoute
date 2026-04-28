@@ -4,15 +4,19 @@ const BASE_URL = '/api/v1';
 const LS_ACCESS  = 'aroute_access_token';
 const LS_REFRESH = 'aroute_refresh_token';
 
-// Restore tokens from localStorage on page load so refreshSession works after reload.
-let accessToken: string | null  = localStorage.getItem(LS_ACCESS);
-let refreshToken: string | null = localStorage.getItem(LS_REFRESH);
+// Restore tokens from whichever storage holds them so refreshSession works after reload.
+let accessToken: string | null  = localStorage.getItem(LS_ACCESS) ?? sessionStorage.getItem(LS_ACCESS);
+let refreshToken: string | null = localStorage.getItem(LS_REFRESH) ?? sessionStorage.getItem(LS_REFRESH);
 
-export function setTokens(access: string, refresh: string): void {
+export function setTokens(access: string, refresh: string, remember: boolean = true): void {
   accessToken  = access;
   refreshToken = refresh;
-  localStorage.setItem(LS_ACCESS,  access);
-  localStorage.setItem(LS_REFRESH, refresh);
+  const storage = remember ? localStorage : sessionStorage;
+  storage.setItem(LS_ACCESS, access);
+  storage.setItem(LS_REFRESH, refresh);
+  const otherStorage = remember ? sessionStorage : localStorage;
+  otherStorage.removeItem(LS_ACCESS);
+  otherStorage.removeItem(LS_REFRESH);
 }
 
 export function getAccessToken(): string | null {
@@ -24,6 +28,8 @@ export function clearTokens(): void {
   refreshToken = null;
   localStorage.removeItem(LS_ACCESS);
   localStorage.removeItem(LS_REFRESH);
+  sessionStorage.removeItem(LS_ACCESS);
+  sessionStorage.removeItem(LS_REFRESH);
 }
 
 export function hasRefreshToken(): boolean {
@@ -50,27 +56,36 @@ export function setOnAuthFailure(callback: () => void): void {
   onAuthFailure = callback;
 }
 
+let refreshPromise: Promise<string> | null = null;
+
 async function refreshAccessToken(): Promise<string> {
-  if (!refreshToken) {
-    throw new ApiError('NO_REFRESH_TOKEN', 'No refresh token available');
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    if (!refreshToken) {
+      throw new ApiError('NO_REFRESH_TOKEN', 'No refresh token available');
+    }
+    const response = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!response.ok) {
+      clearTokens();
+      onAuthFailure?.();
+      throw new ApiError('REFRESH_FAILED', 'Token refresh failed');
+    }
+    const result = await response.json();
+    const newAccessToken: string = result.data.access_token;
+    accessToken = newAccessToken;
+    const storage = localStorage.getItem(LS_ACCESS) ? localStorage : sessionStorage;
+    storage.setItem(LS_ACCESS, newAccessToken);
+    return newAccessToken;
+  })();
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
   }
-
-  const response = await fetch(`${BASE_URL}/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
-
-  if (!response.ok) {
-    clearTokens();
-    onAuthFailure?.();
-    throw new ApiError('REFRESH_FAILED', 'Token refresh failed');
-  }
-
-  const result = await response.json();
-  const newAccessToken: string = result.data.access_token;
-  accessToken = newAccessToken;
-  return newAccessToken;
 }
 
 async function request<T>(
@@ -179,48 +194,70 @@ export const fetchClient = {
 
   upload<T>(path: string, file: File, onProgress?: (pct: number) => void): Promise<T> {
     return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${BASE_URL}${path}`);
+      const doUpload = (token: string) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${BASE_URL}${path}`);
 
-      if (accessToken) {
-        xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
-      }
-
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable && onProgress) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }
-      });
 
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const body = JSON.parse(xhr.responseText);
-            resolve(body.data as T);
-          } catch {
-            reject(new ApiError('PARSE_ERROR', 'Failed to parse response'));
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable && onProgress) {
+            onProgress(Math.round((e.loaded / e.total) * 100));
           }
-        } else {
-          try {
-            const body = JSON.parse(xhr.responseText) as ApiErrorResponse;
-            if (body.errors?.[0]) {
-              reject(new ApiError(body.errors[0].code, body.errors[0].message));
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 401) {
+            if (refreshToken) {
+              refreshAccessToken()
+                .then((newToken) => doUpload(newToken))
+                .then(resolve)
+                .catch(() => {
+                  clearTokens();
+                  onAuthFailure?.();
+                  reject(new ApiError('SESSION_EXPIRED', 'Session expired. Please log in again.'));
+                });
             } else {
+              clearTokens();
+              onAuthFailure?.();
+              reject(new ApiError('SESSION_EXPIRED', 'Session expired. Please log in again.'));
+            }
+            return;
+          }
+
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const body = JSON.parse(xhr.responseText);
+              resolve(body.data as T);
+            } catch {
+              reject(new ApiError('PARSE_ERROR', 'Failed to parse response'));
+            }
+          } else {
+            try {
+              const body = JSON.parse(xhr.responseText) as ApiErrorResponse;
+              if (body.errors?.[0]) {
+                reject(new ApiError(body.errors[0].code, body.errors[0].message));
+              } else {
+                reject(new ApiError('UPLOAD_FAILED', `Upload failed with status ${xhr.status}`));
+              }
+            } catch {
               reject(new ApiError('UPLOAD_FAILED', `Upload failed with status ${xhr.status}`));
             }
-          } catch {
-            reject(new ApiError('UPLOAD_FAILED', `Upload failed with status ${xhr.status}`));
           }
-        }
-      });
+        });
 
-      xhr.addEventListener('error', () => {
-        reject(new ApiError('NETWORK_ERROR', 'Network error during upload'));
-      });
+        xhr.addEventListener('error', () => {
+          reject(new ApiError('NETWORK_ERROR', 'Network error during upload'));
+        });
 
-      const formData = new FormData();
-      formData.append('file', file);
-      xhr.send(formData);
+        const formData = new FormData();
+        formData.append('file', file);
+        xhr.send(formData);
+      };
+
+      doUpload(accessToken || '');
     });
   },
 };

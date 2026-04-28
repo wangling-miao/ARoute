@@ -23,7 +23,7 @@ func (h *adminHandler) createWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wh, err := h.service.Create(req.URL, req.Events, req.Secret)
+	wh, err := h.service.Create(r.Context(), req.URL, req.Events, req.Secret)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -35,7 +35,7 @@ func (h *adminHandler) createWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) listWebhooks(w http.ResponseWriter, r *http.Request) {
-	webhooks := h.service.List()
+	webhooks := h.service.List(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(webhooks)
@@ -43,13 +43,13 @@ func (h *adminHandler) listWebhooks(w http.ResponseWriter, r *http.Request) {
 
 func (h *adminHandler) getWebhook(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "webhookID")
-	wh, err := h.service.Get(id)
+	wh, err := h.service.Get(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	deliveries, total := h.service.GetDeliveries(id, 1000, 0)
+	deliveries, total := h.service.GetDeliveries(r.Context(), id, 1000, 0)
 	var successCount, failureCount int
 	for _, d := range deliveries {
 		if d.Success {
@@ -89,7 +89,7 @@ func (h *adminHandler) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wh, err := h.service.Update(id, req.URL, req.Events)
+	wh, err := h.service.Update(r.Context(), id, req.URL, req.Events)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() != "" && len(err.Error()) > 0 && err.Error()[0] == 'w' {
@@ -113,19 +113,19 @@ func (h *adminHandler) patchWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if enabled, ok := req["enabled"].(bool); ok {
-		if err := h.service.SetEnabled(id, enabled); err != nil {
+		if err := h.service.SetEnabled(r.Context(), id, enabled); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 	}
 	if secret, ok := req["secret"].(string); ok {
-		if err := h.service.UpdateSecret(id, secret); err != nil {
+		if err := h.service.UpdateSecret(r.Context(), id, secret); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 	}
 
-	wh, err := h.service.Get(id)
+	wh, err := h.service.Get(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -137,7 +137,7 @@ func (h *adminHandler) patchWebhook(w http.ResponseWriter, r *http.Request) {
 
 func (h *adminHandler) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "webhookID")
-	if err := h.service.Delete(id); err != nil {
+	if err := h.service.Delete(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -175,7 +175,7 @@ func (h *adminHandler) listDeliveries(w http.ResponseWriter, r *http.Request) {
 		offset = v
 	}
 
-	deliveries, total := h.service.GetDeliveries(id, limit, offset)
+	deliveries, total := h.service.GetDeliveries(r.Context(), id, limit, offset)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

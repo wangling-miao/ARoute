@@ -386,7 +386,7 @@ export default function ContentEdit() {
       const val = formData[field.name];
 
       if (field.required) {
-        if (val === undefined || val === null || val === '' || val === false) {
+        if (val === undefined || val === null || val === '') {
           newErrors[field.name] = t('content.field_required', { field: field.display_name });
         }
       }

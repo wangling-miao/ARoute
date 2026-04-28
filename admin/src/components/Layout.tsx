@@ -415,7 +415,7 @@ export default function AdminLayout() {
         </header>
 
         <Layout.Content className={styles.contentArea}>
-          <div className={styles.contentInner} key={location.pathname}>
+          <div className={styles.contentInner}>
             <Suspense
               fallback={
                 <div className="page-loading">

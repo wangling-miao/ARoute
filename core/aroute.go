@@ -451,6 +451,14 @@ func (c *ScopedConfig) Unmarshal(key string, target interface{}) error {
 	return nil
 }
 
+func (c *ScopedConfig) Set(key string, value interface{}) {
+	c.base[key] = value
+}
+
+func (c *ScopedConfig) Save() error {
+	return nil
+}
+
 // NewScopedConfig creates a scoped config for a plugin.
 func NewScopedConfig(pluginName string, base map[string]interface{}) *ScopedConfig {
 	return &ScopedConfig{

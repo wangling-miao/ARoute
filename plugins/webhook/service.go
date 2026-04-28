@@ -110,7 +110,7 @@ func checkIP(ip net.IP) error {
 	return nil
 }
 
-func (s *Service) Create(rawURL string, events []string, secret string) (*interfaces.Webhook, error) {
+func (s *Service) Create(ctx context.Context, rawURL string, events []string, secret string) (*interfaces.Webhook, error) {
 	if err := validateWebhookURL(rawURL); err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (s *Service) Create(rawURL string, events []string, secret string) (*interf
 	return wh, nil
 }
 
-func (s *Service) Get(id string) (*interfaces.Webhook, error) {
+func (s *Service) Get(ctx context.Context, id string) (*interfaces.Webhook, error) {
 	s.mu.RLock()
 	wh, ok := s.webhooks[id]
 	s.mu.RUnlock()
@@ -155,7 +155,7 @@ func (s *Service) Get(id string) (*interfaces.Webhook, error) {
 	return wh, nil
 }
 
-func (s *Service) List() []*interfaces.Webhook {
+func (s *Service) List(ctx context.Context) []*interfaces.Webhook {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -166,7 +166,7 @@ func (s *Service) List() []*interfaces.Webhook {
 	return result
 }
 
-func (s *Service) Update(id string, rawURL string, events []string) (*interfaces.Webhook, error) {
+func (s *Service) Update(ctx context.Context, id string, rawURL string, events []string) (*interfaces.Webhook, error) {
 	if err := validateWebhookURL(rawURL); err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func (s *Service) Update(id string, rawURL string, events []string) (*interfaces
 	return wh, nil
 }
 
-func (s *Service) Delete(id string) error {
+func (s *Service) Delete(ctx context.Context, id string) error {
 	s.mu.Lock()
 	_, ok := s.webhooks[id]
 	if !ok {
@@ -204,7 +204,7 @@ func (s *Service) Delete(id string) error {
 	return nil
 }
 
-func (s *Service) SetEnabled(id string, enabled bool) error {
+func (s *Service) SetEnabled(ctx context.Context, id string, enabled bool) error {
 	s.mu.Lock()
 	wh, ok := s.webhooks[id]
 	if !ok {
@@ -223,7 +223,7 @@ func (s *Service) SetEnabled(id string, enabled bool) error {
 	return nil
 }
 
-func (s *Service) UpdateSecret(id string, secret string) error {
+func (s *Service) UpdateSecret(ctx context.Context, id string, secret string) error {
 	s.mu.Lock()
 	wh, ok := s.webhooks[id]
 	if !ok {
@@ -445,7 +445,7 @@ func (s *Service) recordDelivery(webhookID string, event string, attempt int, st
 	return d
 }
 
-func (s *Service) GetDeliveries(webhookID string, limit int, offset int) ([]*interfaces.WebhookDelivery, int) {
+func (s *Service) GetDeliveries(ctx context.Context, webhookID string, limit int, offset int) ([]*interfaces.WebhookDelivery, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -469,7 +469,7 @@ func (s *Service) GetDeliveries(webhookID string, limit int, offset int) ([]*int
 
 // PruneOldDeliveries removes delivery log entries older than
 // Config.DeliveryLogRetentionDays for all webhooks.
-func (s *Service) PruneOldDeliveries() {
+func (s *Service) PruneOldDeliveries(ctx context.Context) {
 	retentionDays := s.config.DeliveryLogRetentionDays
 	if retentionDays <= 0 {
 		return

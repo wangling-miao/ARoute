@@ -93,6 +93,8 @@ func (m *mockConfigProvider) Get(key string) interface{} {
 func (m *mockConfigProvider) Unmarshal(key string, target interface{}) error {
 	return nil
 }
+func (m *mockConfigProvider) Set(key string, value interface{})              { m.data[key] = value }
+func (m *mockConfigProvider) Save() error                                    { return nil }
 
 func TestPlugin_New(t *testing.T) {
 	p := New()
@@ -211,7 +213,7 @@ func TestPlugin_Init_RegistersEventSubscription(t *testing.T) {
 	assert.NotEmpty(t, p.handlerID, "plugin should subscribe to EventBus")
 
 	svc := p.service
-	_, err = svc.Create("https://example.com/hook", []string{"**"}, "test-secret")
+	_, err = svc.Create(context.Background(), "https://example.com/hook", []string{"**"}, "test-secret")
 	require.NoError(t, err)
 
 	ctx.Events().Emit(context.Background(), events.Event{
@@ -220,7 +222,7 @@ func TestPlugin_Init_RegistersEventSubscription(t *testing.T) {
 	})
 
 	assert.Eventually(t, func() bool {
-		_, total := svc.GetDeliveries(svc.List()[0].ID, 10, 0)
+		_, total := svc.GetDeliveries(context.Background(), svc.List(context.Background())[0].ID, 10, 0)
 		return total > 0
 	}, 15*time.Second, 200*time.Millisecond, "HandleEvent should have recorded a delivery")
 }

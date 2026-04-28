@@ -11,7 +11,7 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => void;
   refreshSession: () => Promise<void>;
 }
@@ -59,8 +59,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshSession]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    await auth.login(email, password);
+  const login = useCallback(async (email: string, password: string, rememberMe?: boolean) => {
+    await auth.login(email, password, rememberMe);
     const user = await auth.getCurrentUser();
     if (mountedRef.current) {
       setState({ user, isAuthenticated: true, isLoading: false });

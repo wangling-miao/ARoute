@@ -37,6 +37,8 @@ func (m *mockConfigProvider) GetStringSlice(key string) []string {
 }
 func (m *mockConfigProvider) Get(key string) interface{}     { return m.data[key] }
 func (m *mockConfigProvider) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockConfigProvider) Set(key string, value interface{})              { m.data[key] = value }
+func (m *mockConfigProvider) Save() error                                    { return nil }
 
 // mockEventBus wraps events.EventBus for test assertions.
 type mockEventBus struct {

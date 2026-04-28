@@ -275,7 +275,7 @@ func TestIntegration_WebhookTrigger(t *testing.T) {
 	}
 
 	// Create a webhook that listens to all content events (use external URL)
-	wh, err := webhookSvc.Create("https://example.com/webhook-test", []string{"content.**"}, "test-secret")
+	wh, err := webhookSvc.Create(ctx, "https://example.com/webhook-test", []string{"content.**"}, "test-secret")
 	if err != nil {
 		t.Fatalf("create webhook: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestIntegration_WebhookTrigger(t *testing.T) {
 	t.Logf("Created webhook: id=%s url=%s", wh.ID, wh.URL)
 
 	// Verify webhook is in the list
-	webhooks := webhookSvc.List()
+	webhooks := webhookSvc.List(ctx)
 	found := false
 	for _, w := range webhooks {
 		if w.ID == wh.ID {
@@ -314,14 +314,14 @@ func TestIntegration_WebhookTrigger(t *testing.T) {
 
 	// Check delivery logs (the delivery will fail since localhost:9999 isn't real,
 	// but we verify the attempt was logged)
-	deliveries, total := webhookSvc.GetDeliveries(wh.ID, 10, 0)
+	deliveries, total := webhookSvc.GetDeliveries(ctx, wh.ID, 10, 0)
 	t.Logf("Webhook deliveries: total=%d", total)
 	if total > 0 {
 		t.Logf("First delivery: status=%d success=%v", deliveries[0].StatusCode, deliveries[0].Success)
 	}
 
 	// Clean up
-	if err := webhookSvc.Delete(wh.ID); err != nil {
+	if err := webhookSvc.Delete(ctx, wh.ID); err != nil {
 		t.Fatalf("delete webhook: %v", err)
 	}
 }

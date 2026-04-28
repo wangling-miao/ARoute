@@ -24,7 +24,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await login(email.trim(), password);
+      await login(email.trim(), password, rememberMe);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === 'NETWORK_ERROR') {

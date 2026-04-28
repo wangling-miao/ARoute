@@ -33,6 +33,10 @@ func (i *Introspector) IntrospectTable(ctx context.Context, tableName string) (*
 }
 
 func (i *Introspector) introspectSQLiteTable(ctx context.Context, tableName string) (*interfaces.TableDefinition, error) {
+	if err := sanitizeIdentifier(tableName, "table name"); err != nil {
+		return nil, err
+	}
+
 	rows, err := i.db.Query(ctx, fmt.Sprintf("PRAGMA table_info(\"%s\")", tableName))
 	if err != nil {
 		return nil, fmt.Errorf("querying table info: %w", err)
@@ -113,6 +117,10 @@ func (i *Introspector) introspectSQLiteTable(ctx context.Context, tableName stri
 		idx := interfaces.IndexDefinition{
 			Name:   im.Name,
 			Unique: im.Unique,
+		}
+
+		if err := sanitizeIdentifier(im.Name, "index name"); err != nil {
+			return nil, fmt.Errorf("invalid index name: %w", err)
 		}
 
 		colRows, err := i.db.Query(ctx, fmt.Sprintf("PRAGMA index_info(\"%s\")", im.Name))

@@ -1,6 +1,9 @@
 package ddl
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Dialect string
 
@@ -80,7 +83,7 @@ func (m *TypeMapper) FormatDefaultValue(value interface{}, fieldType FieldType) 
 
 	switch v := value.(type) {
 	case string:
-		return fmt.Sprintf("'%s'", v)
+		return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 	case int, int64:
 		return fmt.Sprintf("%d", v)
 	case float64:
@@ -97,7 +100,7 @@ func (m *TypeMapper) FormatDefaultValue(value interface{}, fieldType FieldType) 
 		}
 		return "FALSE"
 	default:
-		return fmt.Sprintf("'%v'", v)
+		return "'" + strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''") + "'"
 	}
 }
 

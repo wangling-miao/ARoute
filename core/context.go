@@ -154,6 +154,12 @@ type ConfigProvider interface {
 
 	// Unmarshal unmarshals a configuration section into a struct.
 	Unmarshal(key string, target interface{}) error
+
+	// Set sets a configuration value.
+	Set(key string, value interface{})
+
+	// Save persists the current configuration to disk.
+	Save() error
 }
 
 // BasePlugin provides a default implementation of the Plugin interface.
