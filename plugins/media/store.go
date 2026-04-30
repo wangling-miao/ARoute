@@ -87,6 +87,32 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *Store) DeleteByStoragePath(ctx context.Context, storagePath string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM _media WHERE storage_path = ?`, storagePath)
+	if err != nil {
+		return fmt.Errorf("delete media file by storage path: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListAllStoragePaths(ctx context.Context) ([]string, error) {
+	rows, err := s.db.Query(ctx, `SELECT storage_path FROM _media`)
+	if err != nil {
+		return nil, fmt.Errorf("list storage paths: %w", err)
+	}
+	defer rows.Close()
+
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, fmt.Errorf("scan storage path: %w", err)
+		}
+		paths = append(paths, p)
+	}
+	return paths, rows.Err()
+}
+
 func (s *Store) UpdateThumbnail(ctx context.Context, id string, thumbnailPath string) error {
 	res, err := s.db.Exec(ctx,
 		`UPDATE _media SET thumbnail_path = ? WHERE id = ?`,

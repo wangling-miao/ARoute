@@ -160,7 +160,7 @@ func contentNegotiationMiddleware() func(http.Handler) http.Handler {
 
 			if r.Method == http.MethodPost || r.Method == http.MethodPut {
 				ct := r.Header.Get("Content-Type")
-				if ct != "" && !strings.HasPrefix(ct, "application/json") {
+				if ct != "" && !strings.HasPrefix(ct, "application/json") && !strings.HasPrefix(ct, "multipart/form-data") {
 					writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "Content-Type must be application/json")
 					return
 				}

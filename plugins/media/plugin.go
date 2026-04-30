@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
@@ -98,6 +99,9 @@ func (p *Plugin) Start() error {
 		return nil
 	}
 
+	// Periodically clean up DB records whose files no longer exist on disk.
+	p.service.StartCleanup(10 * time.Minute)
+
 	p.ctx.Logger().Info("Media plugin started successfully")
 	p.running = true
 
@@ -114,6 +118,7 @@ func (p *Plugin) Stop() error {
 	}
 
 	p.ctx.Logger().Info("Stopping media plugin")
+	p.service.StopCleanup()
 	p.running = false
 	p.ctx.Logger().Info("Media plugin stopped successfully")
 

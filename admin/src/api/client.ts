@@ -212,8 +212,7 @@ export const fetchClient = {
           if (xhr.status === 401) {
             if (refreshToken) {
               refreshAccessToken()
-                .then((newToken) => doUpload(newToken))
-                .then(resolve)
+                .then((newToken) => { doUpload(newToken); })
                 .catch(() => {
                   clearTokens();
                   onAuthFailure?.();

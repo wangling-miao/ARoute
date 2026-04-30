@@ -577,6 +577,24 @@ func TestContentNegotiationMiddleware_PutWithJSONContentType_PassesThrough(t *te
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+func TestContentNegotiationMiddleware_PostWithMultipartContentType_PassesThrough(t *testing.T) {
+	mw := contentNegotiationMiddleware()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=----WebKitFormBoundary")
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	mw(next).ServeHTTP(rec, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestContentNegotiationMiddleware_PutWithNoContentType_PassesThrough(t *testing.T) {
 	mw := contentNegotiationMiddleware()
 	rec := httptest.NewRecorder()

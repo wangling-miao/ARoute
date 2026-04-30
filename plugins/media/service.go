@@ -19,26 +19,33 @@ import (
 
 const maxFileSize = 50 * 1024 * 1024
 
-var allowedTypes = map[string]bool{
-	"image/jpeg":      true,
-	"image/png":       true,
-	"image/gif":       true,
-	"image/webp":      true,
-	"image/bmp":       true,
-	"image/svg+xml":   true,
-	"video/mp4":       true,
-	"video/webm":      true,
-	"audio/mpeg":      true,
-	"audio/ogg":       true,
-	"audio/wav":       true,
-	"application/pdf": true,
+var extMIME = map[string]string{
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".doc":  "application/msword",
+	".xls":  "application/vnd.ms-excel",
+	".ppt":  "application/vnd.ms-powerpoint",
+}
+
+func mimeByExt(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	return extMIME[ext]
+}
+
+var blockedTypes = map[string]bool{
+	"application/x-executable":     true,
+	"application/x-msdos-program":  true,
+	"application/x-sh":             true,
+	"application/x-bat":            true,
 }
 
 type Service struct {
-	store   *Store
-	storage StorageBackend
-	events  core.EventBus
-	logger  *slog.Logger
+	store      *Store
+	storage    StorageBackend
+	events     core.EventBus
+	logger     *slog.Logger
+	stopClean  chan struct{}
 }
 
 func NewService(store *Store, storage StorageBackend, ev core.EventBus, logger *slog.Logger) *Service {
@@ -47,6 +54,70 @@ func NewService(store *Store, storage StorageBackend, ev core.EventBus, logger *
 		storage: storage,
 		events:  ev,
 		logger:  logger,
+	}
+}
+
+// StartCleanup launches a background goroutine that periodically removes
+// database records whose physical files no longer exist on disk.
+func (s *Service) StartCleanup(interval time.Duration) {
+	if s.stopClean != nil {
+		return
+	}
+	s.stopClean = make(chan struct{})
+	go s.cleanupLoop(interval)
+}
+
+// StopCleanup signals the background cleanup goroutine to exit.
+func (s *Service) StopCleanup() {
+	if s.stopClean != nil {
+		close(s.stopClean)
+		s.stopClean = nil
+	}
+}
+
+func (s *Service) cleanupLoop(interval time.Duration) {
+	// Run once immediately on start, then on interval.
+	s.cleanMissingFiles()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.cleanMissingFiles()
+		case <-s.stopClean:
+			return
+		}
+	}
+}
+
+func (s *Service) cleanMissingFiles() {
+	ctx := context.Background()
+
+	paths, err := s.store.ListAllStoragePaths(ctx)
+	if err != nil {
+		s.logger.Error("cleanup: failed to list storage paths", "error", err)
+		return
+	}
+
+	if len(paths) == 0 {
+		return
+	}
+
+	removed := 0
+	for _, p := range paths {
+		if _, err := s.storage.Get(ctx, p); err != nil {
+			s.logger.Info("cleanup: removing orphaned media record", "path", p)
+			if delErr := s.store.DeleteByStoragePath(ctx, p); delErr != nil {
+				s.logger.Error("cleanup: failed to delete record", "path", p, "error", delErr)
+			} else {
+				removed++
+			}
+		}
+	}
+
+	if removed > 0 {
+		s.logger.Info("cleanup: removed orphaned media records", "count", removed)
 	}
 }
 
@@ -67,8 +138,17 @@ func (s *Service) Upload(ctx context.Context, reader io.Reader, filename string,
 		sniffLen = 512
 	}
 	mimeType := http.DetectContentType(data[:sniffLen])
+	mimeType, _, _ = strings.Cut(mimeType, ";")
 
-	if !allowedTypes[mimeType] {
+	// http.DetectContentType returns application/zip for Office files (docx, xlsx, pptx).
+	// Correct based on the file extension.
+	if mimeType == "application/zip" || mimeType == "application/octet-stream" {
+		if corrected := mimeByExt(filename); corrected != "" {
+			mimeType = corrected
+		}
+	}
+
+	if blockedTypes[mimeType] {
 		return nil, fmt.Errorf("mime type %q is not allowed: %w", mimeType, interfaces.ErrValidation)
 	}
 
@@ -275,8 +355,15 @@ func (s *Service) UploadFromReader(ctx context.Context, reader io.Reader, filena
 		}
 		mimeType = http.DetectContentType(data[:sniffLen])
 	}
+	mimeType, _, _ = strings.Cut(mimeType, ";")
 
-	if !allowedTypes[mimeType] {
+	if mimeType == "application/zip" || mimeType == "application/octet-stream" {
+		if corrected := mimeByExt(filename); corrected != "" {
+			mimeType = corrected
+		}
+	}
+
+	if blockedTypes[mimeType] {
 		return nil, fmt.Errorf("mime type %q is not allowed: %w", mimeType, interfaces.ErrValidation)
 	}
 
