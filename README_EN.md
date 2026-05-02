@@ -12,9 +12,7 @@
   <img src="https://img.shields.io/badge/license-Apache%20License%202.0-blue" alt="License" />
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
-  <a href="README.md">
-    <img src="https://img.shields.io/badge/README-中文-red?style=flat-square" alt="中文 README" />
-  </a>
+    <img src="https://img.shields.io/badge/README-English-red?style=flat-square" alt="English README" />
 </p>
 <p align="center">
   <a href="#features">Features</a> ·
