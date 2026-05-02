@@ -101,7 +101,9 @@ jobs:
         id: notes
         run: |
           TAG="${{ steps.vars.outputs.tag }}"
-          NOTES=$(awk "/^## ${TAG}/,/^(## [0-9])/ {print}" CHANGELOG.md | sed "/^## [0-9]/d" | sed '/^$/d;1{/^$/d}')
+          # Strip leading 'v' to match CHANGELOG format (## 1.0.0, not ## v1.0.0)
+          VER="${TAG#v}"
+          NOTES=$(awk "BEGIN{f=0} /^## ${VER}/{f=1;next} /^(## [0-9])/{f=0} f{print}" CHANGELOG.md | sed '/^$/d')
           if [ -z "$NOTES" ]; then
             NOTES="Release ${TAG}"
           fi
