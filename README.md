@@ -1,5 +1,3 @@
-
-
 <h1 align="center">ARoute CMS</h1>
 
 <p align="center">
@@ -7,7 +5,7 @@
 </p>
 
 <p align="center">
-  插件沙箱隔离 · 动态内容类型 · 混合渲染引擎 · 单二进制零依赖部署
+  插件沙箱隔离 · 动态内容类型 · 混合渲染引擎 · 单二进制部署
 </p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
@@ -15,7 +13,7 @@
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/CGO-zero-green?style=flat-square" alt="Zero CGO" />
   <a href="README_EN.md">
-    <img src="https://img.shields.io/badge/README-Chinese-blue?style=flat-square" alt="Chinese README" />
+    <img src="https://img.shields.io/badge/README-English-blue?style=flat-square" alt="English README" />
   </a>
 </p>
 <p align="center">
@@ -89,13 +87,24 @@ Core **不包含任何业务逻辑** — 仅负责插件生命周期管理、服
 | **L1** | Native Go | 进程级 | 官方插件、可信扩展 |
 | **L3** | Wasm (wazero) | 沙箱隔离 | 第三方插件 |
 
-### 🚀 单二进制，零依赖
+### 🛡️ RBAC 权限控制
+
+完整的基于角色的访问控制系统，覆盖后端 API 和前端 UI：
+
+- 预设角色：超级管理员、编辑、作者、查看者
+- 细粒度资源权限：`content`、`media`、`users`、`roles`、`settings` 等
+- 作者范围过滤：仅拥有 `content.update_own` 权限的用户可见自己创建的内容
+- 查看者拦截：纯查看者角色无法登录管理后台
+- API Token：支持通过令牌进行 API 访问，适合集成场景
+
+### 🚀 单二进制，零外部依赖
 
 ```bash
-$ aroute serve
+$ aroute init      # 交互式初始化，生成配置文件
+$ aroute serve --config aroute.yaml   # 启动服务
 ```
 
-就这样。无需运行时、解释器或外部数据库（SQLite 内嵌）。Admin UI 通过 `go:embed` 嵌入二进制。
+无需运行时、解释器或外部数据库（SQLite 内嵌）。Admin UI 通过 `go:embed` 嵌入二进制。
 
 - **零 CGO** — 所有依赖均为纯 Go 或 Wasm 实现
 - **跨平台** — linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64
@@ -139,34 +148,34 @@ docker compose -f deploy/docker-compose-dev.yaml up -d
 ### 首次运行
 
 ```bash
-# 交互式初始化（创建配置文件、设置管理员密码）
+# 第一步：交互式初始化（创建配置文件、设置管理员密码）
 ./bin/aroute init
 
-# 或直接使用默认配置启动
-./bin/aroute serve
+# 第二步：使用生成的配置文件启动服务
+./bin/aroute serve --config ./aroute.yaml
 
-# 自定义参数启动
-./bin/aroute serve --host 0.0.0.0 --port 8080 --config ./aroute.yaml --log-level debug
+# 自定义参数
+./bin/aroute serve --config ./aroute.yaml --host 0.0.0.0 --port 8080 --log-level debug
 ```
 
-访问 `http://localhost:8080/admin/` 进入管理后台。
+访问 `http://localhost:8080/admin/` 进入管理后台，公共网站同时可通过 `http://localhost:8080/` 访问。
 
 ### 命令行工具
 
 ```bash
-aroute serve                    # 启动 CMS 服务器
-aroute init                     # 交互式首次设置
-aroute migrate up               # 执行数据库迁移
-aroute migrate down             # 回滚迁移
-aroute migrate status           # 查看迁移状态
-aroute plugin list              # 列出已安装插件
-aroute plugin install <path>    # 安装插件
-aroute plugin enable <name>     # 启用插件
-aroute plugin disable <name>    # 禁用插件
-aroute plugin remove <name>     # 移除插件
-aroute config show              # 显示当前配置
-aroute config validate          # 验证配置文件
-aroute version                  # 打印版本信息
+aroute serve                        # 启动 CMS 服务器
+aroute init                         # 交互式首次设置
+aroute migrate up                   # 执行数据库迁移
+aroute migrate down                 # 回滚迁移
+aroute migrate status               # 查看迁移状态
+aroute plugin list                  # 列出已安装插件
+aroute plugin install <path>        # 安装插件
+aroute plugin enable <name>         # 启用插件
+aroute plugin disable <name>        # 禁用插件
+aroute plugin remove <name>         # 移除插件
+aroute config show                  # 显示当前配置
+aroute config validate              # 验证配置文件
+aroute version                      # 打印版本信息
 ```
 
 ---
@@ -203,9 +212,9 @@ aroute version                  # 打印版本信息
 │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐       │
 │  │HTTP│ │ DB │ │Auth│ │内容│ │媒体│ │主题│ │搜索│       │
 │  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘       │
-│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌─────────────────┐  │
-│  │API │ │缓存│ │队列│ │Hook│ │SDK │ │    Admin UI     │  │
-│  └────┘ └────┘ └────┘ └────┘ └────┘ └─────────────────┘  │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────────┐ ┌─────┐  │
+│  │API │ │缓存│ │队列│ │Hook│ │前端│ │Admin UI│ │ SDK │  │
+│  └────┘ └────┘ └────┘ └────┘ └────┘ └────────┘ └─────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │                    L3 Wasm 沙箱                              │
 │              (wazero — 零 CGO，纯 Go)                       │
@@ -244,7 +253,7 @@ aroute/
 ├── plugins/                # L1 官方插件集
 │   ├── http/               # HTTP 服务器（chi 路由器）
 │   ├── database/           # 数据库（SQLite + PostgreSQL）
-│   ├── auth/               # 认证授权（JWT + RBAC）
+│   ├── auth/               # 认证授权（JWT + RBAC + API Token）
 │   ├── content/            # 内容管理
 │   ├── media/              # 媒体存储
 │   ├── theme/              # 主题引擎
@@ -253,6 +262,7 @@ aroute/
 │   ├── cache/              # 缓存（ristretto）
 │   ├── queue/              # 任务队列
 │   ├── webhook/            # Webhook
+│   ├── frontend/           # 公共网站前端（模板渲染）
 │   └── admin/              # Admin UI（React + Arco Design）
 ├── admin/                  # Admin UI 源码（React）
 ├── themes/default/         # 默认主题（Go template）
@@ -269,13 +279,13 @@ aroute/
 
 ## 插件
 
-### 核心插件（12 个 L1 官方插件）
+### 核心插件（13 个 L1 官方插件）
 
 | 插件 | 说明 | 核心技术 |
 |------|------|---------|
 | **HTTP** | HTTP 服务器，中间件链 | go-chi/chi、CORS、优雅关闭 |
 | **Database** | 双驱动数据库层 | modernc/sqlite（零 CGO）、pgx（PostgreSQL）、sqlc |
-| **Auth** | 认证与授权 | JWT（HS256）、bcrypt、RBAC、API Token |
+| **Auth** | 认证与授权 | JWT（HS256）、bcrypt、RBAC、API Token、频率限制 |
 | **Content** | 内容管理引擎 | 动态 Content Type、字段验证、版本历史 |
 | **Media** | 文件上传与存储 | 本地文件系统、S3 兼容存储（minio-go）、缩略图生成 |
 | **Theme** | 多引擎模板渲染 | Go template、Lua（gopher-lua）、React SSR（fastschema/qjs） |
@@ -284,7 +294,23 @@ aroute/
 | **Cache** | 内存缓存 | dgraph-io/ristretto、TTL、EventBus 自动失效 |
 | **Queue** | 轻量任务队列 | Goroutine worker pool、指数退避重试、死信队列 |
 | **Webhook** | 事件驱动通知 | HTTP POST 投递、HMAC-SHA256 签名、重试策略 |
+| **Frontend** | 公共网站渲染 | Go 模板渲染、站点配置联动、导航菜单动态生成 |
 | **Admin UI** | 管理后台 | React、TypeScript、Arco Design、TipTap、中英 i18n、暗色/亮色主题 |
+
+### Admin UI 功能
+
+| 功能模块 | 说明 |
+|---------|------|
+| **仪表盘** | 站点概览、统计数据 |
+| **内容管理** | 动态 Content Type CRUD、富文本编辑、版本历史、分类/标签关联 |
+| **内容类型构建器** | 可视化定义字段、验证规则、关系 |
+| **媒体库** | 文件上传、缩略图预览、批量管理 |
+| **菜单管理** | 多级导航创建、排序、动态渲染 |
+| **插件管理** | 列表、启用/禁用、上传安装、系统插件保护、状态监控 |
+| **用户管理** | 用户 CRUD、角色分配 |
+| **角色管理** | RBAC 角色定义、细粒度权限配置 |
+| **站点设置** | 站点名称、URL、语言、时区（实时反映到公共网站） |
+| **API 令牌** | 创建/管理 API 访问令牌 |
 
 ### 插件开发
 
@@ -329,10 +355,10 @@ func (p *MyPlugin) Stop() error  { return nil }
 
 ARoute 使用分层配置系统，优先级：**CLI 参数 > 环境变量（`AROUTE_` 前缀）> 配置文件（YAML/TOML）> 默认值**
 
-```bash
-# 生成配置文件模板
-cp configs/aroute.example.yaml aroute.yaml
-```
+> **注意：** 启动服务前需要先准备配置文件。使用 `aroute init` 交互式生成，或从模板复制：
+> ```bash
+> cp configs/aroute.yaml ./aroute.yaml
+> ```
 
 核心配置项：
 
@@ -360,9 +386,13 @@ theme:
 log:
   level: "info"    # debug, info, warn, error
   format: "json"  # json, text
+
+# 站点信息（反映到公共网站）
+site_name: "My Site"
+site_url: "https://example.com"
 ```
 
-完整配置参考 [`configs/aroute.example.yaml`](configs/aroute.example.yaml)。
+完整配置参考 [`configs/aroute.yaml`](configs/aroute.yaml)。
 
 ---
 
@@ -376,7 +406,7 @@ log:
 | 路由 | go-chi/chi | 轻量级，兼容标准库 |
 | 数据库 | modernc/sqlite + pgx | SQLite（零依赖部署）+ PostgreSQL（生产环境） |
 | 数据访问 | sqlc + 动态查询构建器 | 固定表用 sqlc 编译时类型安全，动态表用运行时构建器 |
-| 认证 | golang-jwt + bcrypt | JWT + RBAC |
+| 认证 | golang-jwt + bcrypt | JWT + RBAC + API Token |
 | 搜索 | Bleve + gse | 全文搜索 + 中文分词 |
 | 缓存 | dgraph-io/ristretto | 高性能内存缓存 |
 | Wasm 运行时 | tetratelabs/wazero | 零 CGO Wasm 运行时 |
@@ -441,7 +471,7 @@ make cover
 
 ```bash
 # 终端 1：Go 后端
-make build && ./bin/aroute serve --log-level debug
+make build && ./bin/aroute serve --config ./aroute.yaml --log-level debug
 
 # 终端 2：Admin UI 开发服务器（代理到 Go 后端）
 make admin-dev
@@ -470,19 +500,24 @@ make admin-dev
 - [x] Auth 插件（JWT、bcrypt、RBAC、API Token、频率限制）
 - [x] CLI 工具（serve、init、migrate、plugin、config、version）
 - [x] Content 插件（动态 Content Type、CRUD、版本历史、Slug）
-- [x] Media 插件（上传、本地/S3 存储、缩略图）
+- [x] Media 插件（上传、本地/S3 存储、缩略图、预览）
 - [x] Theme Engine 插件（Go template → Lua → React SSR）
 - [x] Search 插件（Bleve + gse 中文分词）
 - [x] REST API 插件（自动 CRUD、OpenAPI 3.0）
 - [x] Cache 插件（ristretto + EventBus 自动失效）
 - [x] Queue 插件（Goroutine worker pool、重试、死信队列）
 - [x] Webhook 插件（HTTP POST 投递、HMAC-SHA256 签名、SSRF 防护、自动禁用）
-- [x] Admin UI（React + Arco Design + TipTap）
+- [x] Frontend 插件（公共网站渲染、站点配置联动、导航菜单）
+- [x] Admin UI（React + Arco Design + TipTap + 暗色/亮色主题）
+  - [x] 仪表盘、内容管理、内容类型构建器
+  - [x] 媒体库、菜单管理、插件管理（上传/热插拔/系统插件保护）
+  - [x] 用户管理、角色管理（RBAC 权限控制）
+  - [x] 站点设置（实时反映到公共网站）、API 令牌
+  - [x] 中英双语 i18n
 - [x] Plugin SDK（Go SDK + Wasm 模板）
 - [x] 默认主题（Go template 博客主题）
 - [x] 集成测试与端到端测试
 - [x] 文档与 Dockerfile
-
 
 ### 🚧 开发中
 

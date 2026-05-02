@@ -1,5 +1,3 @@
-
-
 <h1 align="center">ARoute CMS</h1>
 
 <p align="center">
@@ -87,15 +85,26 @@ Three template engines to suit every use case, switchable at runtime:
 | Tier | Engine | Isolation | Use Case |
 |------|--------|-----------|----------|
 | **L1** | Native Go | Process-level | Official plugins, trusted extensions |
-| **L3** | Wasm (wazero) | Sandbox | third-party plugins |
+| **L3** | Wasm (wazero) | Sandbox | Third-party plugins |
 
-### 🚀 Single Binary, Zero Dependencies
+### 🛡️ RBAC Access Control
 
+Full role-based access control covering both backend API and frontend UI:
+
+- Preset roles: Super Admin, Editor, Author, Viewer
+- Fine-grained resource permissions: `content`, `media`, `users`, `roles`, `settings`, etc.
+- Author-scoped filtering: users with only `content.update_own` see their own content
+- Viewer lockout: viewer-only accounts cannot access the admin panel
+- API Tokens: token-based API access for integrations
+
+### 🚀 Single Binary, Zero External Dependencies
+
+```bash
+$ aroute init                      # Interactive setup — generates config file
+$ aroute serve --config aroute.yaml  # Start the server
 ```
-$ aroute serve
-```
 
-That's it. No runtime, no interpreter, no external database required (SQLite embedded). Admin UI is embedded via `go:embed`.
+No runtime, no interpreter, no external database required (SQLite embedded). Admin UI is embedded via `go:embed`.
 
 - **Zero CGO** — All dependencies are pure Go or Wasm
 - **Cross-platform** — linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64
@@ -139,34 +148,34 @@ docker compose -f deploy/docker-compose-dev.yaml up -d
 ### First Run
 
 ```bash
-# Interactive setup (creates config, sets admin password)
+# Step 1: Interactive setup (creates config file, sets admin password)
 ./bin/aroute init
 
-# Or start directly with defaults
-./bin/aroute serve
+# Step 2: Start with the generated config
+./bin/aroute serve --config ./aroute.yaml
 
 # With custom options
-./bin/aroute serve --host 0.0.0.0 --port 8080 --config ./aroute.yaml --log-level debug
+./bin/aroute serve --config ./aroute.yaml --host 0.0.0.0 --port 8080 --log-level debug
 ```
 
-Open `http://localhost:8080/admin/` to access the admin panel.
+Open `http://localhost:8080/admin/` for the admin panel. The public website is simultaneously available at `http://localhost:8080/`.
 
 ### CLI Commands
 
 ```bash
-aroute serve                    # Start the CMS server
-aroute init                     # Interactive first-time setup
-aroute migrate up               # Run database migrations
-aroute migrate down             # Rollback migrations
-aroute migrate status           # Show migration status
-aroute plugin list              # List installed plugins
-aroute plugin install <path>    # Install a plugin
-aroute plugin enable <name>     # Enable a plugin
-aroute plugin disable <name>    # Disable a plugin
-aroute plugin remove <name>     # Remove a plugin
-aroute config show              # Show current configuration
-aroute config validate          # Validate configuration
-aroute version                  # Print version info
+aroute serve                        # Start the CMS server
+aroute init                         # Interactive first-time setup
+aroute migrate up                   # Run database migrations
+aroute migrate down                 # Rollback migrations
+aroute migrate status               # Show migration status
+aroute plugin list                  # List installed plugins
+aroute plugin install <path>        # Install a plugin
+aroute plugin enable <name>         # Enable a plugin
+aroute plugin disable <name>        # Disable a plugin
+aroute plugin remove <name>         # Remove a plugin
+aroute config show                  # Show current configuration
+aroute config validate              # Validate configuration
+aroute version                      # Print version info
 ```
 
 ---
@@ -205,9 +214,9 @@ Full documentation is available in the [`docs/`](docs/) directory:
 │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐       │
 │  │HTTP│ │ DB │ │Auth│ │Cntn│ │Med │ │Thm │ │Srsh│       │
 │  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘       │
-│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌─────────────────┐  │
-│  │API │ │Cach│ │Queue│ │ WH │ │SDK │ │    Admin UI     │  │
-│  └────┘ └────┘ └────┘ └────┘ └────┘ └─────────────────┘  │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────────┐ ┌─────┐  │
+│  │API │ │Cach│ │Queue│ │ WH │ │ Fe │ │Admin UI│ │ SDK │  │
+│  └────┘ └────┘ └────┘ └────┘ └────┘ └────────┘ └─────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │                    L3 Wasm Sandbox                          │
 │              (wazero — zero CGO, pure Go)                   │
@@ -246,7 +255,7 @@ aroute/
 ├── plugins/                # L1 official plugin set
 │   ├── http/               # HTTP Server (chi router)
 │   ├── database/           # Database (SQLite + PostgreSQL)
-│   ├── auth/               # Authentication (JWT + RBAC)
+│   ├── auth/               # Authentication (JWT + RBAC + API Token)
 │   ├── content/            # Content management
 │   ├── media/              # Media storage
 │   ├── theme/              # Theme engine
@@ -255,6 +264,7 @@ aroute/
 │   ├── cache/              # Cache (ristretto)
 │   ├── queue/              # Task queue
 │   ├── webhook/            # Webhook
+│   ├── frontend/           # Public website rendering (template)
 │   └── admin/              # Admin UI (React + Arco Design)
 ├── admin/                  # Admin UI source (React)
 ├── themes/default/         # Default theme (Go template)
@@ -271,13 +281,13 @@ aroute/
 
 ## Plugins
 
-### Core Plugins (12 L1 Official)
+### Core Plugins (13 L1 Official)
 
 | Plugin | Description | Key Technologies |
 |--------|-------------|------------------|
 | **HTTP** | HTTP server with middleware chain | go-chi/chi, CORS, graceful shutdown |
 | **Database** | Dual-driver database layer | modernc/sqlite (zero CGO), pgx (PostgreSQL), sqlc |
-| **Auth** | Authentication & authorization | JWT (HS256), bcrypt, RBAC, API tokens |
+| **Auth** | Authentication & authorization | JWT (HS256), bcrypt, RBAC, API tokens, rate limiting |
 | **Content** | Content management engine | Dynamic Content Types, field validation, versioning |
 | **Media** | File upload & storage | Local filesystem, S3 (minio-go), thumbnail generation |
 | **Theme** | Multi-engine template rendering | Go template, Lua (gopher-lua), React SSR (fastschema/qjs) |
@@ -286,7 +296,23 @@ aroute/
 | **Cache** | In-memory caching | dgraph-io/ristretto, TTL, auto-invalidation via EventBus |
 | **Queue** | Lightweight task queue | Goroutine worker pool, retry with exponential backoff, dead letter |
 | **Webhook** | Event-driven notifications | HTTP POST delivery, HMAC-SHA256 signing, retry strategy |
+| **Frontend** | Public website rendering | Go template rendering, site config integration, dynamic nav menus |
 | **Admin UI** | Management dashboard | React, TypeScript, Arco Design, TipTap, i18n (zh/en), dark/light mode |
+
+### Admin UI Features
+
+| Module | Description |
+|--------|-------------|
+| **Dashboard** | Site overview and statistics |
+| **Content Management** | Dynamic Content Type CRUD, rich text editing, version history, category/tag association |
+| **Content Type Builder** | Visual field definition, validation rules, relations |
+| **Media Library** | File upload, thumbnail preview, bulk management |
+| **Menu Management** | Multi-level navigation creation, ordering, dynamic rendering |
+| **Plugin Management** | List, enable/disable, upload & install, system plugin protection, state monitoring |
+| **User Management** | User CRUD, role assignment |
+| **Role Management** | RBAC role definition, fine-grained permission configuration |
+| **Site Settings** | Site name, URL, language, timezone (reflected live on the public website) |
+| **API Tokens** | Create and manage API access tokens |
 
 ### Plugin Development
 
@@ -331,10 +357,10 @@ See `sdk/go/example/` and `sdk/wasm/template/` for complete examples.
 
 ARoute uses a layered configuration system with priority: **CLI flags > ENV vars (`AROUTE_` prefix) > Config file (YAML/TOML) > Defaults**
 
-```bash
-# Generate a config template
-cp configs/aroute.example.yaml aroute.yaml
-```
+> **Note:** A configuration file is required before starting the server. Use `aroute init` to generate one interactively, or copy from the template:
+> ```bash
+> cp configs/aroute.yaml ./aroute.yaml
+> ```
 
 Key configuration sections:
 
@@ -362,9 +388,13 @@ theme:
 log:
   level: "info"    # debug, info, warn, error
   format: "json"  # json, text
+
+# Site info (reflected on the public website)
+site_name: "My Site"
+site_url: "https://example.com"
 ```
 
-See [`configs/aroute.example.yaml`](configs/aroute.example.yaml) for the complete configuration reference.
+See [`configs/aroute.yaml`](configs/aroute.yaml) for the complete configuration reference.
 
 ---
 
@@ -378,7 +408,7 @@ See [`configs/aroute.example.yaml`](configs/aroute.example.yaml) for the complet
 | Router | go-chi/chi | Lightweight, std-compatible |
 | Database | modernc/sqlite + pgx | SQLite (zero-deploy) + PostgreSQL (production) |
 | Query | sqlc + dynamic builder | Static types for fixed tables, runtime builder for dynamic CT |
-| Auth | golang-jwt + bcrypt | JWT + RBAC |
+| Auth | golang-jwt + bcrypt | JWT + RBAC + API Token |
 | Search | Bleve + gse | Full-text with Chinese segmentation |
 | Cache | dgraph-io/ristretto | High-performance in-memory cache |
 | Wasm | tetratelabs/wazero | Zero CGO Wasm runtime |
@@ -443,7 +473,7 @@ make cover
 
 ```bash
 # Terminal 1: Go backend
-make build && ./bin/aroute serve --log-level debug
+make build && ./bin/aroute serve --config ./aroute.yaml --log-level debug
 
 # Terminal 2: Admin UI dev server (proxies to Go backend)
 make admin-dev
@@ -472,14 +502,20 @@ make admin-dev
 - [x] Auth plugin (JWT, bcrypt, RBAC, API tokens, rate limiting)
 - [x] CLI tool (serve, init, migrate, plugin, config, version)
 - [x] Content plugin (dynamic Content Types, CRUD, versioning, slug)
-- [x] Media plugin (upload, local/S3 storage, thumbnails)
+- [x] Media plugin (upload, local/S3 storage, thumbnails, preview)
 - [x] Theme Engine plugin (Go template → Lua → React SSR)
 - [x] Search plugin (Bleve + gse Chinese tokenizer)
 - [x] REST API plugin (auto CRUD, OpenAPI 3.0)
 - [x] Cache plugin (ristretto + EventBus auto-invalidation)
 - [x] Queue plugin (goroutine worker pool, retry, dead letter)
 - [x] Webhook plugin (HTTP POST, HMAC-SHA256, SSRF protection, auto-disable)
-- [x] Admin UI (React + Arco Design + TipTap)
+- [x] Frontend plugin (public website rendering, site config integration, nav menus)
+- [x] Admin UI (React + Arco Design + TipTap + dark/light theme)
+  - [x] Dashboard, content management, content type builder
+  - [x] Media library, menu management, plugin management (upload/hot-plug/system plugin protection)
+  - [x] User management, role management (RBAC access control)
+  - [x] Site settings (reflected live on public website), API tokens
+  - [x] Chinese/English i18n
 - [x] Plugin SDK (Go SDK + Wasm template)
 - [x] Default theme (Go template blog theme)
 - [x] Integration & E2E tests
