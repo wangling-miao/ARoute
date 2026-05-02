@@ -1,8 +1,16 @@
 package api
 
 import (
+	"archive/zip"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -10,11 +18,18 @@ import (
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
+// systemPluginEngines marks these engine types as non-disablable system plugins.
+var systemPluginEngines = map[string]bool{
+	"native": true,
+	"l1":     true,
+}
+
 type AdminHandler struct {
 	ctx        core.CoreContext
 	contentSvc interfaces.ContentService
 	authSvc    interfaces.AuthService
 	lifecycle  core.LifecycleManager
+	registry   core.PluginRegistry
 	cacheSvc   interfaces.CacheService
 }
 
@@ -27,6 +42,13 @@ func NewAdminHandler(ctx core.CoreContext, contentSvc interfaces.ContentService,
 			ctx.Logger().Warn("lifecycle manager not available for admin handler")
 		} else {
 			h.lifecycle = lm
+		}
+
+		var reg core.PluginRegistry
+		if err := ctx.Services().Get(&reg); err != nil {
+			ctx.Logger().Warn("registry not available for admin handler")
+		} else {
+			h.registry = reg
 		}
 
 		var cs interfaces.CacheService
@@ -79,8 +101,11 @@ func (h *AdminHandler) handleDashboardStats(w http.ResponseWriter, r *http.Reque
 	}
 
 	pluginCount := 0
-	if h.lifecycle != nil {
-		pluginCount = len(h.lifecycle.ListPlugins())
+	if h.registry != nil {
+		entries, err := h.registry.List()
+		if err == nil {
+			pluginCount = len(entries)
+		}
 	}
 
 	var cacheHitRatio float64
@@ -154,29 +179,52 @@ func (h *AdminHandler) handleListPlugins(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if h.lifecycle == nil {
+	if h.registry == nil {
 		writeJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
 
-	names := h.lifecycle.ListPlugins()
-	plugins := make([]map[string]interface{}, 0, len(names))
+	entries, err := h.registry.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list plugins")
+		return
+	}
 
-	for _, name := range names {
-		p := h.lifecycle.GetPlugin(name)
-		if p == nil {
-			continue
+	// Sort entries by name.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Manifest.Name < entries[j].Manifest.Name
+	})
+
+	type pluginEntry struct {
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Author      string `json:"author"`
+		Enabled     bool   `json:"enabled"`
+		State       string `json:"state"`
+		IsSystem    bool   `json:"is_system"`
+	}
+
+	plugins := make([]pluginEntry, 0, len(entries))
+	for _, e := range entries {
+		state := "not_loaded"
+		if h.lifecycle != nil {
+			if s, err := h.lifecycle.GetState(e.Manifest.Name); err == nil {
+				state = s.String()
+			}
 		}
-		entry := map[string]interface{}{
-			"name":    p.Name(),
-			"version": p.Version(),
-			"enabled": true,
-		}
-		if m := p.Manifest(); m != nil {
-			entry["description"] = m.Description
-			entry["author"] = m.Author
-		}
-		plugins = append(plugins, entry)
+
+		isSystem := systemPluginEngines[e.Manifest.Engine]
+
+		plugins = append(plugins, pluginEntry{
+			Name:        e.Manifest.Name,
+			Version:     e.Manifest.Version,
+			Description: e.Manifest.Description,
+			Author:      e.Manifest.Author,
+			Enabled:     e.Enabled,
+			State:       state,
+			IsSystem:    isSystem,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, plugins)
@@ -193,10 +241,20 @@ func (h *AdminHandler) handleEnablePlugin(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if h.lifecycle != nil {
-		if err := h.lifecycle.Enable(r.Context(), name); err != nil {
+	// Persist enabled state to registry so it loads on next restart.
+	if h.registry != nil {
+		if err := h.registry.Enable(name); err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 			return
+		}
+	}
+
+	// Try to start the plugin in-memory if lifecycle is available.
+	if h.lifecycle != nil {
+		if err := h.lifecycle.Enable(r.Context(), name); err != nil {
+			// Plugin may not be loaded in lifecycle (e.g., requires restart).
+			// Log but don't fail — the registry state is what matters.
+			slog.Warn("plugin enable in lifecycle failed", "plugin", name, "error", err)
 		}
 	}
 
@@ -218,8 +276,29 @@ func (h *AdminHandler) handleDisablePlugin(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check if it's a system plugin.
+	if h.registry != nil {
+		entry, err := h.registry.Get(name)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "plugin not found")
+			return
+		}
+		if systemPluginEngines[entry.Manifest.Engine] {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "system plugins cannot be disabled")
+			return
+		}
+	}
+
+	// Stop the plugin in-memory.
 	if h.lifecycle != nil {
 		if err := h.lifecycle.Disable(r.Context(), name); err != nil {
+			slog.Warn("plugin disable in lifecycle failed", "plugin", name, "error", err)
+		}
+	}
+
+	// Persist disabled state to registry.
+	if h.registry != nil {
+		if err := h.registry.Disable(name); err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 			return
 		}
@@ -230,4 +309,206 @@ func (h *AdminHandler) handleDisablePlugin(w http.ResponseWriter, r *http.Reques
 		"name":    name,
 		"status":  "disabled",
 	})
+}
+
+func (h *AdminHandler) handleUploadPlugin(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "plugins", "enable") {
+		return
+	}
+
+	// Limit upload size to 50MB.
+	r.Body = http.MaxBytesReader(w, r.Body, 50<<20)
+
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "failed to parse upload: "+err.Error())
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "missing file in upload")
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext != ".zip" && ext != ".tar.gz" && ext != ".wasm" {
+		writeError(w, http.StatusBadRequest, "INVALID_FILE", "unsupported file type, accepted: .zip, .tar.gz, .wasm")
+		return
+	}
+
+	pluginDir := "/tmp/aroute-uploads"
+	if h.ctx != nil {
+		pluginDir = h.ctx.PluginDir()
+	}
+	destDir := filepath.Join(filepath.Dir(pluginDir), "plugins")
+	os.MkdirAll(destDir, 0755)
+
+	var manifestPath string
+	var extractedDir string
+
+	switch ext {
+	case ".zip":
+		extractedDir, manifestPath, err = h.extractZip(file, header.Filename, destDir)
+	case ".wasm":
+		extractedDir, manifestPath, err = h.saveWasm(file, header.Filename, destDir)
+	default:
+		writeError(w, http.StatusBadRequest, "INVALID_FILE", "unsupported file type")
+		return
+	}
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_FILE", err.Error())
+		return
+	}
+
+	// Parse manifest.
+	if manifestPath == "" {
+		os.RemoveAll(extractedDir)
+		writeError(w, http.StatusBadRequest, "INVALID_FILE", "plugin manifest not found in archive")
+		return
+	}
+
+	manifest, err := core.LoadManifest(manifestPath)
+	if err != nil {
+		os.RemoveAll(extractedDir)
+		writeError(w, http.StatusBadRequest, "INVALID_MANIFEST", "invalid manifest: "+err.Error())
+		return
+	}
+
+	// Register in registry.
+	if h.registry != nil {
+		if err := h.registry.Register(&core.PluginEntry{
+			Manifest:       *manifest,
+			Enabled:        true,
+			DiscoveredPath: extractedDir,
+		}); err != nil {
+			// Plugin may already exist — try update instead.
+			if strings.Contains(err.Error(), "already exists") {
+				if updateErr := h.registry.Update(manifest.Name, *manifest); updateErr != nil {
+					writeError(w, http.StatusConflict, "CONFLICT", updateErr.Error())
+					return
+				}
+			} else {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+				return
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"message":     "plugin installed",
+		"name":        manifest.Name,
+		"version":     manifest.Version,
+		"description": manifest.Description,
+		"author":      manifest.Author,
+		"enabled":     true,
+		"state":       "not_loaded",
+		"is_system":   systemPluginEngines[manifest.Engine],
+	})
+}
+
+func (h *AdminHandler) extractZip(src io.ReaderAt, filename string, destDir string) (string, string, error) {
+	// Save temp zip first.
+	tmpZip := filepath.Join(destDir, ".tmp-"+filename)
+	f, err := os.Create(tmpZip)
+	if err != nil {
+		return "", "", fmt.Errorf("create temp file: %w", err)
+	}
+	defer f.Close()
+	defer os.Remove(tmpZip)
+
+	size := int64(50 << 20) // max size
+	if s, ok := src.(interface{ Size() int64 }); ok {
+		size = s.Size()
+	}
+
+	if _, err := io.Copy(f, io.NewSectionReader(src, 0, size)); err != nil {
+		return "", "", fmt.Errorf("write temp file: %w", err)
+	}
+
+	zipReader, err := zip.OpenReader(tmpZip)
+	if err != nil {
+		return "", "", fmt.Errorf("open zip: %w", err)
+	}
+	defer zipReader.Close()
+
+	// Find base directory name from zip.
+	baseName := strings.TrimSuffix(filepath.Base(filename), ".zip")
+	extractDir := filepath.Join(destDir, baseName)
+	os.MkdirAll(extractDir, 0755)
+
+	var manifestPath string
+	for _, zf := range zipReader.File {
+		// Security: skip path traversal.
+		if strings.Contains(zf.Name, "..") {
+			continue
+		}
+
+		target := filepath.Join(extractDir, zf.Name)
+
+		if zf.FileInfo().IsDir() {
+			os.MkdirAll(target, 0755)
+			continue
+		}
+
+		os.MkdirAll(filepath.Dir(target), 0755)
+
+		outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, zf.Mode())
+		if err != nil {
+			return "", "", fmt.Errorf("extract %s: %w", zf.Name, err)
+		}
+
+		rc, err := zf.Open()
+		if err != nil {
+			outFile.Close()
+			return "", "", fmt.Errorf("open zip entry %s: %w", zf.Name, err)
+		}
+
+		_, err = io.Copy(outFile, rc)
+		rc.Close()
+		outFile.Close()
+		if err != nil {
+			return "", "", fmt.Errorf("write %s: %w", zf.Name, err)
+		}
+
+		// Look for manifest.
+		base := filepath.Base(zf.Name)
+		if base == "manifest.yaml" || base == "manifest.json" {
+			manifestPath = target
+		}
+	}
+
+	return extractDir, manifestPath, nil
+}
+
+func (h *AdminHandler) saveWasm(src io.Reader, filename string, destDir string) (string, string, error) {
+	baseName := strings.TrimSuffix(filepath.Base(filename), ".wasm")
+	pluginPath := filepath.Join(destDir, baseName)
+	os.MkdirAll(pluginPath, 0755)
+
+	// Save .wasm file.
+	wasmFile := filepath.Join(pluginPath, filename)
+	f, err := os.Create(wasmFile)
+	if err != nil {
+		return "", "", fmt.Errorf("create wasm file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, src); err != nil {
+		return "", "", fmt.Errorf("write wasm file: %w", err)
+	}
+
+	// Check if manifest already exists alongside.
+	manifestPath := filepath.Join(pluginPath, "manifest.yaml")
+	if _, err := os.Stat(manifestPath); err != nil {
+		// Check for JSON variant.
+		manifestPath = filepath.Join(pluginPath, "manifest.json")
+		if _, err := os.Stat(manifestPath); err != nil {
+			// No manifest — caller will report the error.
+			return pluginPath, "", nil
+		}
+	}
+
+	return pluginPath, manifestPath, nil
 }

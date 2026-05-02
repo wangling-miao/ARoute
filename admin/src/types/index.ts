@@ -113,6 +113,8 @@ export interface Plugin {
   description: string;
   author: string;
   enabled: boolean;
+  state: string;
+  is_system: boolean;
 }
 
 // ─── Settings ────────────────────────────────────────────────────

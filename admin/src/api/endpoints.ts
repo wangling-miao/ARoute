@@ -141,6 +141,10 @@ export const plugins = {
   disable(name: string): Promise<void> {
     return fetchClient.post<void>(`/plugins/${name}/disable`);
   },
+
+  upload(file: File, onProgress?: (pct: number) => void): Promise<Plugin> {
+    return fetchClient.upload<Plugin>('/plugins/upload', file, onProgress);
+  },
 };
 
 export const settings = {

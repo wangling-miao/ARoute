@@ -215,3 +215,12 @@ func (l *LegacyDiscoveryRegistry) IsEnabled(name string) (bool, error) {
 	}
 	return route.Enabled, nil
 }
+
+func (l *LegacyDiscoveryRegistry) Enable(name string) error {
+	return l.inner.Enable(RouteTypePlugin, defaultDomain, name)
+}
+
+func (l *LegacyDiscoveryRegistry) Disable(name string) error {
+	_, err := l.inner.Disable(RouteTypePlugin, defaultDomain, name)
+	return err
+}

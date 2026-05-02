@@ -272,6 +272,8 @@ func (a *regAdapter) IsEnabled(name string) (bool, error) {
 	}
 	return e.Enabled, nil
 }
+func (a *regAdapter) Enable(name string) error  { return a.registry.Enable(name) }
+func (a *regAdapter) Disable(name string) error { return a.registry.Disable(name) }
 
 type ldrAdapter struct{ loader *loader.NativePluginLoader }
 

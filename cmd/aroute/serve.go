@@ -213,6 +213,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	container.Provide(func(c *services.Container) (*events.EventBus, error) { return eventBus, nil })
 	container.Provide(func(c *services.Container) (*license.Validator, error) { return licenseValidator, nil })
 	container.Provide(func(c *services.Container) (core.LifecycleManager, error) { return lifecycleManager, nil })
+	container.Provide(func(c *services.Container) (core.PluginRegistry, error) { return aroute.Registry(), nil })
 
 	logger.Info("starting aroute engine")
 	if err := aroute.Start(ctx); err != nil {

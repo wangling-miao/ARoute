@@ -205,6 +205,8 @@ type PluginRegistry interface {
 	List() ([]core.Manifest, error)
 	Get(name string) (core.Manifest, error)
 	IsEnabled(name string) (bool, error)
+	Enable(name string) error
+	Disable(name string) error
 }
 
 // CrossTypeResolver provides cross-type dependency ordering from a unified routing registry.

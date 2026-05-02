@@ -308,6 +308,12 @@ func (m *ManagerImpl) Enable(ctx context.Context, pluginName string) error {
 	}
 
 	m.setState(info, pluginName, core.StateActive)
+
+	// Persist enabled state to registry.
+	if err := m.registry.Enable(pluginName); err != nil {
+		slog.Warn("failed to persist enabled state", "plugin", pluginName, "error", err)
+	}
+
 	return nil
 }
 
@@ -365,6 +371,11 @@ func (m *ManagerImpl) Disable(ctx context.Context, pluginName string) error {
 		for _, svc := range info.Manifest.Provides {
 			_ = m.container.Unregister(svc)
 		}
+	}
+
+	// Persist disabled state to registry.
+	if err := m.registry.Disable(pluginName); err != nil {
+		slog.Warn("failed to persist disabled state", "plugin", pluginName, "error", err)
 	}
 
 	return nil
@@ -449,6 +460,7 @@ func (m *ManagerImpl) ListPlugins() []string {
 	for name := range m.plugins {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
