@@ -142,6 +142,77 @@ func (m *RBACManager) InitializeDefaultRoles(ctx context.Context) error {
 		)
 	}
 
+	// Seed all known permissions so they appear in the role management UI.
+	if err := m.seedAllPermissions(ctx); err != nil {
+		m.logger.Warn("failed to seed permission entries", "error", err)
+	}
+
+	return nil
+}
+
+// seedAllPermissions ensures all known resource.action permissions exist in the database,
+// even if not assigned to any default role. This is needed for the role management UI.
+func (m *RBACManager) seedAllPermissions(ctx context.Context) error {
+	allPerms := []defaultPermDef{
+		// Users
+		{Name: "users.create", Resource: "users", Action: "create", DisplayName: "Create Users", Description: "Create new user accounts"},
+		{Name: "users.read", Resource: "users", Action: "read", DisplayName: "Read Users", Description: "View user accounts"},
+		{Name: "users.update", Resource: "users", Action: "update", DisplayName: "Update Users", Description: "Edit user accounts"},
+		{Name: "users.delete", Resource: "users", Action: "delete", DisplayName: "Delete Users", Description: "Delete user accounts"},
+		// Roles
+		{Name: "roles.read", Resource: "roles", Action: "read", DisplayName: "Read Roles", Description: "View roles"},
+		{Name: "roles.update", Resource: "roles", Action: "update", DisplayName: "Update Roles", Description: "Edit role permissions"},
+		// Content types
+		{Name: "content_types.create", Resource: "content_types", Action: "create", DisplayName: "Create Content Types", Description: "Create new content types"},
+		{Name: "content_types.read", Resource: "content_types", Action: "read", DisplayName: "Read Content Types", Description: "View content types"},
+		{Name: "content_types.update", Resource: "content_types", Action: "update", DisplayName: "Update Content Types", Description: "Edit content types"},
+		{Name: "content_types.delete", Resource: "content_types", Action: "delete", DisplayName: "Delete Content Types", Description: "Delete content types"},
+		// Content
+		{Name: "content.create", Resource: "content", Action: "create", DisplayName: "Create Content", Description: "Create content items"},
+		{Name: "content.read", Resource: "content", Action: "read", DisplayName: "Read Content", Description: "View content items"},
+		{Name: "content.update", Resource: "content", Action: "update", DisplayName: "Update Content", Description: "Edit any content items"},
+		{Name: "content.delete", Resource: "content", Action: "delete", DisplayName: "Delete Content", Description: "Delete content items"},
+		// Media
+		{Name: "media.read", Resource: "media", Action: "read", DisplayName: "Read Media", Description: "View media files"},
+		{Name: "media.upload", Resource: "media", Action: "upload", DisplayName: "Upload Media", Description: "Upload new media files"},
+		{Name: "media.delete", Resource: "media", Action: "delete", DisplayName: "Delete Media", Description: "Delete media files"},
+		// Settings
+		{Name: "settings.read", Resource: "settings", Action: "read", DisplayName: "Read Settings", Description: "View settings"},
+		{Name: "settings.update", Resource: "settings", Action: "update", DisplayName: "Update Settings", Description: "Edit settings"},
+		// Plugins
+		{Name: "plugins.read", Resource: "plugins", Action: "read", DisplayName: "Read Plugins", Description: "View plugins"},
+		{Name: "plugins.enable", Resource: "plugins", Action: "enable", DisplayName: "Enable Plugins", Description: "Enable plugins"},
+		{Name: "plugins.disable", Resource: "plugins", Action: "disable", DisplayName: "Disable Plugins", Description: "Disable plugins"},
+		// API Tokens
+		{Name: "api_tokens.create", Resource: "api_tokens", Action: "create", DisplayName: "Create API Tokens", Description: "Create API tokens"},
+		{Name: "api_tokens.read", Resource: "api_tokens", Action: "read", DisplayName: "Read API Tokens", Description: "View API tokens"},
+		{Name: "api_tokens.delete", Resource: "api_tokens", Action: "delete", DisplayName: "Delete API Tokens", Description: "Revoke API tokens"},
+		// Menus
+		{Name: "menus.read", Resource: "menus", Action: "read", DisplayName: "Read Menus", Description: "View menus"},
+		{Name: "menus.update", Resource: "menus", Action: "update", DisplayName: "Update Menus", Description: "Edit menus"},
+	}
+
+	for _, permDef := range allPerms {
+		existing, err := m.store.GetPermissionByResourceAction(ctx, permDef.Resource, permDef.Action)
+		if err != nil && err != interfaces.ErrNotFound {
+			return fmt.Errorf("check permission %q: %w", permDef.Name, err)
+		}
+		if existing != nil {
+			continue
+		}
+		perm := &interfaces.Permission{
+			ID:          newUUID(),
+			Name:        permDef.Name,
+			Resource:    permDef.Resource,
+			Action:      permDef.Action,
+			DisplayName: permDef.DisplayName,
+			Description: permDef.Description,
+		}
+		if err := m.store.CreatePermission(ctx, perm); err != nil {
+			return fmt.Errorf("create permission %q: %w", permDef.Name, err)
+		}
+	}
+
 	return nil
 }
 

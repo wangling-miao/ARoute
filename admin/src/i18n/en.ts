@@ -106,6 +106,7 @@ const en = {
     error_session: 'Your session has expired. Please sign in again.',
     forgot_password: 'Forgot password?',
     remember_me: 'Remember me',
+    error_forbidden: 'Access denied. Your account does not have permission to access the admin panel.',
   },
   dashboard: {
     title: 'Dashboard',
@@ -336,6 +337,14 @@ const en = {
     field_sort_order: 'Sort Order',
     field_is_active: 'Active',
   },
+  editor: {
+    insert_image: 'Insert Image',
+    insert_file: 'Insert File',
+    enter_url: 'Enter URL',
+    from_library: 'Media Library',
+    preview: 'Preview',
+    close_preview: 'Close Preview',
+  },
   sidepanel: {
     categories: 'Categories',
     tags: 'Tags',
@@ -346,6 +355,10 @@ const en = {
     empty: 'No items yet',
     create_success: 'Created successfully',
     delete_confirm: 'Delete this item?',
+  },
+  errors: {
+    forbidden: "You don't have permission to access this page",
+    forbidden_detail: 'Contact your administrator for access',
   },
 } as const;
 

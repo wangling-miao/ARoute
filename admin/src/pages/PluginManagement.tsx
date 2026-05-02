@@ -6,6 +6,7 @@ import { plugins } from '@/api/endpoints';
 import { ApiError } from '@/api/client';
 import { showError, showSuccess } from '@/components/Toast';
 import { confirm } from '@/components/ConfirmDialog';
+import { usePermissions } from '@/hooks/usePermissions';
 import type { Plugin } from '@/types';
 import styles from './PluginManagement.module.css';
 
@@ -13,6 +14,7 @@ const { Title } = Typography;
 
 export default function PluginManagement() {
   const { t } = useTranslation();
+  const { can } = usePermissions();
   const [pluginList, setPluginList] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -149,6 +151,7 @@ export default function PluginManagement() {
                   checked={plugin.enabled}
                   onChange={() => handleToggle(plugin)}
                   loading={toggling === plugin.name}
+                  disabled={!can('plugins', plugin.enabled ? 'disable' : 'enable')}
                 />
               </div>
 

@@ -33,11 +33,35 @@ var reservedQueryParams = map[string]bool{
 // Handler holds dependencies for REST API handlers.
 type Handler struct {
 	contentSvc interfaces.ContentService
+	authSvc    interfaces.AuthService
 }
 
 // NewHandler creates a new Handler with the given ContentService.
 func NewHandler(svc interfaces.ContentService) *Handler {
 	return &Handler{contentSvc: svc}
+}
+
+// checkPerm checks if the authenticated user has the specified permission.
+// Returns true if allowed, false if forbidden (writes error response).
+func (h *Handler) checkPerm(w http.ResponseWriter, r *http.Request, resource, action string) bool {
+	if h.authSvc == nil {
+		return true // No auth service — allow all (public API mode).
+	}
+	claims := userClaimsFromRequest(r)
+	if claims == nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return false
+	}
+	allowed, err := h.authSvc.HasPermission(r.Context(), claims.UserID, resource, action)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return false
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "insufficient permissions")
+		return false
+	}
+	return true
 }
 
 // systemFields are valid for all content types.
@@ -90,6 +114,25 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query, warnings, err := buildListQuery(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return
+	}
+
+	// Author-scoped filtering: if user only has content.update_own (not content.read),
+	// restrict results to content they created.
+	if h.authSvc != nil {
+		claims := userClaimsFromRequest(r)
+		if claims != nil {
+			canRead, _ := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "read")
+			if !canRead {
+				canOwn, _ := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "update_own")
+				if canOwn {
+					query.AuthorID = claims.UserID
+				}
+			}
+		}
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 		return
@@ -324,6 +367,9 @@ func (h *Handler) GetContentType(w http.ResponseWriter, r *http.Request) {
 
 // CreateContentType handles POST /api/v1/content-types — create a new content type.
 func (h *Handler) CreateContentType(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "content_types", "create") {
+		return
+	}
 	defer r.Body.Close()
 	var ct interfaces.ContentType
 	if err := json.NewDecoder(r.Body).Decode(&ct); err != nil {
@@ -343,6 +389,9 @@ func (h *Handler) CreateContentType(w http.ResponseWriter, r *http.Request) {
 
 // UpdateContentType handles PUT /api/v1/content-types/{name} — update a content type.
 func (h *Handler) UpdateContentType(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "content_types", "update") {
+		return
+	}
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "content type name is required")
@@ -367,6 +416,9 @@ func (h *Handler) UpdateContentType(w http.ResponseWriter, r *http.Request) {
 
 // DeleteContentType handles DELETE /api/v1/content-types/{name} — delete a content type.
 func (h *Handler) DeleteContentType(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "content_types", "delete") {
+		return
+	}
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "content type name is required")

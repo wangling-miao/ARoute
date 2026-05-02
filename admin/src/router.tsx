@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { ProtectedRoute, GuestRoute, RouterAuthProvider } from '@/contexts/AuthContext';
+import PermissionGuard from '@/components/PermissionGuard';
 import Login from '@/pages/Login';
 import Layout from '@/components/Layout';
 
@@ -33,6 +34,14 @@ function LazyPage({ Component }: { Component: React.LazyExoticComponent<React.Co
   );
 }
 
+function PG({ children, resource, action }: { children: React.ReactNode; resource: string; action: string }) {
+  return (
+    <PermissionGuard permissions={[{ resource, action }]}>
+      {children}
+    </PermissionGuard>
+  );
+}
+
 export const router = createBrowserRouter([
   {
     element: <RouterAuthProvider />,
@@ -54,19 +63,19 @@ export const router = createBrowserRouter([
         ),
         children: [
           { index: true, element: <LazyPage Component={Dashboard} /> },
-          { path: 'content/:contentType', element: <LazyPage Component={ContentList} /> },
-          { path: 'content/:contentType/new', element: <LazyPage Component={ContentEdit} /> },
-          { path: 'content/:contentType/:id', element: <LazyPage Component={ContentEdit} /> },
-          { path: 'content-types', element: <LazyPage Component={ContentTypeList} /> },
-          { path: 'content-types/new', element: <LazyPage Component={ContentTypeBuilder} /> },
-          { path: 'content-types/:name', element: <LazyPage Component={ContentTypeBuilder} /> },
-          { path: 'menus', element: <LazyPage Component={MenuManagement} /> },
-          { path: 'media', element: <LazyPage Component={MediaLibrary} /> },
-          { path: 'users', element: <LazyPage Component={UserManagement} /> },
-          { path: 'roles', element: <LazyPage Component={RoleManagement} /> },
-          { path: 'plugins', element: <LazyPage Component={PluginManagement} /> },
-          { path: 'settings', element: <LazyPage Component={Settings} /> },
-          { path: 'api-tokens', element: <LazyPage Component={ApiTokens} /> },
+          { path: 'content/:contentType', element: <PG resource="content" action="read"><LazyPage Component={ContentList} /></PG> },
+          { path: 'content/:contentType/new', element: <PG resource="content" action="create"><LazyPage Component={ContentEdit} /></PG> },
+          { path: 'content/:contentType/:id', element: <PG resource="content" action="update"><LazyPage Component={ContentEdit} /></PG> },
+          { path: 'content-types', element: <PG resource="content_types" action="read"><LazyPage Component={ContentTypeList} /></PG> },
+          { path: 'content-types/new', element: <PG resource="content_types" action="create"><LazyPage Component={ContentTypeBuilder} /></PG> },
+          { path: 'content-types/:name', element: <PG resource="content_types" action="update"><LazyPage Component={ContentTypeBuilder} /></PG> },
+          { path: 'menus', element: <PG resource="menus" action="read"><LazyPage Component={MenuManagement} /></PG> },
+          { path: 'media', element: <PG resource="media" action="read"><LazyPage Component={MediaLibrary} /></PG> },
+          { path: 'users', element: <PG resource="users" action="read"><LazyPage Component={UserManagement} /></PG> },
+          { path: 'roles', element: <PG resource="roles" action="read"><LazyPage Component={RoleManagement} /></PG> },
+          { path: 'plugins', element: <PG resource="plugins" action="read"><LazyPage Component={PluginManagement} /></PG> },
+          { path: 'settings', element: <PG resource="settings" action="read"><LazyPage Component={Settings} /></PG> },
+          { path: 'api-tokens', element: <PG resource="api_tokens" action="read"><LazyPage Component={ApiTokens} /></PG> },
         ],
       },
       {

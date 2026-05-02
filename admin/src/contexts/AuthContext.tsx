@@ -14,6 +14,7 @@ interface AuthContextValue extends AuthState {
   login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => void;
   refreshSession: () => Promise<void>;
+  hasPermission: (resource: string, action: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -78,8 +79,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate('/admin/login', { replace: true });
   }, [navigate]);
 
+  const hasPermission = useCallback((resource: string, action: string): boolean => {
+    const perms = state.user?.permissions;
+    if (!perms) return false;
+    // Check wildcard resource (*)
+    const wildcard = perms.find(p => p.resource === '*');
+    if (wildcard && (wildcard.actions.includes('*') || wildcard.actions.includes(action))) {
+      return true;
+    }
+    // Check specific resource
+    const perm = perms.find(p => p.resource === resource);
+    if (!perm) return false;
+    return perm.actions.includes('*') || perm.actions.includes(action);
+  }, [state.user]);
+
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, refreshSession }}>
+    <AuthContext.Provider value={{ ...state, login, logout, refreshSession, hasPermission }}>
       {children}
     </AuthContext.Provider>
   );

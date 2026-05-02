@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { usePermissions } from '@/hooks/usePermissions';
 import { contentTypes as contentTypesApi } from '@/api/endpoints';
 import type { ContentType } from '@/types';
 import styles from './Layout.module.css';
@@ -40,6 +41,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { canAny } = usePermissions();
   const { theme, toggleTheme } = useTheme();
 
   const [collapsed, setCollapsed] = useState(false);
@@ -215,6 +217,7 @@ export default function AdminLayout() {
             {!collapsed && t('nav.dashboard')}
           </MenuItem>
 
+          {canAny([{ resource: 'content', action: 'read' }]) && (
           <SubMenu
             key="content"
             title={
@@ -230,46 +233,63 @@ export default function AdminLayout() {
               </MenuItem>
             ))}
           </SubMenu>
+          )}
 
+          {canAny([{ resource: 'content_types', action: 'read' }]) && (
           <MenuItem key="/admin/content-types">
             <span className={styles.menuIcon}><Layers size={18} /></span>
             {!collapsed && t('nav.content_types')}
           </MenuItem>
+          )}
 
+          {canAny([{ resource: 'menus', action: 'read' }]) && (
           <MenuItem key="/admin/menus">
             <span className={styles.menuIcon}><MenuIcon size={18} /></span>
             {!collapsed && t('nav.menus')}
           </MenuItem>
+          )}
 
+          {canAny([{ resource: 'media', action: 'read' }]) && (
           <MenuItem key="/admin/media">
             <span className={styles.menuIcon}><Image size={18} /></span>
             {!collapsed && t('nav.media')}
           </MenuItem>
+          )}
 
+          {canAny([{ resource: 'users', action: 'read' }]) && (
           <MenuItem key="/admin/users">
             <span className={styles.menuIcon}><Users size={18} /></span>
             {!collapsed && t('nav.users')}
           </MenuItem>
+          )}
 
+          {canAny([{ resource: 'roles', action: 'read' }]) && (
           <MenuItem key="/admin/roles">
             <span className={styles.menuIcon}><UserCog size={18} /></span>
             {!collapsed && t('nav.roles')}
           </MenuItem>
+          )}
 
+          {canAny([{ resource: 'plugins', action: 'read' }]) && (
           <MenuItem key="/admin/plugins">
             <span className={styles.menuIcon}><Puzzle size={18} /></span>
             {!collapsed && t('nav.plugins')}
           </MenuItem>
+          )}
 
+          {canAny([{ resource: 'settings', action: 'read' }]) && (
           <MenuItem key="/admin/settings">
             <span className={styles.menuIcon}><Settings size={18} /></span>
             {!collapsed && t('nav.settings')}
           </MenuItem>
+          )}
 
+          {canAny([{ resource: 'api_tokens', action: 'read' }]) && (
           <MenuItem key="/admin/api-tokens">
             <span className={styles.menuIcon}><Key size={18} /></span>
             {!collapsed && t('nav.api_tokens')}
           </MenuItem>
+          )}
         </Menu>
       </div>
 

@@ -67,7 +67,8 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	logger.Info("Route registrar resolved")
 
 	p.handler = NewHandler(p.contentSvc)
-	p.adminHandler = NewAdminHandler(p.ctx, p.contentSvc)
+	p.handler.authSvc = p.authSvc
+	p.adminHandler = NewAdminHandler(p.ctx, p.contentSvc, p.authSvc)
 
 	p.registerRoutes()
 

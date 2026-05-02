@@ -14,6 +14,10 @@ import (
 )
 
 func (p *Plugin) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	if p.checkPermission(w, r, "users", "read") == nil {
+		return
+	}
+
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
 	perPage, _ := strconv.Atoi(q.Get("per_page"))
@@ -50,6 +54,10 @@ func (p *Plugin) handleListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	if p.checkPermission(w, r, "users", "create") == nil {
+		return
+	}
+
 	var req interfaces.CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON body")
@@ -74,9 +82,18 @@ func (p *Plugin) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	claims := p.checkPermission(w, r, "users", "update")
+	if claims == nil {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeAuthError(w, http.StatusBadRequest, "BAD_REQUEST", "missing user id")
+		return
+	}
+
+	if !p.checkNotModifyingAdmin(w, r, claims, id) {
 		return
 	}
 
@@ -104,9 +121,24 @@ func (p *Plugin) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	claims := p.checkPermission(w, r, "users", "delete")
+	if claims == nil {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeAuthError(w, http.StatusBadRequest, "BAD_REQUEST", "missing user id")
+		return
+	}
+
+	// Cannot delete yourself.
+	if claims.UserID == id {
+		writeAuthError(w, http.StatusForbidden, "FORBIDDEN", "cannot delete your own account")
+		return
+	}
+
+	if !p.checkNotModifyingAdmin(w, r, claims, id) {
 		return
 	}
 
@@ -167,6 +199,10 @@ func toRoleResponse(role *interfaces.Role) roleResponse {
 }
 
 func (p *Plugin) handleListRoles(w http.ResponseWriter, r *http.Request) {
+	if p.checkPermission(w, r, "roles", "read") == nil {
+		return
+	}
+
 	roles, err := p.service.ListRoles(r.Context())
 	if err != nil {
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list roles")
@@ -208,9 +244,18 @@ func flattenPermissions(structured []permissionEntry) []string {
 }
 
 func (p *Plugin) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
+	claims := p.checkPermission(w, r, "roles", "update")
+	if claims == nil {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeAuthError(w, http.StatusBadRequest, "BAD_REQUEST", "missing role id")
+		return
+	}
+
+	if !p.checkNotModifyingAdminRole(w, r, claims, id) {
 		return
 	}
 
@@ -315,10 +360,37 @@ func (p *Plugin) handleCreateAPIToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) handleRevokeAPIToken(w http.ResponseWriter, r *http.Request) {
+	claims, err := authenticateRequest(r, p.service)
+	if err != nil {
+		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing or invalid authorization header")
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeAuthError(w, http.StatusBadRequest, "BAD_REQUEST", "missing token id")
 		return
+	}
+
+	// Non-admin users can only revoke their own tokens.
+	isAdmin, _ := p.service.HasPermission(r.Context(), claims.UserID, "*", "*")
+	if !isAdmin {
+		tokens, listErr := p.service.ListAPITokens(r.Context(), claims.UserID)
+		if listErr != nil {
+			writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to verify token ownership")
+			return
+		}
+		owned := false
+		for _, t := range tokens {
+			if t.ID == id {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			writeAuthError(w, http.StatusForbidden, "FORBIDDEN", "cannot revoke another user's token")
+			return
+		}
 	}
 
 	if err := p.service.RevokeAPIToken(r.Context(), id); err != nil {

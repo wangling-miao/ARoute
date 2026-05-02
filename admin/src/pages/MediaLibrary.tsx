@@ -33,10 +33,13 @@ const lowlight = createLowlight(common);
 
 const officeExts = new Set(['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt']);
 
-const viewerExts: Record<string, string> = {
-  docx: 'docx',
-  xlsx: 'xlsx',
-};
+function getOfficeFileType(mime: string): string | undefined {
+  if (!isOfficeMime(mime)) return undefined;
+  if (mime.includes('wordprocessingml') || mime.includes('msword')) return 'docx';
+  if (mime.includes('spreadsheetml') || mime.includes('ms-excel')) return 'xlsx';
+  if (mime.includes('presentation') || mime.includes('ms-powerpoint')) return 'pptx';
+  return undefined;
+}
 
 function getOfficeExt(filename: string): string | undefined {
   const ext = filename.split('.').pop()?.toLowerCase();

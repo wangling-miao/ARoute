@@ -29,6 +29,8 @@ export default function Login() {
       if (err instanceof ApiError) {
         if (err.code === 'NETWORK_ERROR') {
           setError(t('login.error_network'));
+        } else if (err.code === 'FORBIDDEN') {
+          setError(err.message || t('login.error_forbidden'));
         } else {
           setError(t('login.error_invalid'));
         }

@@ -5,6 +5,7 @@ export interface User {
   username: string;
   email: string;
   roles: string[];
+  permissions: Permission[];
   status: 'active' | 'inactive' | 'suspended';
   created_at: string;
   updated_at: string;

@@ -380,6 +380,12 @@ func (s *Store) ListContent(ctx context.Context, ct *interfaces.ContentType, que
 		}
 	}
 
+	// Author-scoped filtering: restrict to content created by a specific user.
+	if query != nil && query.AuthorID != "" {
+		whereClauses = append(whereClauses, "created_by = ?")
+		args = append(args, query.AuthorID)
+	}
+
 	// Future-date filtering for published status
 	if query != nil && len(query.Filters) > 0 {
 		if statusVal, ok := query.Filters["status"]; ok {

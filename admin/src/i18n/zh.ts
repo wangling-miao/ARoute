@@ -106,6 +106,7 @@ const zh = {
     error_session: '您的会话已过期，请重新登录。',
     forgot_password: '忘记密码？',
     remember_me: '记住我',
+    error_forbidden: '拒绝登录，该账号无权访问管理后台。',
   },
   dashboard: {
     title: '仪表盘',
@@ -336,6 +337,14 @@ const zh = {
     field_sort_order: '排序',
     field_is_active: '启用',
   },
+  editor: {
+    insert_image: '插入图片',
+    insert_file: '插入文件',
+    enter_url: '输入链接',
+    from_library: '从媒体库选择',
+    preview: '预览',
+    close_preview: '关闭预览',
+  },
   sidepanel: {
     categories: '分类',
     tags: '标签',
@@ -346,6 +355,10 @@ const zh = {
     empty: '暂无项目',
     create_success: '创建成功',
     delete_confirm: '确定删除此项？',
+  },
+  errors: {
+    forbidden: '您没有权限访问此页面',
+    forbidden_detail: '请联系管理员获取访问权限',
   },
 } as const;
 

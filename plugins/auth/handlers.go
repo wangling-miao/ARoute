@@ -150,5 +150,41 @@ func (p *Plugin) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeAuthJSON(w, http.StatusOK, user)
+	// Fetch effective permissions and group by resource.
+	perms, err := p.service.GetUserPermissions(r.Context(), claims.UserID)
+	if err != nil {
+		p.service.logger.Warn("failed to get user permissions for /me", "user_id", claims.UserID, "error", err)
+		perms = nil
+	}
+
+	var groupedPerms []permissionEntry
+	if perms != nil {
+		names := make([]string, 0, len(perms))
+		for _, perm := range perms {
+			names = append(names, perm.Resource+"."+perm.Action)
+		}
+		groupedPerms = groupPermissions(names)
+	}
+
+	resp := struct {
+		ID          string            `json:"id"`
+		Email       string            `json:"email"`
+		Username    string            `json:"username"`
+		Roles       []string          `json:"roles"`
+		Permissions []permissionEntry `json:"permissions"`
+		Status      string            `json:"status"`
+		CreatedAt   interface{}       `json:"created_at"`
+		UpdatedAt   interface{}       `json:"updated_at"`
+	}{
+		ID:          user.ID,
+		Email:       user.Email,
+		Username:    user.Username,
+		Roles:       user.Roles,
+		Permissions: groupedPerms,
+		Status:      user.Status,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+	}
+
+	writeAuthJSON(w, http.StatusOK, resp)
 }

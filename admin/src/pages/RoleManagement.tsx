@@ -5,18 +5,21 @@ import { ChevronDown, ChevronRight, Save } from 'lucide-react';
 import { roles as rolesApi } from '@/api/endpoints';
 import { ApiError } from '@/api/client';
 import { showError, showSuccess } from '@/components/Toast';
+import { usePermissions } from '@/hooks/usePermissions';
 import type { Role, Permission } from '@/types';
 import styles from './RoleManagement.module.css';
 
 const { Title } = Typography;
 
-const RESOURCES = ['content_types', 'content', 'media', 'users', 'roles', 'plugins', 'settings', 'api_tokens'];
+const RESOURCES = ['content_types', 'content', 'media', 'users', 'roles', 'plugins', 'settings', 'api_tokens', 'menus'];
 const ACTIONS = ['create', 'read', 'update', 'delete'];
 
 const BUILT_IN_ROLES = ['admin', 'public'];
 
 export default function RoleManagement() {
   const { t } = useTranslation();
+  const { can, isAdmin } = usePermissions();
+  const canEdit = can('roles', 'update');
 
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,14 +69,12 @@ export default function RoleManagement() {
   };
 
   const isActionAllowed = (perms: Permission[], resource: string, action: string): boolean => {
-    // Full wildcard: resource="*" covers all resources (admin role uses this)
     const wildcard = perms.find((p) => p.resource === '*');
     if (wildcard && (wildcard.actions.includes('*') || wildcard.actions.includes(action))) {
       return true;
     }
     const perm = perms.find((p) => p.resource === resource);
     if (!perm) return false;
-    // Action wildcard: actions=["*"] covers all actions for this resource
     return perm.actions.includes('*') || perm.actions.includes(action);
   };
 
@@ -178,6 +179,7 @@ export default function RoleManagement() {
         {roles.map((role) => {
           const isExpanded = expandedId === role.id;
           const isBuiltIn = BUILT_IN_ROLES.includes(role.name.toLowerCase());
+          const isEditable = canEdit && (isAdmin || role.name !== 'admin');
           const perms = getPerms(role);
           const totalPermCount = perms.reduce((sum, p) => sum + p.actions.length, 0);
 
@@ -211,6 +213,7 @@ export default function RoleManagement() {
                       value={getDesc(role)}
                       onChange={(v) => setEditedDesc((prev) => ({ ...prev, [role.id]: v }))}
                       placeholder={t('common.description')}
+                      disabled={!isEditable}
                     />
                   </div>
 
@@ -234,6 +237,7 @@ export default function RoleManagement() {
                                   size="small"
                                   checked={allChecked}
                                   onChange={(v) => selectAllForResource(role.id, resource, v)}
+                                  disabled={!isEditable}
                                 />
                                 <span className={styles.selectAllLabel}>{resource}</span>
                               </div>
@@ -244,6 +248,7 @@ export default function RoleManagement() {
                                   size="small"
                                   checked={isActionAllowed(perms, resource, action)}
                                   onChange={() => toggleAction(role.id, resource, action)}
+                                  disabled={!isEditable}
                                 />
                               </td>
                             ))}
@@ -253,6 +258,7 @@ export default function RoleManagement() {
                     </tbody>
                   </table>
 
+                  {isEditable && (
                   <div className={styles.footer}>
                     <Button onClick={() => setExpandedId(null)}>
                       {t('common.cancel')}
@@ -266,6 +272,7 @@ export default function RoleManagement() {
                       {t('common.save')}
                     </Button>
                   </div>
+                  )}
                 </div>
               )}
             </div>

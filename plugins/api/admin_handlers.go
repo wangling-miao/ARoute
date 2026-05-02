@@ -13,12 +13,13 @@ import (
 type AdminHandler struct {
 	ctx        core.CoreContext
 	contentSvc interfaces.ContentService
+	authSvc    interfaces.AuthService
 	lifecycle  core.LifecycleManager
 	cacheSvc   interfaces.CacheService
 }
 
-func NewAdminHandler(ctx core.CoreContext, contentSvc interfaces.ContentService) *AdminHandler {
-	h := &AdminHandler{ctx: ctx, contentSvc: contentSvc}
+func NewAdminHandler(ctx core.CoreContext, contentSvc interfaces.ContentService, authSvc interfaces.AuthService) *AdminHandler {
+	h := &AdminHandler{ctx: ctx, contentSvc: contentSvc, authSvc: authSvc}
 
 	if ctx != nil && ctx.Services() != nil {
 		var lm core.LifecycleManager
@@ -37,6 +38,28 @@ func NewAdminHandler(ctx core.CoreContext, contentSvc interfaces.ContentService)
 	}
 
 	return h
+}
+
+// checkPerm checks if the authenticated user has the specified permission.
+func (h *AdminHandler) checkPerm(w http.ResponseWriter, r *http.Request, resource, action string) bool {
+	if h.authSvc == nil {
+		return true
+	}
+	claims := userClaimsFromRequest(r)
+	if claims == nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return false
+	}
+	allowed, err := h.authSvc.HasPermission(r.Context(), claims.UserID, resource, action)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return false
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "insufficient permissions")
+		return false
+	}
+	return true
 }
 
 func (h *AdminHandler) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +105,10 @@ func (h *AdminHandler) handleDashboardStats(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *AdminHandler) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "read") {
+		return
+	}
+
 	cfg := h.ctx.Config()
 
 	settings := map[string]interface{}{
@@ -99,6 +126,10 @@ func (h *AdminHandler) handleGetSettings(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "update") {
+		return
+	}
+
 	defer r.Body.Close()
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -119,6 +150,10 @@ func (h *AdminHandler) handleUpdateSettings(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *AdminHandler) handleListPlugins(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "plugins", "read") {
+		return
+	}
+
 	if h.lifecycle == nil {
 		writeJSON(w, http.StatusOK, []interface{}{})
 		return
@@ -148,6 +183,10 @@ func (h *AdminHandler) handleListPlugins(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandler) handleEnablePlugin(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "plugins", "enable") {
+		return
+	}
+
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "plugin name is required")
@@ -169,6 +208,10 @@ func (h *AdminHandler) handleEnablePlugin(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AdminHandler) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "plugins", "disable") {
+		return
+	}
+
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "plugin name is required")

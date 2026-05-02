@@ -107,6 +107,11 @@ func (s *Service) Authenticate(ctx context.Context, req *interfaces.AuthRequest)
 		return nil, fmt.Errorf("get user roles: %w", err)
 	}
 
+	// Viewer-only accounts cannot access the admin panel.
+	if isViewerOnly(roleNames) {
+		return nil, fmt.Errorf("viewer accounts cannot access the admin panel: %w", interfaces.ErrForbidden)
+	}
+
 	// Generate tokens.
 	accessToken, _, err := s.jwt.GenerateAccessToken(ctx, user, roleNames)
 	if err != nil {
@@ -367,6 +372,21 @@ func (s *Service) HasPermission(ctx context.Context, userID, resource, action st
 	return s.rbac.HasPermission(ctx, userID, resource, action)
 }
 
+// GetUserPermissions returns all permissions assigned to a user through their roles.
+func (s *Service) GetUserPermissions(ctx context.Context, userID string) ([]*interfaces.Permission, error) {
+	return s.rbac.store.GetUserPermissions(ctx, userID)
+}
+
+// GetUserRoleNames returns the role names assigned to a user.
+func (s *Service) GetUserRoleNames(ctx context.Context, userID string) ([]string, error) {
+	return s.store.GetUserRoleNames(ctx, userID)
+}
+
+// GetRoleByID returns a role by its ID.
+func (s *Service) GetRoleByID(ctx context.Context, id string) (*interfaces.Role, error) {
+	return s.store.GetRoleByID(ctx, id)
+}
+
 // CreateAPIToken creates a new long-lived API token.
 func (s *Service) CreateAPIToken(ctx context.Context, userID, name string, expiresAt *time.Time) (*interfaces.APIToken, error) {
 	if name == "" {
@@ -602,12 +622,25 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req *interfaces.Upd
 		if err != nil {
 			s.logger.Error("failed to get user roles for update", "error", err)
 		} else {
-			roleMap := make(map[string]bool, len(existingRoles))
+			// Remove roles that are no longer in the request.
+			newRoleSet := make(map[string]bool, len(req.Roles))
+			for _, r := range req.Roles {
+				newRoleSet[r] = true
+			}
 			for _, r := range existingRoles {
-				roleMap[r] = true
+				if !newRoleSet[r] {
+					if rmErr := s.rbac.RemoveRole(ctx, id, r); rmErr != nil {
+						s.logger.Error("failed to remove user role", "role", r, "error", rmErr)
+					}
+				}
+			}
+			// Add roles that are new.
+			existingSet := make(map[string]bool, len(existingRoles))
+			for _, r := range existingRoles {
+				existingSet[r] = true
 			}
 			for _, r := range req.Roles {
-				if !roleMap[r] {
+				if !existingSet[r] {
 					role, err := s.store.GetRoleByName(ctx, r)
 					if err == nil {
 						if addErr := s.store.AddUserRole(ctx, id, role.ID); addErr != nil {
@@ -727,4 +760,12 @@ func extractIP(ctx context.Context) string {
 		return ip
 	}
 	return "unknown"
+}
+
+// isViewerOnly returns true if the user's only role is "viewer".
+func isViewerOnly(roles []string) bool {
+	if len(roles) != 1 {
+		return false
+	}
+	return roles[0] == "viewer"
 }

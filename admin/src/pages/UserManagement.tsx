@@ -10,6 +10,7 @@ import { ApiError } from '@/api/client';
 import { showError, showSuccess } from '@/components/Toast';
 import { confirm } from '@/components/ConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/hooks/usePermissions';
 import type { User, Role } from '@/types';
 import styles from './UserManagement.module.css';
 
@@ -24,6 +25,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function UserManagement() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
+  const { can, isAdmin } = usePermissions();
 
   const [data, setData] = useState<User[]>([]);
   const [allRoles, setAllRoles] = useState<Role[]>([]);
@@ -196,24 +198,30 @@ export default function UserManagement() {
       title: t('common.actions'),
       key: 'actions',
       width: 100,
-      render: (_: unknown, record: User) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <Button
-            type="text"
-            size="mini"
-            icon={<Pencil size={14} />}
-            onClick={() => openEdit(record)}
-          />
-          <Button
-            type="text"
-            size="mini"
-            status="danger"
-            icon={<Trash2 size={14} />}
-            onClick={() => handleDelete(record)}
-            disabled={record.id === currentUser?.id}
-          />
-        </div>
-      ),
+      render: (_: unknown, record: User) => {
+        const isTargetAdmin = record.roles?.includes('admin');
+        const canEdit = can('users', 'update') && (isAdmin || !isTargetAdmin);
+        const canDelete = can('users', 'delete') && record.id !== currentUser?.id && (isAdmin || !isTargetAdmin);
+        return (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Button
+              type="text"
+              size="mini"
+              icon={<Pencil size={14} />}
+              onClick={() => openEdit(record)}
+              disabled={!canEdit}
+            />
+            <Button
+              type="text"
+              size="mini"
+              status="danger"
+              icon={<Trash2 size={14} />}
+              onClick={() => handleDelete(record)}
+              disabled={!canDelete}
+            />
+          </div>
+        );
+      },
     },
   ];
 
@@ -223,7 +231,7 @@ export default function UserManagement() {
         <div className={styles.headerLeft}>
           <Title heading={5} style={{ margin: 0 }}>{t('users.title')}</Title>
         </div>
-        <Button type="primary" icon={<Plus size={16} />} onClick={openCreate}>
+        <Button type="primary" icon={<Plus size={16} />} onClick={openCreate} disabled={!can('users', 'create')}>
           {t('users.create')}
         </Button>
       </div>

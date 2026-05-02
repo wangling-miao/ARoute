@@ -308,4 +308,7 @@ type ListQuery struct {
 
 	// Search is the search query string (for full-text search).
 	Search string `json:"search,omitempty"`
+
+	// AuthorID filters content to only items created by this user.
+	AuthorID string `json:"author_id,omitempty"`
 }
