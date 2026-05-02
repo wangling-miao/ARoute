@@ -284,12 +284,13 @@ export default function AdminLayout() {
           </MenuItem>
           )}
 
-          {canAny([{ resource: 'api_tokens', action: 'read' }]) && (
+          {/* API Tokens — temporarily hidden */}
+          {/* canAny([{ resource: 'api_tokens', action: 'read' }]) && (
           <MenuItem key="/admin/api-tokens">
             <span className={styles.menuIcon}><Key size={18} /></span>
             {!collapsed && t('nav.api_tokens')}
           </MenuItem>
-          )}
+          ) */}
         </Menu>
       </div>
 
