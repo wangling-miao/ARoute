@@ -31,66 +31,15 @@
   color: var(--color-primary);
 }
 
-/* ── Body: sidebar nav + form area ── */
+/* ── Body: form area ── */
 .body {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 1.5rem;
+  max-width: 800px;
 }
 
 @media (max-width: 768px) {
   .body {
-    grid-template-columns: 1fr;
+    max-width: 100%;
   }
-}
-
-/* ── Glass Sidebar Nav Card ── */
-.navCard {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  padding: 0.5rem;
-  box-shadow: var(--shadow-sm);
-  height: fit-content;
-  position: sticky;
-  top: 1rem;
-}
-
-.navItem {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 0.875rem;
-  border-radius: var(--radius-md);
-  font-family: var(--font-heading);
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  border: none;
-  background: none;
-  width: 100%;
-  text-align: left;
-}
-
-.navItem:hover {
-  background: var(--glass-bg-hover);
-  color: var(--color-text);
-}
-
-.navItemActive {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  font-weight: 600;
-  box-shadow: inset 0 0 0 1px var(--color-primary-glow);
-}
-
-.navItemActive:hover {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
 }
 
 /* ── Form Sections Area ── */

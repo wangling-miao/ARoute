@@ -512,3 +512,12 @@ func (h *AdminHandler) saveWasm(src io.Reader, filename string, destDir string) 
 
 	return pluginPath, manifestPath, nil
 }
+
+// handleGetSiteInfo returns public site information (no auth required).
+func (h *AdminHandler) handleGetSiteInfo(w http.ResponseWriter, r *http.Request) {
+	cfg := h.ctx.Config()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"site_name": cfg.GetString("site_name"),
+		"site_url":  cfg.GetString("site_url"),
+	})
+}

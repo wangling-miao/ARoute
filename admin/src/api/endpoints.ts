@@ -157,6 +157,12 @@ export const settings = {
   },
 };
 
+export const site = {
+  getInfo(): Promise<{ site_name: string; site_url: string }> {
+    return fetchClient.get<{ site_name: string; site_url: string }>('/site/info');
+  },
+};
+
 export const dashboard = {
   getStats(): Promise<DashboardStats> {
     return fetchClient.get<DashboardStats>('/dashboard/stats');

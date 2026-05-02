@@ -163,6 +163,8 @@ func (p *Plugin) registerRoutes() {
 	p.registrar.HandleFunc("POST /api/v1/plugins/{name}/enable", p.adminHandler.handleEnablePlugin)
 	p.registrar.HandleFunc("POST /api/v1/plugins/{name}/disable", p.adminHandler.handleDisablePlugin)
 	p.registrar.HandleFunc("POST /api/v1/plugins/upload", p.adminHandler.handleUploadPlugin)
+
+	p.registrar.HandleFunc("GET /api/v1/site/info", p.adminHandler.handleGetSiteInfo)
 }
 
 func (h *Handler) docsUIHandler(uiType string) http.HandlerFunc {

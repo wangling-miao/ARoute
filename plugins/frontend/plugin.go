@@ -127,17 +127,22 @@ type frontendHandler struct {
 func (h *frontendHandler) siteData() map[string]interface{} {
 	title := "ARoute CMS"
 	tagline := "A modern CMS"
+	siteURL := ""
 	if h.config != nil {
-		if t := h.config.GetString("site.title"); t != "" {
+		if t := h.config.GetString("site_name"); t != "" {
 			title = t
 		}
-		if t := h.config.GetString("site.tagline"); t != "" {
+		if t := h.config.GetString("site_url"); t != "" {
+			siteURL = t
+		}
+		if t := h.config.GetString("site_tagline"); t != "" {
 			tagline = t
 		}
 	}
 	return map[string]interface{}{
 		"Title":   title,
 		"Tagline": tagline,
+		"URL":     siteURL,
 	}
 }
 

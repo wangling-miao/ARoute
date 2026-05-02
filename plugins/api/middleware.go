@@ -39,6 +39,7 @@ var publicPaths = map[string]bool{
 	"POST /api/v1/auth/login":    true,
 	"POST /api/v1/auth/refresh":  true,
 	"POST /api/v1/users":         true, // user registration
+	"GET /api/v1/site/info":      true,
 }
 
 func authMiddleware(authSvc interfaces.AuthService) func(http.Handler) http.Handler {
