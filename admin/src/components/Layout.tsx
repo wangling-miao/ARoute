@@ -11,7 +11,6 @@ import {
   UserCog,
   Puzzle,
   Settings,
-  Key,
   Sun,
   Moon,
   Globe,

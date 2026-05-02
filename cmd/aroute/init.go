@@ -54,8 +54,8 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoInteractive, "no-interactive", false, "skip interactive prompts")
 	initCmd.Flags().StringVar(&initAdminEmail, "admin-email", "", "admin user email")
 	initCmd.Flags().StringVar(&initAdminPassword, "admin-password", "", "admin user password")
-	initCmd.Flags().StringVar(&initSiteName, "site-name", "My ARoute CMS", "site name")
-	initCmd.Flags().StringVar(&initSiteURL, "site-url", "http://localhost:1337", "site URL")
+	initCmd.Flags().StringVar(&initSiteName, "site-name", "My Site", "site name")
+	initCmd.Flags().StringVar(&initSiteURL, "site-url", "http://localhost:8080", "site URL")
 	initCmd.Flags().StringVar(&initConfigPath, "config-path", "", "config file path (default: ./aroute.yaml)")
 	initCmd.Flags().StringVar(&initDataDirPath, "data-dir", "", "data directory path (default: ./data)")
 	initCmd.Flags().BoolVar(&initSkipMigrate, "skip-migrate", false, "skip database migrations")
@@ -114,48 +114,59 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Prompt for admin email
+	// Prompt for admin email (with retry)
 	adminEmail := initAdminEmail
 	if adminEmail == "" && !initNoInteractive {
-		fmt.Print("Admin email: ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
-		}
-		adminEmail = strings.TrimSpace(input)
-		if adminEmail == "" {
-			return fmt.Errorf("admin email is required")
+		for i := 0; i < 3; i++ {
+			fmt.Print("Admin email: ")
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read input: %w", err)
+			}
+			adminEmail = strings.TrimSpace(input)
+			if adminEmail != "" {
+				break
+			}
+			if i < 2 {
+				fmt.Println("Email cannot be empty.")
+			}
 		}
 	}
 	if adminEmail == "" {
 		return fmt.Errorf("admin email is required (use --admin-email or run interactively)")
 	}
 
-	// Prompt for admin password with hidden input
+	// Prompt for admin password with hidden input (with retry)
 	adminPassword := initAdminPassword
 	if adminPassword == "" && !initNoInteractive {
-		adminPassword, err := readPasswordHidden("Admin password (min 8 characters): ")
-		if err != nil {
-			return fmt.Errorf("reading password: %w", err)
-		}
-
-		// Validate password length
-		for len(adminPassword) < 8 {
-			fmt.Println("Password must be at least 8 characters")
+		for attempt := 0; attempt < 3; attempt++ {
+			var err error
 			adminPassword, err = readPasswordHidden("Admin password (min 8 characters): ")
 			if err != nil {
 				return fmt.Errorf("reading password: %w", err)
 			}
-		}
 
-		// Confirm password
-		confirmPassword, err := readPasswordHidden("Confirm admin password: ")
-		if err != nil {
-			return fmt.Errorf("reading password confirmation: %w", err)
-		}
+			// Validate password length
+			for len(adminPassword) < 8 {
+				fmt.Println("Password must be at least 8 characters")
+				adminPassword, err = readPasswordHidden("Admin password (min 8 characters): ")
+				if err != nil {
+					return fmt.Errorf("reading password: %w", err)
+				}
+			}
 
-		if adminPassword != confirmPassword {
-			return fmt.Errorf("passwords do not match")
+			// Confirm password
+			confirmPassword, err := readPasswordHidden("Confirm admin password: ")
+			if err != nil {
+				return fmt.Errorf("reading password confirmation: %w", err)
+			}
+
+			if adminPassword == confirmPassword {
+				break
+			}
+			if attempt < 2 {
+				fmt.Println("Passwords do not match. Please try again.")
+			}
 		}
 	}
 	if adminPassword == "" {
@@ -222,34 +233,55 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	config := map[string]interface{}{
-		"site": map[string]interface{}{
-			"name": siteName,
-			"url":  siteURL,
-		},
+		"site_name": siteName,
+		"site_url":  siteURL,
+		"data_dir":  dataDirPath,
+		"language":  "en",
+		"timezone":  "UTC",
 		"server": map[string]interface{}{
 			"host": "0.0.0.0",
-			"port": 1337,
+			"port": 8080,
 		},
 		"database": map[string]interface{}{
 			"driver": "sqlite",
 			"sqlite": map[string]interface{}{
-				"path": dbPath,
+				"path":         dbPath,
+				"busy_timeout": 10000,
 			},
 		},
 		"auth": map[string]interface{}{
-			"jwt_secret":        jwtSecret,
-			"access_token_ttl":  "15m",
-			"refresh_token_ttl": "7d",
+			"jwt_secret":            jwtSecret,
+			"jwt_algorithm":         "HS256",
+			"access_token_ttl":      "15m",
+			"refresh_token_ttl":     "7d",
+			"rotate_refresh_tokens": true,
+			"bcrypt_cost":           10,
+			"rate_limit": map[string]interface{}{
+				"max_attempts": 5,
+				"window":       "1m",
+			},
+			"admin": map[string]interface{}{
+				"email": adminEmail,
+			},
 		},
 		"media": map[string]interface{}{
 			"storage":       "local",
-			"upload_dir":    filepath.Join(dataDirPath, "uploads"),
 			"max_file_size": "50MB",
+			"local": map[string]interface{}{
+				"upload_dir": filepath.Join(dataDirPath, "uploads"),
+			},
+			"allowed_types": []string{
+				"image/*",
+				"application/pdf",
+				"video/*",
+				"audio/*",
+			},
 		},
 		"search": map[string]interface{}{
 			"index_dir": filepath.Join(dataDirPath, "search"),
 		},
 		"cache": map[string]interface{}{
+			"driver":      "memory",
 			"max_size":    256,
 			"default_ttl": "5m",
 		},
@@ -259,14 +291,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 		},
 		"log": map[string]interface{}{
 			"level":  "info",
-			"format": "text",
+			"format": "json",
+			"output": "both",
+			"file": map[string]interface{}{
+				"path":        filepath.Join(dataDirPath, "logs"),
+				"name":        "aroute.log",
+				"max_size":    100,
+				"max_age":     30,
+				"max_backups": 10,
+				"compress":    true,
+			},
 		},
 		"plugins": map[string]interface{}{
 			"dir": "plugins",
-		},
-		"data_dir": dataDirPath,
-		"admin": map[string]interface{}{
-			"email": adminEmail,
 		},
 	}
 

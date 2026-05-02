@@ -12,7 +12,7 @@ jobs:
   release:
     name: Build & Release
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,6 +22,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Set variables
         id: vars
         run: |
@@ -29,6 +33,9 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "build_date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Build Admin UI
+        run: cd admin && npm ci && npm run build
 
       - name: Build binaries
         env:
@@ -59,16 +66,41 @@ jobs:
           GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -trimpath \
             -o bin/aroute-windows-amd64.exe ./cmd/aroute
 
+      - name: Package archives
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+
+          # Package tar.gz for Linux & macOS
+          for PLATFORM in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            BINARY="bin/aroute-${PLATFORM}"
+            ARCHIVE_DIR="aroute-${TAG}-${PLATFORM}"
+            mkdir -p "pkg/${ARCHIVE_DIR}/admin" "pkg/${ARCHIVE_DIR}/themes" "pkg/${ARCHIVE_DIR}/configs"
+            cp "${BINARY}" "pkg/${ARCHIVE_DIR}/aroute"
+            cp -r admin/dist "pkg/${ARCHIVE_DIR}/admin/dist"
+            cp -r themes/default "pkg/${ARCHIVE_DIR}/themes/default"
+            cp configs/aroute.yaml "pkg/${ARCHIVE_DIR}/configs/aroute.yaml"
+            tar -czf "bin/${ARCHIVE_DIR}.tar.gz" -C pkg "${ARCHIVE_DIR}"
+          done
+
+          # Package zip for Windows
+          BINARY="bin/aroute-windows-amd64.exe"
+          ARCHIVE_DIR="aroute-${TAG}-windows-amd64"
+          mkdir -p "pkg/${ARCHIVE_DIR}/admin" "pkg/${ARCHIVE_DIR}/themes" "pkg/${ARCHIVE_DIR}/configs"
+          cp "${BINARY}" "pkg/${ARCHIVE_DIR}/aroute.exe"
+          cp -r admin/dist "pkg/${ARCHIVE_DIR}/admin/dist"
+          cp -r themes/default "pkg/${ARCHIVE_DIR}/themes/default"
+          cp configs/aroute.yaml "pkg/${ARCHIVE_DIR}/configs/aroute.yaml"
+          cd pkg && zip -r "../bin/${ARCHIVE_DIR}.zip" "${ARCHIVE_DIR}"
+
       - name: Create checksums
         run: |
           cd bin
-          sha256sum aroute-* > checksums-sha256.txt
+          sha256sum aroute-*.tar.gz aroute-*.zip > checksums-sha256.txt
 
       - name: Extract release notes from CHANGELOG.md
         id: notes
         run: |
           TAG="${{ steps.vars.outputs.tag }}"
-          # Extract the section for this version (## X.Y.Z ... until next ## or EOF)
           NOTES=$(awk "/^## ${TAG}/,/^(## [0-9])/ {print}" CHANGELOG.md | sed "/^## [0-9]/d" | sed '/^$/d;1{/^$/d}')
           if [ -z "$NOTES" ]; then
             NOTES="Release ${TAG}"
@@ -81,11 +113,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.vars.outputs.tag }}
-          body: ${{ steps.vars.outputs.body }}
+          body: ${{ steps.notes.outputs.body }}
           files: |
-            bin/aroute-linux-amd64
-            bin/aroute-linux-arm64
-            bin/aroute-darwin-amd64
-            bin/aroute-darwin-arm64
-            bin/aroute-windows-amd64.exe
+            bin/aroute-*.tar.gz
+            bin/aroute-*.zip
             bin/checksums-sha256.txt
