@@ -78,7 +78,7 @@ jobs:
             cp "${BINARY}" "pkg/${ARCHIVE_DIR}/aroute"
             cp -r admin/dist "pkg/${ARCHIVE_DIR}/admin/dist"
             cp -r themes/default "pkg/${ARCHIVE_DIR}/themes/default"
-            cp configs/aroute.yaml "pkg/${ARCHIVE_DIR}/configs/aroute.yaml"
+            cp configs/aroute.example.yaml "pkg/${ARCHIVE_DIR}/configs/aroute.yaml"
             tar -czf "bin/${ARCHIVE_DIR}.tar.gz" -C pkg "${ARCHIVE_DIR}"
           done
 
@@ -89,7 +89,7 @@ jobs:
           cp "${BINARY}" "pkg/${ARCHIVE_DIR}/aroute.exe"
           cp -r admin/dist "pkg/${ARCHIVE_DIR}/admin/dist"
           cp -r themes/default "pkg/${ARCHIVE_DIR}/themes/default"
-          cp configs/aroute.yaml "pkg/${ARCHIVE_DIR}/configs/aroute.yaml"
+          cp configs/aroute.example.yaml "pkg/${ARCHIVE_DIR}/configs/aroute.yaml"
           cd pkg && zip -r "../bin/${ARCHIVE_DIR}.zip" "${ARCHIVE_DIR}"
 
       - name: Create checksums
