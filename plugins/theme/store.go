@@ -52,16 +52,46 @@ func (s *Store) CreateTables(ctx context.Context) error {
 	return nil
 }
 
+// UpsertOrCreate inserts a theme record if it doesn't already exist (by slug).
+// If a record with the same slug exists, it is left unchanged.
+func (s *Store) UpsertOrCreate(ctx context.Context, theme *ThemeRecord) error {
+	if theme.ID == "" {
+		theme.ID = uuid.New().String()
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	activeInt := 0
+	if theme.Active {
+		activeInt = 1
+	}
+
+	_, err := s.db.Exec(ctx,
+		`INSERT INTO _themes (id, name, slug, version, engine, active, installed_at, settings)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (slug) DO NOTHING`,
+		theme.ID, theme.Name, theme.Slug, theme.Version, theme.Engine, activeInt, now, theme.Settings,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert theme: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) Create(ctx context.Context, theme *ThemeRecord) error {
 	if theme.ID == "" {
 		theme.ID = uuid.New().String()
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	activeInt := 0
+	if theme.Active {
+		activeInt = 1
+	}
+
 	_, err := s.db.Exec(ctx,
 		`INSERT INTO _themes (id, name, slug, version, engine, active, installed_at, settings)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		theme.ID, theme.Name, theme.Slug, theme.Version, theme.Engine, theme.Active, now, theme.Settings,
+		theme.ID, theme.Name, theme.Slug, theme.Version, theme.Engine, activeInt, now, theme.Settings,
 	)
 	if err != nil {
 		return fmt.Errorf("insert theme: %w", err)
@@ -108,17 +138,11 @@ func (s *Store) List(ctx context.Context) ([]*ThemeRecord, error) {
 }
 
 func (s *Store) SetActive(ctx context.Context, slug string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, `UPDATE _themes SET active = 0`); err != nil {
+	if _, err := s.db.Exec(ctx, `UPDATE _themes SET active = 0`); err != nil {
 		return fmt.Errorf("deactivate all themes: %w", err)
 	}
 
-	res, err := tx.ExecContext(ctx, `UPDATE _themes SET active = 1 WHERE slug = ?`, slug)
+	res, err := s.db.Exec(ctx, `UPDATE _themes SET active = 1 WHERE slug = ?`, slug)
 	if err != nil {
 		return fmt.Errorf("activate theme %q: %w", slug, err)
 	}
@@ -127,7 +151,7 @@ func (s *Store) SetActive(ctx context.Context, slug string) error {
 		return interfaces.ErrNotFound
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 func (s *Store) Delete(ctx context.Context, slug string) error {

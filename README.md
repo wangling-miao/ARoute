@@ -263,7 +263,9 @@ aroute/
 │   ├── frontend/           # 公共网站前端（模板渲染）
 │   └── admin/              # Admin UI（React + Arco Design）
 ├── admin/                  # Admin UI 源码（React）
+├── admin-compact/          # 紧凑版 Admin UI 变体（同源码构建）
 ├── themes/default/         # 默认主题（Go template）
+├── themes/warm/            # 暖色编辑风格主题（Go template）
 ├── configs/                # 配置模板
 ├── deploy/                 # Docker 与部署配置
 ├── internal/               # 内部工具包
@@ -287,13 +289,14 @@ aroute/
 | **Content** | 内容管理引擎 | 动态 Content Type、字段验证、版本历史 |
 | **Media** | 文件上传与存储 | 本地文件系统、S3 兼容存储（minio-go）、缩略图生成 |
 | **Theme** | 多引擎模板渲染 | Go template、Lua（gopher-lua）、React SSR（fastschema/qjs） |
+| **Admin UI** | 管理后台 | React、TypeScript、Arco Design、TipTap、中英 i18n、暗色/亮色主题、多变体热切换 |
+| **Appearance** | 主题与外观管理 | 前端主题热切换、Admin UI 变体切换、无需重启 |
 | **Search** | 全文搜索 | Bleve 索引、gse 中文分词、分面搜索 |
 | **REST API** | 自动生成 CRUD API | OpenAPI 3.0、过滤/排序/分页、稀疏字段选择 |
 | **Cache** | 内存缓存 | dgraph-io/ristretto、TTL、EventBus 自动失效 |
 | **Queue** | 轻量任务队列 | Goroutine worker pool、指数退避重试、死信队列 |
 | **Webhook** | 事件驱动通知 | HTTP POST 投递、HMAC-SHA256 签名、重试策略 |
 | **Frontend** | 公共网站渲染 | Go 模板渲染、站点配置联动、导航菜单动态生成 |
-| **Admin UI** | 管理后台 | React、TypeScript、Arco Design、TipTap、中英 i18n、暗色/亮色主题 |
 
 ### Admin UI 功能
 
@@ -308,6 +311,7 @@ aroute/
 | **用户管理** | 用户 CRUD、角色分配 |
 | **角色管理** | RBAC 角色定义、细粒度权限配置 |
 | **站点设置** | 站点名称、URL、语言、时区（实时反映到公共网站） |
+| **外观管理** | 前端主题热切换、Admin UI 变体切换（无需重启） |
 | **API 令牌** | 创建/管理 API 访问令牌 |
 
 ### 插件开发
@@ -500,6 +504,9 @@ make admin-dev
 - [x] Content 插件（动态 Content Type、CRUD、版本历史、Slug）
 - [x] Media 插件（上传、本地/S3 存储、缩略图、预览）
 - [x] Theme Engine 插件（Go template → Lua → React SSR）
+- [x] 主题热切换（Appearance 页面，无需重启）
+- [x] Admin UI 多变体热切换（default / compact 变体）
+- [x] 示例前端主题（Warm 暖色编辑风格）
 - [x] Search 插件（Bleve + gse 中文分词）
 - [x] REST API 插件（自动 CRUD、OpenAPI 3.0）
 - [x] Cache 插件（ristretto + EventBus 自动失效）

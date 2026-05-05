@@ -1,10 +1,13 @@
 // Package admin provides the Admin UI plugin for Aroute CMS.
-// It serves the React SPA from data/plugin_data/admin/ at /admin/,
-// with support for development mode proxy to Vite dev server.
+// It serves the React SPA from data/plugin_data/admin/{variant}/ at /admin/,
+// with support for development mode proxy to Vite dev server
+// and hot-swappable admin UI variants.
 package admin
 
 import (
+	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -27,12 +30,14 @@ var manifestData []byte
 type Plugin struct {
 	*core.BasePlugin
 
-	mu       sync.RWMutex
-	ctx      core.CoreContext
-	running  bool
-	handler  http.Handler
-	devMode  bool
-	devProxy *httputil.ReverseProxy
+	mu            sync.RWMutex
+	ctx           core.CoreContext
+	running       bool
+	handler       http.Handler
+	devMode       bool
+	devProxy      *httputil.ReverseProxy
+	activeVariant string
+	adminDir      string // data/plugin_data/admin/
 }
 
 // New creates a new Admin UI plugin instance.
@@ -46,10 +51,8 @@ func New() *Plugin {
 	}
 }
 
-// seedAdminAssets copies admin frontend assets from the project's admin/dist
-// directory into the plugin's data directory if they don't already exist.
-func seedAdminAssets(adminDir string, logger *slog.Logger) {
-	var sourceDir string
+// findAdminDist locates the admin/dist build output directory.
+func findAdminDist() string {
 	candidates := []string{"admin/dist"}
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
@@ -58,35 +61,89 @@ func seedAdminAssets(adminDir string, logger *slog.Logger) {
 			filepath.Join(exeDir, "..", "admin", "dist"),
 		)
 	}
-
 	for _, dir := range candidates {
 		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			sourceDir = dir
-			break
+			return dir
 		}
 	}
+	return ""
+}
 
+// seedAdminVariants seeds admin UI variant directories under adminDir.
+// Each variant is a subdirectory: data/plugin_data/admin/{variant}/.
+func seedAdminVariants(adminDir string, logger *slog.Logger) {
+	sourceDir := findAdminDist()
 	if sourceDir == "" {
 		logger.Warn("Admin frontend assets not found, admin UI will not be available")
 		return
 	}
 
-	// Skip if already seeded (avoid overwriting user customizations)
-	if _, err := os.Stat(filepath.Join(adminDir, "index.html")); err == nil {
+	seedVariant(adminDir, "default", sourceDir, map[string]string{
+		"variant":     "default",
+		"name":        "ARoute Admin",
+		"version":     "1.0.0",
+		"description": "Standard ARoute admin interface",
+	}, logger)
+
+	// Seed additional variants from sibling admin-* build directories.
+	extraVariants := []struct {
+		buildDir string
+		name     string
+		info     map[string]string
+	}{
+		{
+			buildDir: "admin-compact/dist",
+			name:     "compact",
+			info: map[string]string{
+				"variant":     "compact",
+				"name":        "ARoute Compact",
+				"version":     "1.0.0",
+				"description": "Compact admin interface (no logo)",
+			},
+		},
+	}
+
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		for i := range extraVariants {
+			extraVariants[i].buildDir = filepath.Join(exeDir, extraVariants[i].buildDir)
+		}
+	}
+
+	for _, ev := range extraVariants {
+		src := sourceDir // fallback to default build
+		if info, err := os.Stat(ev.buildDir); err == nil && info.IsDir() {
+			src = ev.buildDir
+		}
+		seedVariant(adminDir, ev.name, src, ev.info, logger)
+	}
+}
+
+// seedVariant copies a build output into a variant directory if it doesn't already exist.
+func seedVariant(adminDir, name, sourceDir string, manifest map[string]string, logger *slog.Logger) {
+	variantDir := filepath.Join(adminDir, name)
+
+	if _, err := os.Stat(filepath.Join(variantDir, "index.html")); err == nil {
 		return
 	}
 
-	if err := os.MkdirAll(adminDir, 0o755); err != nil {
-		logger.Error("Failed to create admin assets directory", "error", err)
+	if err := os.MkdirAll(variantDir, 0o755); err != nil {
+		logger.Error("Failed to create admin variant directory", "variant", name, "error", err)
 		return
 	}
 
-	if err := copyDir(sourceDir, adminDir); err != nil {
-		logger.Error("Failed to seed admin assets", "error", err)
+	if err := copyDir(sourceDir, variantDir); err != nil {
+		logger.Error("Failed to seed admin variant", "variant", name, "error", err)
 		return
 	}
 
-	logger.Info("Seeded admin frontend assets")
+	manifestPath := filepath.Join(variantDir, "variant.json")
+	if _, err := os.Stat(manifestPath); err != nil {
+		data, _ := json.MarshalIndent(manifest, "", "  ")
+		os.WriteFile(manifestPath, data, 0o644)
+	}
+
+	logger.Info("Seeded admin variant", "variant", name)
 }
 
 // copyDir recursively copies all files from src to dst.
@@ -125,10 +182,13 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 
 	logger.Info("Initializing Admin UI plugin")
 
-	// Check dev mode
 	p.devMode = os.Getenv("AROUTE_DEV_MODE") == "true"
+	p.adminDir = ctx.DataDir()
 
-	adminDir := ctx.DataDir()
+	p.activeVariant = "default"
+	if variant := ctx.Config().GetString("admin.theme"); variant != "" {
+		p.activeVariant = variant
+	}
 
 	if p.devMode {
 		logger.Info("Admin UI running in development mode (proxy to Vite)")
@@ -140,14 +200,18 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 			req.Host = viteURL.Host
 		}
 	} else {
-		logger.Info("Admin UI running in production mode (file system)")
-		seedAdminAssets(adminDir, logger)
+		logger.Info("Admin UI running in production mode (file system)",
+			"variant", p.activeVariant,
+		)
+		seedAdminVariants(p.adminDir, logger)
 	}
 
-	// Build the handler
 	p.handler = p.buildHandler()
 
-	// Register routes via the RouteRegistrar service
+	ctx.Services().Provide(func(container core.ServiceContainer) (interfaces.AdminUISwitcher, error) {
+		return p, nil
+	})
+
 	var registrar interfaces.RouteRegistrar
 	if err := ctx.Services().Get(&registrar); err != nil {
 		return fmt.Errorf("route registrar not available: %w", err)
@@ -171,18 +235,18 @@ func (p *Plugin) buildHandler() http.Handler {
 		})
 	}
 
-	adminDir := p.ctx.DataDir()
-	fileServer := http.FileServer(http.Dir(adminDir))
+	variantDir := filepath.Join(p.adminDir, p.activeVariant)
+	fileServer := http.FileServer(http.Dir(variantDir))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/admin")
 		if path == "" || path == "/" {
-			p.serveIndexHTML(w, adminDir)
+			p.serveIndexHTML(w, variantDir)
 			return
 		}
 
 		cleanPath := strings.TrimPrefix(path, "/")
-		targetPath := filepath.Join(adminDir, filepath.Clean(cleanPath))
+		targetPath := filepath.Join(variantDir, filepath.Clean(cleanPath))
 		if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
 			if strings.Contains(path, "/assets/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -192,7 +256,7 @@ func (p *Plugin) buildHandler() http.Handler {
 			return
 		}
 
-		p.serveIndexHTML(w, adminDir)
+		p.serveIndexHTML(w, variantDir)
 	})
 }
 
@@ -241,4 +305,100 @@ func (p *Plugin) Stop() error {
 	p.ctx.Logger().Info("Admin UI plugin stopped successfully")
 
 	return nil
+}
+
+// ── AdminUISwitcher interface implementation ─────────────────────
+
+// GetActiveVariant returns the currently active admin UI variant name.
+func (p *Plugin) GetActiveVariant(_ context.Context) (string, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.activeVariant, nil
+}
+
+// SetActiveVariant switches the admin UI to the specified variant (hot swap).
+func (p *Plugin) SetActiveVariant(_ context.Context, variant string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.devMode {
+		return fmt.Errorf("cannot switch admin variant in development mode")
+	}
+
+	variantDir := filepath.Join(p.adminDir, variant)
+	if _, err := os.Stat(filepath.Join(variantDir, "index.html")); err != nil {
+		return fmt.Errorf("admin variant %q not found: %w", variant, interfaces.ErrNotFound)
+	}
+
+	previous := p.activeVariant
+	p.activeVariant = variant
+
+	p.ctx.Config().Set("admin.theme", variant)
+	if err := p.ctx.Config().Save(); err != nil {
+		p.activeVariant = previous
+		return fmt.Errorf("persist admin variant config: %w", err)
+	}
+
+	p.handler = p.buildHandler()
+
+	p.ctx.Logger().Info("Admin UI variant switched",
+		"variant", variant,
+		"previous", previous,
+	)
+	return nil
+}
+
+// ListVariants returns metadata for all available admin UI variants.
+func (p *Plugin) ListVariants(_ context.Context) ([]interfaces.VariantInfo, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.adminDir == "" {
+		return nil, nil
+	}
+
+	entries, err := os.ReadDir(p.adminDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read admin directory: %w", err)
+	}
+
+	variants := make([]interfaces.VariantInfo, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(p.adminDir, entry.Name(), "index.html")); err != nil {
+			continue
+		}
+
+		info := interfaces.VariantInfo{
+			Variant: entry.Name(),
+			Active:  entry.Name() == p.activeVariant,
+		}
+
+		manifestPath := filepath.Join(p.adminDir, entry.Name(), "variant.json")
+		if data, err := os.ReadFile(manifestPath); err == nil {
+			var m struct {
+				Name        string `json:"name"`
+				Version     string `json:"version"`
+				Description string `json:"description"`
+			}
+			if json.Unmarshal(data, &m) == nil {
+				info.Name = m.Name
+				info.Version = m.Version
+				info.Description = m.Description
+			}
+		}
+
+		if info.Name == "" {
+			info.Name = entry.Name()
+		}
+
+		variants = append(variants, info)
+	}
+
+	return variants, nil
 }

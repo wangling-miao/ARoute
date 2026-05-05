@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
+
+  <main class="main-content">
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h1 class="section-title">{{.Title}}</h1>
+        {{if .Subtitle}}<p class="section-subtitle">{{.Subtitle}}</p>{{end}}
+      </div>
+
+      {{if .Posts}}
+      <div class="post-feed">
+        {{range .Posts}}
+        <article class="feed-item">
+          <div class="feed-item__content">
+            <div class="feed-item__meta">
+              {{if .Date}}<time datetime="{{.Date}}">{{formatDate .Date "Jan 02, 2006"}}</time>{{end}}
+              {{if .Author}}<span class="feed-item__author">by {{.Author}}</span>{{end}}
+            </div>
+            <h2 class="feed-item__title">
+              <a href="/posts/{{.Slug}}">{{.Title}}</a>
+            </h2>
+            {{if .Excerpt}}
+            <p class="feed-item__excerpt">{{truncate .Excerpt 200}}</p>
+            {{end}}
+            {{if .Tags}}
+            <div class="feed-item__tags">
+              {{range .Tags}}
+              <a href="/tags/{{slugify .}}" class="tag">{{.}}</a>
+              {{end}}
+            </div>
+            {{end}}
+            <a href="/posts/{{.Slug}}" class="feed-item__link">Read &rarr;</a>
+          </div>
+        </article>
+        {{end}}
+      </div>
+
+      {{if .Pagination}}
+      <nav class="pagination">
+        {{if .Pagination.HasPrev}}
+        <a href="?page={{.Pagination.PrevPage}}" class="pagination-btn">&larr; Newer</a>
+        {{end}}
+        <span class="pagination-info">{{.Pagination.CurrentPage}} / {{.Pagination.TotalPages}}</span>
+        {{if .Pagination.HasNext}}
+        <a href="?page={{.Pagination.NextPage}}" class="pagination-btn">Older &rarr;</a>
+        {{end}}
+      </nav>
+      {{end}}
+
+      {{else}}
+      <div class="empty-state">
+        <h3 class="empty-state__title">No posts found</h3>
+        <p class="empty-state__text">There are no posts in this archive yet.</p>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

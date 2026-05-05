@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
+
+  <main class="main-content">
+  <section class="error-page">
+    <div class="container">
+      <div class="error-page__inner">
+        <h1 class="error-page__code">404</h1>
+        <h2 class="error-page__title">Page not found</h2>
+        <p class="error-page__text">The page you're looking for doesn't exist or has been moved.</p>
+        <div class="error-page__actions">
+          <a href="/" class="btn btn--primary">Go Home</a>
+          <a href="/posts" class="btn btn--secondary">Browse Posts</a>
+        </div>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

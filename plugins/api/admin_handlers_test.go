@@ -163,7 +163,7 @@ func setupAdminHandler(contentSvc interfaces.ContentService, lifecycle core.Life
 		"",
 	)
 
-	return NewAdminHandler(coreCtx, contentSvc)
+	return NewAdminHandler(coreCtx, contentSvc, nil)
 }
 
 // ===========================================================================

@@ -28,6 +28,8 @@ type AdminHandler struct {
 	ctx        core.CoreContext
 	contentSvc interfaces.ContentService
 	authSvc    interfaces.AuthService
+	themeSvc   interfaces.ThemeService
+	adminUI    interfaces.AdminUISwitcher
 	lifecycle  core.LifecycleManager
 	registry   core.PluginRegistry
 	cacheSvc   interfaces.CacheService
@@ -56,6 +58,20 @@ func NewAdminHandler(ctx core.CoreContext, contentSvc interfaces.ContentService,
 			ctx.Logger().Warn("cache service not available for admin handler")
 		} else {
 			h.cacheSvc = cs
+		}
+
+		var ts interfaces.ThemeService
+		if err := ctx.Services().Get(&ts); err != nil {
+			ctx.Logger().Warn("theme service not available for admin handler")
+		} else {
+			h.themeSvc = ts
+		}
+
+		var au interfaces.AdminUISwitcher
+		if err := ctx.Services().Get(&au); err != nil {
+			ctx.Logger().Warn("admin UI switcher not available for admin handler")
+		} else {
+			h.adminUI = au
 		}
 	}
 
@@ -511,6 +527,187 @@ func (h *AdminHandler) saveWasm(src io.Reader, filename string, destDir string) 
 	}
 
 	return pluginPath, manifestPath, nil
+}
+
+func (h *AdminHandler) handleListThemes(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "read") {
+		return
+	}
+
+	if h.themeSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "theme service not available")
+		return
+	}
+
+	// Rescan for newly added themes (hot-reload).
+	_ = h.themeSvc.ReloadThemes()
+
+	names, err := h.themeSvc.ListThemes(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list themes")
+		return
+	}
+
+	active, _ := h.themeSvc.GetActiveTheme(r.Context())
+
+	type themeEntry struct {
+		Slug        string `json:"slug"`
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Author      string `json:"author"`
+		Description string `json:"description"`
+		Engine      string `json:"engine"`
+		Active      bool   `json:"active"`
+	}
+
+	themes := make([]themeEntry, 0, len(names))
+	for _, slug := range names {
+		entry := themeEntry{Slug: slug, Active: slug == active}
+		if meta := h.themeSvc.ThemeMeta(slug); meta != nil {
+			entry.Name = meta["name"]
+			entry.Version = meta["version"]
+			entry.Author = meta["author"]
+			entry.Description = meta["description"]
+			entry.Engine = meta["engine"]
+		}
+		themes = append(themes, entry)
+	}
+
+	writeJSON(w, http.StatusOK, themes)
+}
+
+func (h *AdminHandler) handleGetActiveTheme(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "read") {
+		return
+	}
+
+	if h.themeSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "theme service not available")
+		return
+	}
+
+	active, err := h.themeSvc.GetActiveTheme(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get active theme")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"theme": active})
+}
+
+func (h *AdminHandler) handleSetActiveTheme(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "update") {
+		return
+	}
+
+	if h.themeSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "theme service not available")
+		return
+	}
+
+	var body struct {
+		Theme string `json:"theme"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "request body is not valid JSON")
+		return
+	}
+	defer r.Body.Close()
+
+	if body.Theme == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "theme is required")
+		return
+	}
+
+	if err := h.themeSvc.SetActiveTheme(r.Context(), body.Theme); err != nil {
+		slog.Error("failed to set active theme", "theme", body.Theme, "error", err)
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "theme not found: "+body.Theme)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to set active theme")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"theme": body.Theme})
+}
+
+func (h *AdminHandler) handleListAdminVariants(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "read") {
+		return
+	}
+
+	if h.adminUI == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "admin UI switcher not available")
+		return
+	}
+
+	variants, err := h.adminUI.ListVariants(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list admin variants")
+		return
+	}
+
+	if variants == nil {
+		variants = []interfaces.VariantInfo{}
+	}
+
+	writeJSON(w, http.StatusOK, variants)
+}
+
+func (h *AdminHandler) handleGetAdminVariant(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "read") {
+		return
+	}
+
+	if h.adminUI == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "admin UI switcher not available")
+		return
+	}
+
+	active, err := h.adminUI.GetActiveVariant(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get active admin variant")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"variant": active})
+}
+
+func (h *AdminHandler) handleSetAdminVariant(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "settings", "update") {
+		return
+	}
+
+	if h.adminUI == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "admin UI switcher not available")
+		return
+	}
+
+	var body struct {
+		Variant string `json:"variant"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "request body is not valid JSON")
+		return
+	}
+	defer r.Body.Close()
+
+	if body.Variant == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "variant is required")
+		return
+	}
+
+	if err := h.adminUI.SetActiveVariant(r.Context(), body.Variant); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "admin variant not found: "+body.Variant)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to set admin variant")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"variant": body.Variant})
 }
 
 // handleGetSiteInfo returns public site information (no auth required).

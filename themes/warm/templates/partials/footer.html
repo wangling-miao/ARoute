@@ -1,0 +1,20 @@
+{{define "partials/footer.html"}}
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <span class="footer-logo">{{.Site.Title}}</span>
+      {{if .Site.Tagline}}
+      <p class="footer-tagline">{{.Site.Tagline}}</p>
+      {{end}}
+    </div>
+    <nav class="footer-links">
+      {{range .NavMenu}}
+      <a href="{{.URL}}">{{.Title}}</a>
+      {{end}}
+    </nav>
+    <div class="footer-bottom">
+      <p>&copy; {{year}} {{.Site.Title}}. Powered by <a href="https://github.com/wangling-miao/aroute" target="_blank" rel="noopener">ARoute</a>.</p>
+    </div>
+  </div>
+</footer>
+{{end}}

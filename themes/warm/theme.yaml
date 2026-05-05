@@ -1,0 +1,15 @@
+name: "ARoute Warm"
+version: "1.0.0"
+author: "wangling"
+description: "A warm, editorial blog theme with serif typography, amber accents, and a classic reading experience"
+engine: "gotemplate"
+aroute_version: ">=1.0.0"
+settings:
+  primary_color: "#b45309"
+  accent_color: "#dc2626"
+  show_sidebar: false
+  posts_per_page: 8
+  show_author: true
+  show_date: true
+  show_reading_time: false
+  hero_enabled: false

@@ -81,6 +81,8 @@ func (s *Service) LoadThemes(themesDir string) error {
 
 	s.logger.Info("Themes loaded", "count", len(s.themes))
 
+	s.syncThemesToStoreLocked()
+
 	if manifest, ok := s.themes[s.activeTheme]; ok {
 		if err := s.reloadActiveEngineLocked(manifest); err != nil {
 			s.logger.Error("Failed to initialize active engine",
@@ -89,6 +91,69 @@ func (s *Service) LoadThemes(themesDir string) error {
 		}
 	}
 
+	return nil
+}
+
+// syncThemesToStoreLocked ensures every loaded theme has a database record.
+// Must be called with s.mu held.
+func (s *Service) syncThemesToStoreLocked() {
+	ctx := context.Background()
+	for slug, manifest := range s.themes {
+		rec := &ThemeRecord{
+			Name:     manifest.Name,
+			Slug:     slug,
+			Version:  manifest.Version,
+			Engine:   manifest.Engine,
+			Active:   slug == s.activeTheme,
+			Settings: "{}",
+		}
+		if err := s.store.UpsertOrCreate(ctx, rec); err != nil {
+			s.logger.Warn("Failed to sync theme to database",
+				"slug", slug, "error", err,
+			)
+		}
+	}
+}
+
+// ReloadThemes rescans the themes directory, picks up new themes,
+// syncs them to the database, and returns the updated list.
+// It also re-seeds built-in themes from the project themes/ directory first.
+func (s *Service) ReloadThemes() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	seedBuiltinThemes(s.themesDir, s.logger)
+
+	entries, err := os.ReadDir(s.themesDir)
+	if err != nil {
+		return fmt.Errorf("read themes directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, exists := s.themes[entry.Name()]; exists {
+			continue
+		}
+		manifestPath := filepath.Join(s.themesDir, entry.Name(), "theme.yaml")
+		manifest, loadErr := LoadThemeManifest(manifestPath)
+		if loadErr != nil {
+			s.logger.Warn("Failed to load theme manifest on reload, skipping",
+				"path", manifestPath, "error", loadErr,
+			)
+			continue
+		}
+		s.themes[entry.Name()] = manifest
+		s.logger.Info("Loaded new theme on reload",
+			"slug", entry.Name(),
+			"name", manifest.Name,
+		)
+	}
+
+	s.syncThemesToStoreLocked()
+
+	s.logger.Info("Themes reloaded", "count", len(s.themes))
 	return nil
 }
 
@@ -158,6 +223,21 @@ func (s *Service) SetActiveTheme(ctx context.Context, name string) error {
 		return fmt.Errorf("theme %q not found: %w", name, interfaces.ErrNotFound)
 	}
 
+	// Ensure a database record exists before activating.
+	rec := &ThemeRecord{
+		Name:     manifest.Name,
+		Slug:     name,
+		Version:  manifest.Version,
+		Engine:   manifest.Engine,
+		Active:   false,
+		Settings: "{}",
+	}
+	if err := s.store.UpsertOrCreate(ctx, rec); err != nil {
+		s.logger.Warn("Failed to ensure theme record, attempting activation anyway",
+			"slug", name, "error", err,
+		)
+	}
+
 	if err := s.store.SetActive(ctx, name); err != nil {
 		return fmt.Errorf("set active theme in store: %w", err)
 	}
@@ -194,6 +274,30 @@ func (s *Service) ListThemes(ctx context.Context) ([]string, error) {
 		names = append(names, name)
 	}
 	return names, nil
+}
+
+// ThemeInfo returns metadata for a single theme by slug.
+func (s *Service) ThemeInfo(slug string) *ThemeManifest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.themes[slug]
+}
+
+// ThemeMeta returns theme metadata as a string map for the interface.
+func (s *Service) ThemeMeta(slug string) map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	m := s.themes[slug]
+	if m == nil {
+		return nil
+	}
+	return map[string]string{
+		"name":        m.Name,
+		"version":     m.Version,
+		"author":      m.Author,
+		"description": m.Description,
+		"engine":      m.Engine,
+	}
 }
 
 // InstallTheme copies a theme from sourcePath into the themes directory and

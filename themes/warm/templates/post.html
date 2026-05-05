@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
+
+  <main class="main-content">
+  <article class="single-post">
+    <div class="container container--narrow">
+      <header class="post-header">
+        <div class="post-header__meta">
+          {{if .Post.Date}}<time datetime="{{.Post.Date}}">{{formatDate .Post.Date "Jan 02, 2006"}}</time>{{end}}
+          {{if .Post.Author}}<span class="post-header__author">by {{.Post.Author}}</span>{{end}}
+        </div>
+        <h1 class="post-header__title">{{.Post.Title}}</h1>
+        {{if .Post.Tags}}
+        <div class="post-header__tags">
+          {{range .Post.Tags}}
+          <a href="/tags/{{slugify .}}" class="tag">{{.}}</a>
+          {{end}}
+        </div>
+        {{end}}
+      </header>
+
+      <div class="post-body prose">
+        {{safeHTML .Post.Body}}
+      </div>
+
+      <footer class="post-footer">
+        {{if .Post.Tags}}
+        <div class="post-footer__tags">
+          <span class="post-footer__label">Tagged:</span>
+          {{range .Post.Tags}}
+          <a href="/tags/{{slugify .}}" class="tag">{{.}}</a>
+          {{end}}
+        </div>
+        {{end}}
+        <nav class="post-nav">
+          <a href="/posts" class="post-nav__link">&larr; Back to all posts</a>
+        </nav>
+      </footer>
+    </div>
+  </article>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

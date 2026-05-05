@@ -5,6 +5,9 @@ import path from 'node:path'
 export default defineConfig({
   plugins: [react()],
   base: '/admin/',
+  define: {
+    __VARIANT__: JSON.stringify('default'),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

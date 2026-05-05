@@ -15,6 +15,7 @@ const MediaLibrary = lazy(() => import('@/pages/MediaLibrary'));
 const UserManagement = lazy(() => import('@/pages/UserManagement'));
 const RoleManagement = lazy(() => import('@/pages/RoleManagement'));
 const PluginManagement = lazy(() => import('@/pages/PluginManagement'));
+const Appearance = lazy(() => import('@/pages/Appearance'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const ApiTokens = lazy(() => import('@/pages/ApiTokens'));
 
@@ -74,6 +75,7 @@ export const router = createBrowserRouter([
           { path: 'users', element: <PG resource="users" action="read"><LazyPage Component={UserManagement} /></PG> },
           { path: 'roles', element: <PG resource="roles" action="read"><LazyPage Component={RoleManagement} /></PG> },
           { path: 'plugins', element: <PG resource="plugins" action="read"><LazyPage Component={PluginManagement} /></PG> },
+          { path: 'appearance', element: <PG resource="settings" action="read"><LazyPage Component={Appearance} /></PG> },
           { path: 'settings', element: <PG resource="settings" action="read"><LazyPage Component={Settings} /></PG> },
           { path: 'api-tokens', element: <PG resource="api_tokens" action="read"><LazyPage Component={ApiTokens} /></PG> },
         ],

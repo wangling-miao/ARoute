@@ -21,6 +21,14 @@ type ThemeService interface {
 	// ListThemes returns all available theme names.
 	ListThemes(ctx context.Context) ([]string, error)
 
+	// ThemeMeta returns metadata for a theme by slug.
+	// Returns nil if the theme is not found.
+	ThemeMeta(slug string) map[string]string
+
 	// InstallTheme installs a theme from a directory path or archive.
 	InstallTheme(ctx context.Context, sourcePath string) error
+
+	// ReloadThemes rescans the themes directory for newly added themes
+	// without requiring a service restart.
+	ReloadThemes() error
 }

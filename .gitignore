@@ -33,6 +33,8 @@ go.work.sum
 admin/node_modules/
 admin/dist/
 admin/.env.local
+admin-compact/node_modules/
+admin-compact/dist/
 
 # Data (runtime)
 data/

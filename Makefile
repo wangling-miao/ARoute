@@ -15,7 +15,7 @@ LDFLAGS := -s -w \
 	-X github.com/wangling-miao/aroute/internal/version.BuildDate=$(BUILD_DATE) \
 	-X github.com/wangling-miao/aroute/internal/version.GoVersion=$(GO_VERSION)
 
-.PHONY: all build test lint generate clean admin-build help
+.PHONY: all build test lint generate clean admin-build admin-build-all help
 
 all: lint test build
 
@@ -36,6 +36,9 @@ clean:
 
 admin-build:
 	cd $(ADMIN_DIR) && npm ci && npm run build
+
+admin-build-all: admin-build
+	cd admin-compact && npm ci && npm run build
 
 admin-dev:
 	cd $(ADMIN_DIR) && npm run dev
@@ -63,7 +66,8 @@ help:
 	@echo "  lint         - Run golangci-lint"
 	@echo "  generate     - Run go generate"
 	@echo "  clean        - Remove build artifacts"
-	@echo "  admin-build  - Build Admin UI (npm)"
+	@echo "  admin-build     - Build Admin UI (npm)"
+	@echo "  admin-build-all - Build all admin UI variants"
 	@echo "  admin-dev    - Start Admin UI dev server"
 	@echo "  cover        - Generate HTML coverage report"
 	@echo "  vet          - Run go vet"

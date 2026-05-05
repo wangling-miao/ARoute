@@ -19,6 +19,8 @@ import type {
   UpdateUserRequest,
   AuthTokens,
   RefreshTokenResponse,
+  ThemeInfo,
+  AdminVariant,
 } from '@/types';
 
 export type { User, ContentItem, ContentType, MediaFile, Plugin, Role, Settings, DashboardStats, ApiToken };
@@ -180,5 +182,33 @@ export const apiTokens = {
 
   revoke(id: string): Promise<void> {
     return fetchClient.delete(`/api-tokens/${id}`);
+  },
+};
+
+export const themes = {
+  list(): Promise<ThemeInfo[]> {
+    return fetchClient.get<ThemeInfo[]>('/themes');
+  },
+
+  getActive(): Promise<{ theme: string }> {
+    return fetchClient.get<{ theme: string }>('/themes/active');
+  },
+
+  setActive(theme: string): Promise<{ theme: string }> {
+    return fetchClient.put<{ theme: string }>('/themes/active', { theme });
+  },
+};
+
+export const adminVariants = {
+  list(): Promise<AdminVariant[]> {
+    return fetchClient.get<AdminVariant[]>('/admin-variants');
+  },
+
+  get(): Promise<{ variant: string }> {
+    return fetchClient.get<{ variant: string }>('/admin-variant');
+  },
+
+  set(variant: string): Promise<{ variant: string }> {
+    return fetchClient.put<{ variant: string }>('/admin-variant', { variant });
   },
 };

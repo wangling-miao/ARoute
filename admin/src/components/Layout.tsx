@@ -11,6 +11,7 @@ import {
   UserCog,
   Puzzle,
   Settings,
+  Paintbrush,
   Sun,
   Moon,
   Globe,
@@ -120,6 +121,7 @@ export default function AdminLayout() {
     if (p.startsWith('/admin/users')) return ['/admin/users'];
     if (p.startsWith('/admin/roles')) return ['/admin/roles'];
     if (p.startsWith('/admin/plugins')) return ['/admin/plugins'];
+    if (p.startsWith('/admin/appearance')) return ['/admin/appearance'];
     if (p.startsWith('/admin/settings')) return ['/admin/settings'];
     if (p.startsWith('/admin/api-tokens')) return ['/admin/api-tokens'];
     return ['/admin/'];
@@ -160,6 +162,7 @@ export default function AdminLayout() {
       '/admin/users': t('nav.users'),
       '/admin/roles': t('nav.roles'),
       '/admin/plugins': t('nav.plugins'),
+      '/admin/appearance': t('nav.appearance'),
       '/admin/settings': t('nav.settings'),
       '/admin/api-tokens': t('nav.api_tokens'),
     };
@@ -195,10 +198,16 @@ export default function AdminLayout() {
 
   const sidebarContent = (
     <>
-      <Link to="/admin/" className={styles.sidebarBrand}>
-        <div className={styles.sidebarBrandIcon}>A</div>
-        {!collapsed && <span className={styles.sidebarBrandText}>ARoute</span>}
-      </Link>
+      {typeof __VARIANT__ === 'undefined' || __VARIANT__ !== 'compact' ? (
+        <Link to="/admin/" className={styles.sidebarBrand}>
+          <div className={styles.sidebarBrandIcon}>A</div>
+          {!collapsed && <span className={styles.sidebarBrandText}>ARoute</span>}
+        </Link>
+      ) : (
+        <Link to="/admin/" className={styles.sidebarBrand}>
+          {!collapsed && <span className={styles.sidebarBrandText}>ARoute</span>}
+        </Link>
+      )}
 
       <div className={styles.sidebarMenuWrap}>
         <Menu
@@ -273,6 +282,13 @@ export default function AdminLayout() {
           <MenuItem key="/admin/plugins">
             <span className={styles.menuIcon}><Puzzle size={18} /></span>
             {!collapsed && t('nav.plugins')}
+          </MenuItem>
+          )}
+
+          {canAny([{ resource: 'settings', action: 'read' }]) && (
+          <MenuItem key="/admin/appearance">
+            <span className={styles.menuIcon}><Paintbrush size={18} /></span>
+            {!collapsed && t('nav.appearance')}
           </MenuItem>
           )}
 

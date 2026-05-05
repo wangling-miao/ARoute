@@ -249,3 +249,23 @@ export interface ApiErrorDetail {
 export interface ApiErrorResponse {
   errors: ApiErrorDetail[];
 }
+
+// ─── Themes & Appearance ─────────────────────────────────────────
+
+export interface ThemeInfo {
+  slug: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  engine: string;
+  active: boolean;
+}
+
+export interface AdminVariant {
+  variant: string;
+  name: string;
+  version: string;
+  description: string;
+  active: boolean;
+}

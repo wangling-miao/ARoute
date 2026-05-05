@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "partials/head.html" .}}
+</head>
+<body>
+  {{template "partials/header.html" .}}
+
+  <main class="main-content">
+  <section class="intro">
+    <div class="container">
+      <h1 class="intro-title">{{.Site.Title}}</h1>
+      {{if .Site.Tagline}}<p class="intro-subtitle">{{.Site.Tagline}}</p>{{end}}
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      {{if .Posts}}
+      <div class="section-header">
+        <h2 class="section-title">Recent</h2>
+      </div>
+
+      <div class="post-feed">
+        {{range .Posts}}
+        <article class="feed-item">
+          <div class="feed-item__content">
+            <div class="feed-item__meta">
+              {{if .Date}}<time datetime="{{.Date}}">{{formatDate .Date "Jan 02, 2006"}}</time>{{end}}
+            </div>
+            <h2 class="feed-item__title">
+              <a href="/posts/{{.Slug}}">{{.Title}}</a>
+            </h2>
+            {{if .Excerpt}}
+            <p class="feed-item__excerpt">{{truncate .Excerpt 160}}</p>
+            {{end}}
+            <a href="/posts/{{.Slug}}" class="feed-item__link">Read &rarr;</a>
+          </div>
+        </article>
+        {{end}}
+      </div>
+
+      {{if .Pagination}}
+      <nav class="pagination">
+        {{if .Pagination.HasPrev}}
+        <a href="?page={{.Pagination.PrevPage}}" class="pagination-btn">&larr; Newer</a>
+        {{end}}
+        <span class="pagination-info">{{.Pagination.CurrentPage}} / {{.Pagination.TotalPages}}</span>
+        {{if .Pagination.HasNext}}
+        <a href="?page={{.Pagination.NextPage}}" class="pagination-btn">Older &rarr;</a>
+        {{end}}
+      </nav>
+      {{end}}
+
+      {{else}}
+      <div class="empty-state">
+        <h3 class="empty-state__title">No posts yet</h3>
+        <p class="empty-state__text">Check back soon for new content.</p>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  </main>
+
+  {{template "partials/footer.html" .}}
+  <script src="{{asset "js/main.js"}}"></script>
+</body>
+</html>

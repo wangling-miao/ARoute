@@ -504,3 +504,11 @@ func (m *mockThemeService) ListThemes(ctx context.Context) ([]string, error) {
 func (m *mockThemeService) InstallTheme(ctx context.Context, sourcePath string) error {
 	return nil
 }
+
+func (m *mockThemeService) ReloadThemes() error {
+	return nil
+}
+
+func (m *mockThemeService) ThemeMeta(slug string) map[string]string {
+	return nil
+}

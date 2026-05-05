@@ -164,6 +164,13 @@ func (p *Plugin) registerRoutes() {
 	p.registrar.HandleFunc("POST /api/v1/plugins/{name}/disable", p.adminHandler.handleDisablePlugin)
 	p.registrar.HandleFunc("POST /api/v1/plugins/upload", p.adminHandler.handleUploadPlugin)
 
+	p.registrar.HandleFunc("GET /api/v1/themes", p.adminHandler.handleListThemes)
+	p.registrar.HandleFunc("GET /api/v1/themes/active", p.adminHandler.handleGetActiveTheme)
+	p.registrar.HandleFunc("PUT /api/v1/themes/active", p.adminHandler.handleSetActiveTheme)
+	p.registrar.HandleFunc("GET /api/v1/admin-variants", p.adminHandler.handleListAdminVariants)
+	p.registrar.HandleFunc("GET /api/v1/admin-variant", p.adminHandler.handleGetAdminVariant)
+	p.registrar.HandleFunc("PUT /api/v1/admin-variant", p.adminHandler.handleSetAdminVariant)
+
 	p.registrar.HandleFunc("GET /api/v1/site/info", p.adminHandler.handleGetSiteInfo)
 }
 

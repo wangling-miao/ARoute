@@ -1,0 +1,36 @@
+{{define "partials/header.html"}}
+<header class="site-header" id="site-header">
+  <div class="container header-inner">
+    <div class="brand">
+      <a href="/" class="logo">
+        <span class="logo-mark">A</span>
+        <span class="logo-text">{{.Site.Title}}</span>
+      </a>
+      {{if .Site.Tagline}}
+      <span class="tagline">{{.Site.Tagline}}</span>
+      {{end}}
+    </div>
+
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+      <span class="hamburger"></span>
+    </button>
+
+    <nav class="main-nav" id="main-nav" role="navigation">
+      {{range .NavMenu}}
+      {{if .Children}}
+      <div class="nav-dropdown-wrap">
+        <a href="{{.URL}}" class="nav-link has-dropdown">{{.Title}}</a>
+        <div class="nav-dropdown">
+          {{range .Children}}
+          <a href="{{.URL}}" class="nav-dropdown-link">{{.Title}}</a>
+          {{end}}
+        </div>
+      </div>
+      {{else}}
+      <a href="{{.URL}}" class="nav-link">{{.Title}}</a>
+      {{end}}
+      {{end}}
+    </nav>
+  </div>
+</header>
+{{end}}

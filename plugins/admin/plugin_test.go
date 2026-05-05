@@ -39,15 +39,18 @@ func newMockCoreContext() *mockCoreContext {
 	}
 }
 
-// createMockAdminDir creates a temp directory with a mock index.html.
+// createMockAdminDir creates a temp directory that mimics data/plugin_data/admin/.
+// The admin plugin's DataDir() returns this path, and variants are subdirectories:
+//   <tmp>/admin/default/index.html
 func createMockAdminDir() string {
 	dir, err := os.MkdirTemp("", "admin-test-*")
 	if err != nil {
 		panic(err)
 	}
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><html><head></head><body>admin</body></html>"), 0o644)
-	os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
-	os.WriteFile(filepath.Join(dir, "assets", "index-CamzK9Cm.js"), []byte("// js"), 0o644)
+	variantDir := filepath.Join(dir, "default")
+	os.MkdirAll(filepath.Join(variantDir, "assets"), 0o755)
+	os.WriteFile(filepath.Join(variantDir, "index.html"), []byte("<!doctype html><html><head></head><body>admin</body></html>"), 0o644)
+	os.WriteFile(filepath.Join(variantDir, "assets", "index-CamzK9Cm.js"), []byte("// js"), 0o644)
 	return dir
 }
 
@@ -69,6 +72,8 @@ func (m *mockConfig) GetBool(key string) bool                        { return fa
 func (m *mockConfig) GetStringSlice(key string) []string             { return nil }
 func (m *mockConfig) Get(key string) interface{}                     { return m.data[key] }
 func (m *mockConfig) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockConfig) Set(key string, value interface{})              { m.data[key] = value }
+func (m *mockConfig) Save() error                                    { return nil }
 
 func setupRouterWithAdmin(t *testing.T) (*Plugin, chi.Router) {
 	t.Helper()
