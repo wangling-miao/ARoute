@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.1 — 2025-05-06
+
+### Added
+
+- **Appearance Management Page** — Switch frontend themes and admin UI variants from the admin panel without restarting the server (browser refresh required)
+  - Frontend theme cards with Activate button and live switching
+  - Admin UI variant cards with Switch button and confirmation dialog
+- **Admin UI Variant Hot-Swap** — Multiple admin interface variants can coexist and be switched at runtime
+  - `AdminUISwitcher` interface for variant management (get/set/list)
+  - Active variant persisted to config, handler rebuilt atomically
+  - Admin plugin serves from `data/plugin_data/admin/{variant}/` directory
+- **admin-compact Variant** — Compact admin UI variant (no logo icon, slim sidebar), built from the same source via Vite `define: { __VARIANT__: 'compact' }`
+- **Frontend Theme Hot-Reload** — `ThemeService.ReloadThemes()` rescans the themes directory and syncs new themes to the database without restart
+  - Automatic rescan triggered when listing themes from the API
+- **themes/warm** — Sample frontend theme with distinct visual design
+  - Serif typography (Playfair Display + Source Sans 3)
+  - Warm amber/brown color palette (#b45309 primary)
+  - Editorial layout with square-cornered buttons, no glassmorphism
+  - Full template set matching the default theme structure
+- **Theme API Endpoints** — 6 new REST endpoints for theme and variant management
+  - `GET/PUT /api/v1/themes/active` — Get or set active frontend theme
+  - `GET /api/v1/themes` — List all available themes with metadata
+  - `GET/PUT /api/v1/admin-variant` — Get or set active admin variant
+  - `GET /api/v1/admin-variants` — List all available admin variants
+- **Theme Database Sync** — Seeded themes automatically get database records via `UpsertOrCreate` (ON CONFLICT DO NOTHING)
+- **Makefile** — `admin-build-all` target builds both default and compact admin variants
+- **README** — Updated with Appearance module, project structure entries, and roadmap items
+
+### Fixed
+
+- **PostgreSQL bool encoding** — Go `bool` values cannot be encoded into PostgreSQL `INTEGER` columns via pgx binary protocol; converted to `int` (0/1) before parameter binding
+- **PostgreSQL placeholder syntax** — `store.SetActive` used `*sql.Tx` directly which bypasses `DatabaseService.normalizePlaceholders()`, causing `?` to be sent to pgx as-is; replaced with `db.Exec` which handles `?` → `$N` conversion
+- **Theme manifest path** — `handleListThemes` read manifests from hardcoded `themes/` path instead of the plugin's data directory; now reads from in-memory theme map via `ThemeMeta()`
+
 ## 1.0.0 — 2025-05-02
 
 First stable release of ARoute CMS.
