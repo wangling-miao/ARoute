@@ -21,6 +21,7 @@ type Plugin struct {
 	mu        sync.RWMutex
 	ctx       core.CoreContext
 	service   *Service
+	authSvc   interfaces.AuthService
 	registrar interfaces.RouteRegistrar
 	running   bool
 	handlerID string
@@ -75,6 +76,13 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 		return p.service, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register WebhookService: %w", err)
+	}
+
+	var authSvc interfaces.AuthService
+	if err := ctx.Services().Get(&authSvc); err == nil {
+		p.authSvc = authSvc
+	} else {
+		logger.Warn("Auth service not available, webhook admin endpoints will skip RBAC checks", "error", err)
 	}
 
 	var registrar interfaces.RouteRegistrar
@@ -168,7 +176,7 @@ func (p *Plugin) registerAdminRoutes() {
 		return
 	}
 
-	handler := &adminHandler{service: p.service}
+	handler := &adminHandler{service: p.service, authSvc: p.authSvc}
 
 	p.registrar.HandleFunc("GET /admin/api/webhooks", handler.listWebhooks)
 	p.registrar.HandleFunc("POST /admin/api/webhooks", handler.createWebhook)
