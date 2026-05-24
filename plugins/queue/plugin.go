@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/wangling-miao/aroute/core"
+	authplugin "github.com/wangling-miao/aroute/plugins/auth"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
@@ -25,6 +26,7 @@ type Plugin struct {
 	mu        sync.RWMutex
 	ctx       core.CoreContext
 	service   *Service
+	authSvc   interfaces.AuthService
 	registrar interfaces.RouteRegistrar
 	running   bool
 }
@@ -88,6 +90,13 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 		return fmt.Errorf("failed to register QueueService: %w", err)
 	}
 
+	var authSvc interfaces.AuthService
+	if err := ctx.Services().Get(&authSvc); err == nil {
+		p.authSvc = authSvc
+	} else {
+		logger.Warn("Auth service not available, queue admin endpoints will skip RBAC checks", "error", err)
+	}
+
 	var registrar interfaces.RouteRegistrar
 	if err := ctx.Services().Get(&registrar); err != nil {
 		logger.Warn("Route registrar not available, admin API endpoints not registered", "error", err)
@@ -144,7 +153,7 @@ func (p *Plugin) registerAdminRoutes() {
 		return
 	}
 
-	handler := &adminHandler{service: p.service}
+	handler := &adminHandler{service: p.service, authSvc: p.authSvc}
 
 	p.registrar.HandleFunc("GET /admin/api/queue/dead-letter", handler.listDeadLetters)
 	p.registrar.HandleFunc("POST /admin/api/queue/dead-letter/{taskID}/retry", handler.retryDeadLetter)
@@ -153,9 +162,34 @@ func (p *Plugin) registerAdminRoutes() {
 
 type adminHandler struct {
 	service *Service
+	authSvc interfaces.AuthService
+}
+
+func (h *adminHandler) checkPerm(w http.ResponseWriter, r *http.Request, resource, action string) bool {
+	if h.authSvc == nil {
+		return true
+	}
+	claims := authplugin.GetClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return false
+	}
+	allowed, err := h.authSvc.HasPermission(r.Context(), claims.UserID, resource, action)
+	if err != nil {
+		http.Error(w, "permission check failed", http.StatusInternalServerError)
+		return false
+	}
+	if !allowed {
+		http.Error(w, "insufficient permissions", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 func (h *adminHandler) listDeadLetters(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "queue", "read") {
+		return
+	}
 	pageStr := r.URL.Query().Get("page")
 	pageSizeStr := r.URL.Query().Get("page_size")
 
@@ -185,6 +219,9 @@ func (h *adminHandler) listDeadLetters(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) retryDeadLetter(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "queue", "retry") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskID")
 	if taskID == "" {
 		http.Error(w, "missing task_id", http.StatusBadRequest)
@@ -201,6 +238,9 @@ func (h *adminHandler) retryDeadLetter(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) deleteDeadLetter(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "queue", "delete") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskID")
 	if taskID == "" {
 		http.Error(w, "missing task_id", http.StatusBadRequest)

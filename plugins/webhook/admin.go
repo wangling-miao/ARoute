@@ -6,13 +6,41 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+
+	authplugin "github.com/wangling-miao/aroute/plugins/auth"
+	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
 type adminHandler struct {
 	service *Service
+	authSvc interfaces.AuthService
+}
+
+func (h *adminHandler) checkPerm(w http.ResponseWriter, r *http.Request, resource, action string) bool {
+	if h.authSvc == nil {
+		return true
+	}
+	claims := authplugin.GetClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return false
+	}
+	allowed, err := h.authSvc.HasPermission(r.Context(), claims.UserID, resource, action)
+	if err != nil {
+		http.Error(w, "permission check failed", http.StatusInternalServerError)
+		return false
+	}
+	if !allowed {
+		http.Error(w, "insufficient permissions", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 func (h *adminHandler) createWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "create") {
+		return
+	}
 	var req struct {
 		URL    string   `json:"url"`
 		Events []string `json:"events"`
@@ -35,6 +63,9 @@ func (h *adminHandler) createWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) listWebhooks(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "read") {
+		return
+	}
 	webhooks := h.service.List(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
@@ -42,6 +73,9 @@ func (h *adminHandler) listWebhooks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) getWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "read") {
+		return
+	}
 	id := chi.URLParam(r, "webhookID")
 	wh, err := h.service.Get(r.Context(), id)
 	if err != nil {
@@ -78,6 +112,9 @@ func (h *adminHandler) getWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) updateWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "update") {
+		return
+	}
 	id := chi.URLParam(r, "webhookID")
 
 	var req struct {
@@ -104,6 +141,9 @@ func (h *adminHandler) updateWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) patchWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "update") {
+		return
+	}
 	id := chi.URLParam(r, "webhookID")
 
 	var req map[string]interface{}
@@ -136,6 +176,9 @@ func (h *adminHandler) patchWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) deleteWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "delete") {
+		return
+	}
 	id := chi.URLParam(r, "webhookID")
 	if err := h.service.Delete(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -147,6 +190,9 @@ func (h *adminHandler) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) testWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "test") {
+		return
+	}
 	id := chi.URLParam(r, "webhookID")
 
 	delivery, err := h.service.TestDelivery(r.Context(), id)
@@ -160,6 +206,9 @@ func (h *adminHandler) testWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *adminHandler) listDeliveries(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "webhooks", "read") {
+		return
+	}
 	id := chi.URLParam(r, "webhookID")
 
 	limitStr := r.URL.Query().Get("limit")
