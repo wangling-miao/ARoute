@@ -34,6 +34,7 @@ var reservedQueryParams = map[string]bool{
 type Handler struct {
 	contentSvc interfaces.ContentService
 	authSvc    interfaces.AuthService
+	publicRead bool
 }
 
 // NewHandler creates a new Handler with the given ContentService.
@@ -62,6 +63,102 @@ func (h *Handler) checkPerm(w http.ResponseWriter, r *http.Request, resource, ac
 		return false
 	}
 	return true
+}
+
+func (h *Handler) checkContentRead(w http.ResponseWriter, r *http.Request, content *interfaces.Content) bool {
+	if h.authSvc == nil {
+		return true
+	}
+	claims := userClaimsFromRequest(r)
+	if claims == nil {
+		if h.publicRead {
+			return true
+		}
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return false
+	}
+	canRead, err := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "read")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return false
+	}
+	if canRead {
+		return true
+	}
+	canOwn, err := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "update_own")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return false
+	}
+	if canOwn && content != nil && content.AuthorID == claims.UserID {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "FORBIDDEN", "insufficient permissions")
+	return false
+}
+
+func (h *Handler) applyContentListScope(w http.ResponseWriter, r *http.Request, query *interfaces.ListQuery) bool {
+	if h.authSvc == nil {
+		return true
+	}
+	claims := userClaimsFromRequest(r)
+	if claims == nil {
+		if h.publicRead {
+			return true
+		}
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return false
+	}
+	canRead, err := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "read")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return false
+	}
+	if canRead {
+		return true
+	}
+	canOwn, err := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "update_own")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return false
+	}
+	if canOwn {
+		query.AuthorID = claims.UserID
+		return true
+	}
+	writeError(w, http.StatusForbidden, "FORBIDDEN", "insufficient permissions")
+	return false
+}
+
+func (h *Handler) checkContentWrite(w http.ResponseWriter, r *http.Request, content *interfaces.Content, action, ownAction string) bool {
+	if h.authSvc == nil {
+		return true
+	}
+	claims := userClaimsFromRequest(r)
+	if claims == nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return false
+	}
+	allowed, err := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", action)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return false
+	}
+	if allowed {
+		return true
+	}
+	if ownAction != "" && content != nil && content.AuthorID == claims.UserID {
+		allowed, err = h.authSvc.HasPermission(r.Context(), claims.UserID, "content", ownAction)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+			return false
+		}
+		if allowed {
+			return true
+		}
+	}
+	writeError(w, http.StatusForbidden, "FORBIDDEN", "insufficient permissions")
+	return false
 }
 
 // systemFields are valid for all content types.
@@ -119,22 +216,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Author-scoped filtering: if user only has content.update_own (not content.read),
-	// restrict results to content they created.
-	if h.authSvc != nil {
-		claims := userClaimsFromRequest(r)
-		if claims != nil {
-			canRead, _ := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "read")
-			if !canRead {
-				canOwn, _ := h.authSvc.HasPermission(r.Context(), claims.UserID, "content", "update_own")
-				if canOwn {
-					query.AuthorID = claims.UserID
-				}
-			}
-		}
-	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	if !h.applyContentListScope(w, r, query) {
 		return
 	}
 
@@ -164,7 +246,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for key := range query.Filters {
 		baseKey := key
 		// Strip operator suffixes to get the base field name.
-		for _, suffix := range []string{"_contains", "_gte", "_lte"} {
+		for _, suffix := range []string{"_contains", "_gte", "_lte", "_gt", "_lt", "_ne"} {
 			if strings.HasSuffix(baseKey, suffix) {
 				baseKey = strings.TrimSuffix(baseKey, suffix)
 				break
@@ -225,6 +307,9 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		mapErrorToHTTP(w, err)
 		return
 	}
+	if !h.checkContentRead(w, r, content) {
+		return
+	}
 
 	expand := r.URL.Query().Get("expand")
 	var meta map[string]interface{}
@@ -272,6 +357,9 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/v1/{contentType} — create a new content item.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "content", "create") {
+		return
+	}
 	contentType := chi.URLParam(r, "contentType")
 	if contentType == "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "content type is required")
@@ -283,6 +371,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "request body is not valid JSON")
 		return
+	}
+	if claims := userClaimsFromRequest(r); claims != nil {
+		data["created_by"] = claims.UserID
+		data["updated_by"] = claims.UserID
 	}
 
 	content, err := h.contentSvc.Create(r.Context(), contentType, data)
@@ -303,11 +395,23 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	current, err := h.contentSvc.GetByID(r.Context(), id)
+	if err != nil {
+		mapErrorToHTTP(w, err)
+		return
+	}
+	if !h.checkContentWrite(w, r, current, "update", "update_own") {
+		return
+	}
+
 	defer r.Body.Close()
 	var data map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "request body is not valid JSON")
 		return
+	}
+	if claims := userClaimsFromRequest(r); claims != nil {
+		data["updated_by"] = claims.UserID
 	}
 
 	content, err := h.contentSvc.Update(r.Context(), id, data)
@@ -324,6 +428,15 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "content id is required")
+		return
+	}
+
+	current, err := h.contentSvc.GetByID(r.Context(), id)
+	if err != nil {
+		mapErrorToHTTP(w, err)
+		return
+	}
+	if !h.checkContentWrite(w, r, current, "delete", "delete_own") {
 		return
 	}
 

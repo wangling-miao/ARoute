@@ -20,6 +20,7 @@ type Plugin struct {
 	mu      sync.RWMutex
 	ctx     core.CoreContext
 	service *Service
+	authSvc interfaces.AuthService
 	running bool
 }
 
@@ -68,6 +69,13 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 
 	svc := NewService(store, storage, ctx.Events(), logger)
 	p.service = svc
+
+	var authSvc interfaces.AuthService
+	if err := ctx.Services().Get(&authSvc); err != nil {
+		logger.Warn("Auth service not available, media endpoints will run without RBAC checks", "error", err)
+	} else {
+		p.authSvc = authSvc
+	}
 
 	if err := ctx.Services().Provide(func(container core.ServiceContainer) (interfaces.MediaService, error) {
 		return p.service, nil

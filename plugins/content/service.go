@@ -19,7 +19,7 @@ import (
 
 const defaultMaxVersions = 50
 
-var validFieldNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+var validFieldNameRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 type Service struct {
 	store       *Store
@@ -51,6 +51,7 @@ func (s *Service) Create(ctx context.Context, contentType string, data map[strin
 
 	s.autoGenerateSlug(ctx, ct, data)
 	cleanEmptyNonTextFields(ct, data)
+	sanitizeRichTextFields(ct, data)
 
 	if err := s.validator.Validate(ctx, ct, data); err != nil {
 		return nil, err
@@ -66,8 +67,12 @@ func (s *Service) Create(ctx context.Context, contentType string, data map[strin
 	data["updated_at"] = now
 	data["deleted_at"] = nil
 	data["version"] = 1
-	data["created_by"] = ""
-	data["updated_by"] = ""
+	if _, ok := data["created_by"]; !ok {
+		data["created_by"] = ""
+	}
+	if _, ok := data["updated_by"]; !ok {
+		data["updated_by"] = ""
+	}
 
 	if _, ok := data["status"]; !ok {
 		data["status"] = "draft"
@@ -120,6 +125,7 @@ func (s *Service) Update(ctx context.Context, id string, data map[string]interfa
 
 	merged := s.mergeForUpdate(current, data)
 	cleanEmptyNonTextFields(ct, merged)
+	sanitizeRichTextFields(ct, merged)
 
 	if err := s.validator.Validate(ctx, ct, merged); err != nil {
 		return nil, err
@@ -135,7 +141,10 @@ func (s *Service) Update(ctx context.Context, id string, data map[string]interfa
 	data["version"] = currentVersion + 1
 	data["updated_at"] = time.Now().UTC().Format(time.RFC3339)
 	data["content_type"] = ct.Name
-	data["updated_by"] = ""
+	sanitizeRichTextFields(ct, data)
+	if _, ok := data["updated_by"]; !ok {
+		data["updated_by"] = ""
+	}
 
 	if status, ok := data["status"]; ok && status == "published" {
 		if _, hasPub := current["published_at"]; !hasPub || current["published_at"] == nil {
@@ -313,6 +322,9 @@ func (s *Service) CreateContentType(ctx context.Context, ct *interfaces.ContentT
 	if ct.TableName == "" {
 		ct.TableName = "content_" + ct.Name + "s"
 	}
+	if err := validateContentTypeSchema(ct); err != nil {
+		return nil, err
+	}
 
 	if err := s.store.CreateContentType(ctx, ct); err != nil {
 		return nil, err
@@ -342,6 +354,9 @@ func (s *Service) UpdateContentType(ctx context.Context, name string, ct *interf
 	ct.Name = name
 	if ct.TableName == "" {
 		ct.TableName = existing.TableName
+	}
+	if err := validateContentTypeSchema(ct); err != nil {
+		return nil, err
 	}
 
 	if err := s.alterTableForFieldChanges(ctx, existing, ct); err != nil {
@@ -881,6 +896,40 @@ func validateFieldName(name string) error {
 	if !validFieldNameRegex.MatchString(name) {
 		return fmt.Errorf("field name '%s' contains invalid characters: only alphanumeric and underscore allowed: %w",
 			name, interfaces.ErrValidation)
+	}
+	return nil
+}
+
+func validateContentTypeSchema(ct *interfaces.ContentType) error {
+	if err := validateFieldName(ct.Name); err != nil {
+		return fmt.Errorf("invalid content type name: %w", err)
+	}
+	if err := validateTableName(ct.TableName); err != nil {
+		return fmt.Errorf("invalid content table name: %w", err)
+	}
+
+	seen := make(map[string]bool, len(ct.Fields))
+	for _, field := range ct.Fields {
+		if err := validateFieldName(field.Name); err != nil {
+			return err
+		}
+		if seen[field.Name] {
+			return fmt.Errorf("duplicate field name '%s': %w", field.Name, interfaces.ErrValidation)
+		}
+		seen[field.Name] = true
+
+		if field.RelationConfig != nil {
+			if field.RelationConfig.TargetContentType != "" {
+				if err := validateFieldName(field.RelationConfig.TargetContentType); err != nil {
+					return fmt.Errorf("invalid relation target for field '%s': %w", field.Name, err)
+				}
+			}
+			if field.RelationConfig.ThroughTable != "" {
+				if err := validateTableName(field.RelationConfig.ThroughTable); err != nil {
+					return fmt.Errorf("invalid relation through table for field '%s': %w", field.Name, err)
+				}
+			}
+		}
 	}
 	return nil
 }

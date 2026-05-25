@@ -119,6 +119,9 @@ func (p *Plugin) registerRoutes() {
 	if config != nil {
 		publicRead = config.GetBool("api.public_read")
 	}
+	if p.handler != nil {
+		p.handler.publicRead = publicRead
+	}
 	contentNeg := contentNegotiationMiddleware()
 	rateLimitMW := rateLimitMiddleware(config)
 

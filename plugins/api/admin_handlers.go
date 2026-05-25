@@ -24,6 +24,13 @@ var systemPluginEngines = map[string]bool{
 	"l1":     true,
 }
 
+const (
+	maxPluginArchiveBytes      = 50 << 20
+	maxPluginUncompressedBytes = 200 << 20
+	maxPluginFiles             = 2048
+	maxPluginEntryBytes        = 50 << 20
+)
+
 type AdminHandler struct {
 	ctx        core.CoreContext
 	contentSvc interfaces.ContentService
@@ -333,7 +340,7 @@ func (h *AdminHandler) handleUploadPlugin(w http.ResponseWriter, r *http.Request
 	}
 
 	// Limit upload size to 50MB.
-	r.Body = http.MaxBytesReader(w, r.Body, 50<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxPluginArchiveBytes)
 
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "failed to parse upload: "+err.Error())
@@ -426,7 +433,7 @@ func (h *AdminHandler) handleUploadPlugin(w http.ResponseWriter, r *http.Request
 
 func (h *AdminHandler) extractZip(src io.ReaderAt, filename string, destDir string) (string, string, error) {
 	// Save temp zip first.
-	tmpZip := filepath.Join(destDir, ".tmp-"+filename)
+	tmpZip := filepath.Join(destDir, ".tmp-"+filepath.Base(filename))
 	f, err := os.Create(tmpZip)
 	if err != nil {
 		return "", "", fmt.Errorf("create temp file: %w", err)
@@ -434,9 +441,12 @@ func (h *AdminHandler) extractZip(src io.ReaderAt, filename string, destDir stri
 	defer f.Close()
 	defer os.Remove(tmpZip)
 
-	size := int64(50 << 20) // max size
+	size := int64(maxPluginArchiveBytes)
 	if s, ok := src.(interface{ Size() int64 }); ok {
 		size = s.Size()
+		if size > maxPluginArchiveBytes {
+			return "", "", fmt.Errorf("archive exceeds maximum size %d bytes", maxPluginArchiveBytes)
+		}
 	}
 
 	if _, err := io.Copy(f, io.NewSectionReader(src, 0, size)); err != nil {
@@ -451,17 +461,34 @@ func (h *AdminHandler) extractZip(src io.ReaderAt, filename string, destDir stri
 
 	// Find base directory name from zip.
 	baseName := strings.TrimSuffix(filepath.Base(filename), ".zip")
+	if baseName == "" || baseName == "." {
+		return "", "", fmt.Errorf("invalid archive filename")
+	}
 	extractDir := filepath.Join(destDir, baseName)
-	os.MkdirAll(extractDir, 0755)
+	extractAbs, err := filepath.Abs(extractDir)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve extract dir: %w", err)
+	}
+	os.MkdirAll(extractAbs, 0755)
 
 	var manifestPath string
+	var totalUncompressed uint64
 	for _, zf := range zipReader.File {
-		// Security: skip path traversal.
-		if strings.Contains(zf.Name, "..") {
-			continue
+		if len(zipReader.File) > maxPluginFiles {
+			return "", "", fmt.Errorf("archive contains too many files")
+		}
+		if err := validateZipEntry(zf); err != nil {
+			return "", "", err
+		}
+		totalUncompressed += zf.UncompressedSize64
+		if totalUncompressed > maxPluginUncompressedBytes {
+			return "", "", fmt.Errorf("archive uncompressed size exceeds %d bytes", maxPluginUncompressedBytes)
 		}
 
-		target := filepath.Join(extractDir, zf.Name)
+		target, err := containedPath(extractAbs, zf.Name)
+		if err != nil {
+			return "", "", err
+		}
 
 		if zf.FileInfo().IsDir() {
 			os.MkdirAll(target, 0755)
@@ -481,11 +508,14 @@ func (h *AdminHandler) extractZip(src io.ReaderAt, filename string, destDir stri
 			return "", "", fmt.Errorf("open zip entry %s: %w", zf.Name, err)
 		}
 
-		_, err = io.Copy(outFile, rc)
+		_, err = io.Copy(outFile, io.LimitReader(rc, maxPluginEntryBytes+1))
 		rc.Close()
 		outFile.Close()
 		if err != nil {
 			return "", "", fmt.Errorf("write %s: %w", zf.Name, err)
+		}
+		if info, statErr := os.Stat(target); statErr == nil && info.Size() > maxPluginEntryBytes {
+			return "", "", fmt.Errorf("zip entry %s exceeds maximum size %d bytes", zf.Name, maxPluginEntryBytes)
 		}
 
 		// Look for manifest.
@@ -495,7 +525,49 @@ func (h *AdminHandler) extractZip(src io.ReaderAt, filename string, destDir stri
 		}
 	}
 
-	return extractDir, manifestPath, nil
+	return extractAbs, manifestPath, nil
+}
+
+func validateZipEntry(zf *zip.File) error {
+	name := strings.TrimSpace(zf.Name)
+	if name == "" {
+		return fmt.Errorf("zip entry has empty name")
+	}
+	if strings.Contains(name, "\\") {
+		return fmt.Errorf("zip entry %q uses invalid path separators", zf.Name)
+	}
+	for _, part := range strings.Split(name, "/") {
+		if part == ".." {
+			return fmt.Errorf("zip entry %q escapes extraction directory", zf.Name)
+		}
+	}
+	clean := filepath.Clean(name)
+	if filepath.IsAbs(name) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
+		return fmt.Errorf("zip entry %q escapes extraction directory", zf.Name)
+	}
+	if zf.FileInfo().Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("zip entry %q is a symlink", zf.Name)
+	}
+	if zf.UncompressedSize64 > maxPluginEntryBytes {
+		return fmt.Errorf("zip entry %q exceeds maximum size %d bytes", zf.Name, maxPluginEntryBytes)
+	}
+	return nil
+}
+
+func containedPath(baseAbs, entryName string) (string, error) {
+	target := filepath.Join(baseAbs, filepath.Clean(entryName))
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve zip entry path: %w", err)
+	}
+	rel, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil {
+		return "", fmt.Errorf("validate zip entry path: %w", err)
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return "", fmt.Errorf("zip entry %q escapes extraction directory", entryName)
+	}
+	return targetAbs, nil
 }
 
 func (h *AdminHandler) saveWasm(src io.Reader, filename string, destDir string) (string, string, error) {

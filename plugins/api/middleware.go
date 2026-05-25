@@ -19,6 +19,10 @@ const (
 	authHeaderPrefix            = "Bearer "
 )
 
+type apiTokenVerifier interface {
+	VerifyAPIToken(ctx context.Context, token string) (*interfaces.UserClaims, error)
+}
+
 // userClaimsFromRequest extracts UserClaims from request context.
 func userClaimsFromRequest(r *http.Request) *interfaces.UserClaims {
 	val := r.Context().Value(claimsContextKey)
@@ -36,10 +40,10 @@ func userClaimsFromRequest(r *http.Request) *interfaces.UserClaims {
 // If authSvc is nil, the middleware is a no-op (public API mode).
 // publicPaths are routes that skip authentication entirely.
 var publicPaths = map[string]bool{
-	"POST /api/v1/auth/login":    true,
-	"POST /api/v1/auth/refresh":  true,
-	"POST /api/v1/users":         true, // user registration
-	"GET /api/v1/site/info":      true,
+	"POST /api/v1/auth/login":   true,
+	"POST /api/v1/auth/refresh": true,
+	"POST /api/v1/users":        true, // user registration
+	"GET /api/v1/site/info":     true,
 }
 
 func authMiddleware(authSvc interfaces.AuthService) func(http.Handler) http.Handler {
@@ -73,10 +77,24 @@ func authMiddleware(authSvc interfaces.AuthService) func(http.Handler) http.Hand
 				return
 			}
 
-			claims, err := authSvc.VerifyToken(r.Context(), token)
+			var claims *interfaces.UserClaims
+			var err error
+			if strings.HasPrefix(token, "aroute_") {
+				if verifier, ok := authSvc.(apiTokenVerifier); ok {
+					claims, err = verifier.VerifyAPIToken(r.Context(), token)
+				} else {
+					err = interfaces.ErrUnauthorized
+				}
+			} else {
+				claims, err = authSvc.VerifyToken(r.Context(), token)
+			}
 			if err != nil {
 				if errors.Is(err, interfaces.ErrUnauthorized) {
 					writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid or expired token")
+					return
+				}
+				if errors.Is(err, interfaces.ErrForbidden) {
+					writeError(w, http.StatusForbidden, "FORBIDDEN", "account is not active")
 					return
 				}
 				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "token verification failed")

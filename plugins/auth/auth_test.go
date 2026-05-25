@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/events"
@@ -79,8 +80,8 @@ func (m *mockConfigProvider) Get(key string) interface{} {
 func (m *mockConfigProvider) Unmarshal(key string, target interface{}) error {
 	return nil
 }
-func (m *mockConfigProvider) Set(key string, value interface{})              { m.data[key] = value }
-func (m *mockConfigProvider) Save() error                                    { return nil }
+func (m *mockConfigProvider) Set(key string, value interface{}) { m.data[key] = value }
+func (m *mockConfigProvider) Save() error                       { return nil }
 
 // mockServiceContainer implements core.ServiceContainer for tests.
 type mockServiceContainer struct {
@@ -1184,6 +1185,48 @@ func TestRefreshToken_BlacklistedRefreshToken(t *testing.T) {
 	}
 }
 
+func TestRefreshToken_RejectsAccessToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "refreshaccess@example.com", "refreshaccessuser", "password123", []string{"editor"})
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "refreshaccess@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	_, err = svc.RefreshToken(ctx, result.AccessToken)
+	if err == nil {
+		t.Fatal("expected access token to be rejected by refresh flow")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
+func TestVerifyToken_RejectsRefreshToken(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	createTestUser(t, svc, "verifyrefresh@example.com", "verifyrefreshuser", "password123", []string{"editor"})
+	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
+		Email: "verifyrefresh@example.com", Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	_, err = svc.VerifyToken(ctx, result.RefreshToken)
+	if err == nil {
+		t.Fatal("expected refresh token to be rejected as access token")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
+	}
+}
+
 // =============================================================================
 // Token Revocation
 // =============================================================================
@@ -1639,6 +1682,29 @@ func TestAPIToken_RevokeAndVerify(t *testing.T) {
 	_, err = svc.VerifyAPIToken(ctx, apiToken.TokenHash)
 	if err == nil {
 		t.Fatal("expected error for revoked API token")
+	}
+}
+
+func TestAPIToken_RevokedWhenUserDeleted(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, svc, "apidelete@example.com", "apideleteuser", "password123", []string{"editor"})
+	apiToken, err := svc.CreateAPIToken(ctx, user.ID, "delete-revoke-test", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	if err := svc.DeleteUser(ctx, user.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	_, err = svc.VerifyAPIToken(ctx, apiToken.TokenHash)
+	if err == nil {
+		t.Fatal("expected API token to be revoked after user deletion")
+	}
+	if !errors.Is(err, interfaces.ErrUnauthorized) {
+		t.Errorf("error = %v, want wrapping ErrUnauthorized", err)
 	}
 }
 
@@ -4424,6 +4490,39 @@ func TestJWT_HS512SigningMethod(t *testing.T) {
 	}
 	if claims.UserID != "hs512-user" {
 		t.Errorf("UserID = %q, want %q", claims.UserID, "hs512-user")
+	}
+}
+
+func TestJWT_RejectsWrongHMACAlgorithm(t *testing.T) {
+	jwtMgr, err := NewJWTManager(authConfig{
+		jwtSecret:       "shared-hmac-secret",
+		jwtAlgorithm:    "HS512",
+		accessTokenTTL:  15 * time.Minute,
+		refreshTokenTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJWTManager HS512: %v", err)
+	}
+
+	now := time.Now().UTC()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "alg-user",
+			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        "alg-jti",
+		},
+		Email:     "alg@example.com",
+		TokenType: "access",
+	})
+	tokenString, err := token.SignedString([]byte("shared-hmac-secret"))
+	if err != nil {
+		t.Fatalf("SignedString: %v", err)
+	}
+
+	_, err = jwtMgr.VerifyToken(tokenString)
+	if err == nil {
+		t.Fatal("expected HS512 manager to reject HS256 token")
 	}
 }
 

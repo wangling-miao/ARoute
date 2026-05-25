@@ -45,8 +45,42 @@ func NewService(cfg Config, logger *slog.Logger) *Service {
 		logger:     logger,
 		webhooks:   make(map[string]*interfaces.Webhook),
 		deliveries: make(map[string][]*interfaces.WebhookDelivery),
-		httpClient: &http.Client{
-			Timeout: cfg.DeliveryTimeout,
+		httpClient: newSafeWebhookClient(cfg.DeliveryTimeout),
+	}
+}
+
+func newSafeWebhookClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: timeout}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("resolve webhook host %q: %w", host, err)
+			}
+			for _, resolved := range ips {
+				if err := checkIP(resolved.IP); err != nil {
+					return nil, err
+				}
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("no IP addresses found for hostname %q", host)
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return validateWebhookURL(req.URL.String())
 		},
 	}
 }

@@ -19,6 +19,12 @@ var (
 	slugRegex  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?$`)
 )
 
+var systemFieldNames = map[string]bool{
+	"id": true, "content_type": true, "title": true, "slug": true,
+	"created_by": true, "updated_by": true, "status": true, "published_at": true,
+	"created_at": true, "updated_at": true, "deleted_at": true, "version": true,
+}
+
 // FieldValidator validates content data against content type field definitions.
 type FieldValidator struct {
 	store *Store
@@ -37,6 +43,20 @@ func (v *FieldValidator) Validate(ctx context.Context, ct *interfaces.ContentTyp
 	fieldMap := make(map[string]*interfaces.Field, len(ct.Fields))
 	for i := range ct.Fields {
 		fieldMap[ct.Fields[i].Name] = &ct.Fields[i]
+	}
+
+	for name := range data {
+		if _, ok := fieldMap[name]; ok {
+			continue
+		}
+		if systemFieldNames[name] {
+			continue
+		}
+		if !sqlIdentifierRegex.MatchString(name) {
+			verrs.Add(name, "field name contains invalid characters", "invalid_field_name")
+			continue
+		}
+		verrs.Add(name, "unknown field", "unknown_field")
 	}
 
 	for i := range ct.Fields {

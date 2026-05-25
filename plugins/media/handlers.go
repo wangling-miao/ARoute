@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,6 +29,10 @@ type mediaErrItem struct {
 	Code    string      `json:"code"`
 	Message string      `json:"message"`
 	Details interface{} `json:"details"`
+}
+
+type apiTokenVerifier interface {
+	VerifyAPIToken(ctx context.Context, token string) (*interfaces.UserClaims, error)
 }
 
 type mediaPageMeta struct {
@@ -63,12 +68,65 @@ func writeMediaError(w http.ResponseWriter, status int, code, message string) {
 	json.NewEncoder(w).Encode(envelope)
 }
 
+func (p *Plugin) requireMediaPermission(w http.ResponseWriter, r *http.Request, action string) (*interfaces.UserClaims, bool) {
+	if p.authSvc == nil {
+		return nil, true
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		writeMediaError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return nil, false
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		writeMediaError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return nil, false
+	}
+
+	var claims *interfaces.UserClaims
+	var err error
+	if strings.HasPrefix(token, "aroute_") {
+		verifier, ok := p.authSvc.(apiTokenVerifier)
+		if !ok {
+			writeMediaError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
+			return nil, false
+		}
+		claims, err = verifier.VerifyAPIToken(r.Context(), token)
+	} else {
+		claims, err = p.authSvc.VerifyToken(r.Context(), token)
+	}
+	if err != nil {
+		if errors.Is(err, interfaces.ErrForbidden) {
+			writeMediaError(w, http.StatusForbidden, "FORBIDDEN", "account is not active")
+			return nil, false
+		}
+		writeMediaError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
+		return nil, false
+	}
+
+	allowed, err := p.authSvc.HasPermission(r.Context(), claims.UserID, "media", action)
+	if err != nil {
+		writeMediaError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "permission check failed")
+		return nil, false
+	}
+	if !allowed {
+		writeMediaError(w, http.StatusForbidden, "FORBIDDEN", "insufficient permissions")
+		return nil, false
+	}
+	return claims, true
+}
+
 type uploadResponse struct {
 	*interfaces.MediaFile
 	URL string `json:"url"`
 }
 
 func (p *Plugin) handleUpload(w http.ResponseWriter, r *http.Request) {
+	claims, ok := p.requireMediaPermission(w, r, "upload")
+	if !ok {
+		return
+	}
 	if err := r.ParseMultipartForm(maxFileSize); err != nil {
 		writeMediaError(w, http.StatusBadRequest, "BAD_REQUEST", "failed to parse multipart form: "+err.Error())
 		return
@@ -88,7 +146,11 @@ func (p *Plugin) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	mf, err := p.service.UploadMultipart(r.Context(), file, fileHeader, extractUploaderID(r))
+	uploaderID := extractUploaderID(r)
+	if claims != nil {
+		uploaderID = claims.UserID
+	}
+	mf, err := p.service.UploadMultipart(r.Context(), file, fileHeader, uploaderID)
 	if err != nil {
 		if errors.Is(err, interfaces.ErrValidation) {
 			writeMediaError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
@@ -112,6 +174,9 @@ func (p *Plugin) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) handleList(w http.ResponseWriter, r *http.Request) {
+	if _, ok := p.requireMediaPermission(w, r, "read"); !ok {
+		return
+	}
 	q := r.URL.Query()
 
 	page, _ := strconv.Atoi(q.Get("page"))
@@ -181,6 +246,9 @@ func (p *Plugin) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) handleDelete(w http.ResponseWriter, r *http.Request) {
+	if _, ok := p.requireMediaPermission(w, r, "delete"); !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeMediaError(w, http.StatusBadRequest, "VALIDATION_ERROR", "missing media ID")

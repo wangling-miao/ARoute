@@ -187,6 +187,12 @@ func (m *RBACManager) seedAllPermissions(ctx context.Context) error {
 		{Name: "api_tokens.create", Resource: "api_tokens", Action: "create", DisplayName: "Create API Tokens", Description: "Create API tokens"},
 		{Name: "api_tokens.read", Resource: "api_tokens", Action: "read", DisplayName: "Read API Tokens", Description: "View API tokens"},
 		{Name: "api_tokens.delete", Resource: "api_tokens", Action: "delete", DisplayName: "Delete API Tokens", Description: "Revoke API tokens"},
+		// Webhooks
+		{Name: "webhooks.create", Resource: "webhooks", Action: "create", DisplayName: "Create Webhooks", Description: "Create webhook endpoints"},
+		{Name: "webhooks.read", Resource: "webhooks", Action: "read", DisplayName: "Read Webhooks", Description: "View webhook endpoints"},
+		{Name: "webhooks.update", Resource: "webhooks", Action: "update", DisplayName: "Update Webhooks", Description: "Edit webhook endpoints"},
+		{Name: "webhooks.delete", Resource: "webhooks", Action: "delete", DisplayName: "Delete Webhooks", Description: "Delete webhook endpoints"},
+		{Name: "webhooks.test", Resource: "webhooks", Action: "test", DisplayName: "Test Webhooks", Description: "Send webhook test deliveries"},
 		// Menus
 		{Name: "menus.read", Resource: "menus", Action: "read", DisplayName: "Read Menus", Description: "View menus"},
 		{Name: "menus.update", Resource: "menus", Action: "update", DisplayName: "Update Menus", Description: "Edit menus"},

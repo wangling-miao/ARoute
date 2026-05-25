@@ -82,7 +82,7 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	if err := ctx.Services().Get(&authSvc); err == nil {
 		p.authSvc = authSvc
 	} else {
-		logger.Warn("Auth service not available, webhook admin endpoints will skip RBAC checks", "error", err)
+		logger.Warn("Auth service not available, webhook admin endpoints will reject requests", "error", err)
 	}
 
 	var registrar interfaces.RouteRegistrar

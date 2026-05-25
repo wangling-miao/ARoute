@@ -18,6 +18,7 @@ import (
 	"github.com/wangling-miao/aroute/core"
 	"github.com/wangling-miao/aroute/core/events"
 	"github.com/wangling-miao/aroute/core/services"
+	authplugin "github.com/wangling-miao/aroute/plugins/auth"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
@@ -32,8 +33,40 @@ func (r *testRouteRegistrar) Handle(pattern string, handler http.Handler) {
 func (r *testRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {
 	r.router.HandleFunc(pattern, handler)
 }
-func (r *testRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler)                      {}
-func (r *testRouteRegistrar) Middlewares() []func(http.Handler) http.Handler                          { return nil }
+func (r *testRouteRegistrar) Use(middlewares ...func(http.Handler) http.Handler) {}
+func (r *testRouteRegistrar) Middlewares() []func(http.Handler) http.Handler     { return nil }
+
+type allowAllAuthService struct{}
+
+func (allowAllAuthService) Authenticate(context.Context, *interfaces.AuthRequest) (*interfaces.AuthResult, error) {
+	return nil, nil
+}
+func (allowAllAuthService) VerifyToken(context.Context, string) (*interfaces.UserClaims, error) {
+	return &interfaces.UserClaims{UserID: "admin-user", TokenType: "access"}, nil
+}
+func (allowAllAuthService) RefreshToken(context.Context, string) (*interfaces.TokenPair, error) {
+	return nil, nil
+}
+func (allowAllAuthService) CreateUser(context.Context, *interfaces.CreateUserRequest) (*interfaces.User, error) {
+	return nil, nil
+}
+func (allowAllAuthService) GetUser(context.Context, string) (*interfaces.User, error) {
+	return nil, nil
+}
+func (allowAllAuthService) HasPermission(context.Context, string, string, string) (bool, error) {
+	return true, nil
+}
+func (allowAllAuthService) CreateAPIToken(context.Context, string, string, *time.Time) (*interfaces.APIToken, error) {
+	return nil, nil
+}
+func (allowAllAuthService) RevokeAPIToken(context.Context, string) error { return nil }
+func (allowAllAuthService) UpdateUser(context.Context, string, *interfaces.UpdateUserRequest) (*interfaces.User, error) {
+	return nil, nil
+}
+func (allowAllAuthService) DeleteUser(context.Context, string) error { return nil }
+func (allowAllAuthService) ListUsers(context.Context, *interfaces.UserQuery) (*interfaces.Page, error) {
+	return nil, nil
+}
 
 // setupAdminRouter creates a chi.Router with admin routes wired to a real Service.
 func setupAdminRouter(t *testing.T) (*Service, chi.Router) {
@@ -47,7 +80,7 @@ func setupAdminRouter(t *testing.T) (*Service, chi.Router) {
 	}, logger)
 
 	r := chi.NewRouter()
-	handler := &adminHandler{service: svc}
+	handler := &adminHandler{service: svc, authSvc: allowAllAuthService{}}
 	r.Route("/admin/api/webhooks", func(r chi.Router) {
 		r.Get("/", handler.listWebhooks)
 		r.Post("/", handler.createWebhook)
@@ -69,6 +102,7 @@ func doRequest(t *testing.T, router chi.Router, method, path string, body string
 		bodyReader = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, path, bodyReader)
+	req = req.WithContext(context.WithValue(req.Context(), authplugin.ContextKeyClaims, &interfaces.UserClaims{UserID: "admin-user"}))
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -269,14 +303,14 @@ func TestAdmin_PatchWebhook_EnableDisable(t *testing.T) {
 	w := doRequest(t, router, "PATCH", "/admin/api/webhooks/"+wh.ID, `{"enabled":false}`)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	got, _ := svc.Get(context.Background(),wh.ID)
+	got, _ := svc.Get(context.Background(), wh.ID)
 	assert.False(t, got.Enabled)
 
 	// Re-enable
 	w = doRequest(t, router, "PATCH", "/admin/api/webhooks/"+wh.ID, `{"enabled":true}`)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	got, _ = svc.Get(context.Background(),wh.ID)
+	got, _ = svc.Get(context.Background(), wh.ID)
 	assert.True(t, got.Enabled)
 }
 
@@ -289,7 +323,7 @@ func TestAdmin_PatchWebhook_UpdateSecret(t *testing.T) {
 	w := doRequest(t, router, "PATCH", "/admin/api/webhooks/"+wh.ID, `{"secret":"new-secret-value"}`)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	got, _ := svc.Get(context.Background(),wh.ID)
+	got, _ := svc.Get(context.Background(), wh.ID)
 	assert.Equal(t, "new-secret-value", got.Secret)
 }
 
@@ -353,6 +387,8 @@ func TestAdmin_TestWebhook_Success(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer server.Close()
+	svc.httpClient = server.Client()
+	svc.httpClient.Timeout = 2 * time.Second
 
 	wh := createTestWebhook(svc, server.URL, []string{"content.created"}, "test-secret")
 

@@ -38,9 +38,16 @@ func validateIdentifier(name string) error {
 	return nil
 }
 
+func quoteIdentifier(name string) (string, error) {
+	if err := validateIdentifier(name); err != nil {
+		return "", err
+	}
+	return `"` + name + `"`, nil
+}
+
 type Store struct {
-	db       interfaces.DatabaseService
-	driver   string
+	db     interfaces.DatabaseService
+	driver string
 }
 
 func NewStore(db interfaces.DatabaseService, driver string) *Store {
@@ -223,7 +230,10 @@ func (s *Store) CreateContent(ctx context.Context, tableName string, data map[st
 	id := newUUID()
 	data["id"] = id
 
-	cols, vals := s.columnsAndValues(data)
+	cols, vals, err := s.columnsAndValues(data)
+	if err != nil {
+		return "", fmt.Errorf("create content: %w", err)
+	}
 	placeholders := make([]string, len(cols))
 	for i := range placeholders {
 		placeholders[i] = "?"
@@ -235,7 +245,7 @@ func (s *Store) CreateContent(ctx context.Context, tableName string, data map[st
 		strings.Join(placeholders, ", "),
 	)
 
-	_, err := s.db.Exec(ctx, query, vals...)
+	_, err = s.db.Exec(ctx, query, vals...)
 	if err != nil {
 		return "", fmt.Errorf("insert content into %s: %w", tableName, err)
 	}
@@ -272,14 +282,17 @@ func (s *Store) UpdateContent(ctx context.Context, tableName, id string, data ma
 	delete(data, "created_at")
 	delete(data, "content_type")
 
-	cols, vals := s.columnsAndValues(data)
+	cols, vals, err := s.columnsAndValues(data)
+	if err != nil {
+		return fmt.Errorf("update content: %w", err)
+	}
 	if len(cols) == 0 {
 		return nil
 	}
 
 	setClauses := make([]string, len(cols))
 	for i, col := range cols {
-		setClauses[i] = fmt.Sprintf("\"%s\" = ?", col)
+		setClauses[i] = fmt.Sprintf("%s = ?", col)
 	}
 
 	vals = append(vals, id)
@@ -357,6 +370,10 @@ func (s *Store) RestoreContent(ctx context.Context, tableName, id string) error 
 }
 
 func (s *Store) ListContent(ctx context.Context, ct *interfaces.ContentType, query *interfaces.ListQuery) ([]map[string]interface{}, int64, error) {
+	if err := validateTableName(ct.TableName); err != nil {
+		return nil, 0, fmt.Errorf("list content: %w", err)
+	}
+	validFields := contentFieldSet(ct)
 	var whereClauses []string
 	var args []interface{}
 
@@ -374,7 +391,14 @@ func (s *Store) ListContent(ctx context.Context, ct *interfaces.ContentType, que
 
 	if query != nil && len(query.Filters) > 0 {
 		for field, value := range query.Filters {
-			clause, filterArgs := parseFilter(field, value)
+			baseField := filterBaseField(field)
+			if !validFields[baseField] {
+				return nil, 0, fmt.Errorf("unknown filter field %q: %w", field, interfaces.ErrValidation)
+			}
+			clause, filterArgs, err := parseFilter(field, value)
+			if err != nil {
+				return nil, 0, fmt.Errorf("invalid filter %q: %w", field, err)
+			}
 			whereClauses = append(whereClauses, clause)
 			args = append(args, filterArgs...)
 		}
@@ -411,8 +435,10 @@ func (s *Store) ListContent(ctx context.Context, ct *interfaces.ContentType, que
 	sortCol := "created_at"
 	sortOrder := "DESC"
 	if query != nil {
-		if query.Sort != "" && isValidSortColumn(query.Sort) {
+		if query.Sort != "" && isValidSortColumn(query.Sort) && validFields[query.Sort] {
 			sortCol = query.Sort
+		} else if query.Sort != "" {
+			return nil, 0, fmt.Errorf("unknown sort field %q: %w", query.Sort, interfaces.ErrValidation)
 		}
 		if strings.EqualFold(query.Order, "asc") {
 			sortOrder = "ASC"
@@ -457,35 +483,57 @@ func (s *Store) ListContent(ctx context.Context, ct *interfaces.ContentType, que
 	return items, total, rows.Err()
 }
 
-func parseFilter(field string, value interface{}) (string, []interface{}) {
+func parseFilter(field string, value interface{}) (string, []interface{}, error) {
 	var op string
-	baseField := field
+	baseField := filterBaseField(field)
 
 	switch {
 	case strings.HasSuffix(field, "_gte"):
 		op = ">="
-		baseField = strings.TrimSuffix(field, "_gte")
 	case strings.HasSuffix(field, "_lte"):
 		op = "<="
-		baseField = strings.TrimSuffix(field, "_lte")
 	case strings.HasSuffix(field, "_gt"):
 		op = ">"
-		baseField = strings.TrimSuffix(field, "_gt")
 	case strings.HasSuffix(field, "_lt"):
 		op = "<"
-		baseField = strings.TrimSuffix(field, "_lt")
 	case strings.HasSuffix(field, "_contains"):
 		op = "LIKE"
-		baseField = strings.TrimSuffix(field, "_contains")
-		return fmt.Sprintf("\"%s\" LIKE ?", baseField), []interface{}{fmt.Sprintf("%%%v%%", value)}
+		quoted, err := quoteIdentifier(baseField)
+		if err != nil {
+			return "", nil, err
+		}
+		return fmt.Sprintf("%s LIKE ?", quoted), []interface{}{fmt.Sprintf("%%%v%%", value)}, nil
 	case strings.HasSuffix(field, "_ne"):
 		op = "!="
-		baseField = strings.TrimSuffix(field, "_ne")
 	default:
 		op = "="
 	}
 
-	return fmt.Sprintf("\"%s\" %s ?", baseField, op), []interface{}{value}
+	quoted, err := quoteIdentifier(baseField)
+	if err != nil {
+		return "", nil, err
+	}
+	return fmt.Sprintf("%s %s ?", quoted, op), []interface{}{value}, nil
+}
+
+func filterBaseField(field string) string {
+	for _, suffix := range []string{"_contains", "_gte", "_lte", "_gt", "_lt", "_ne"} {
+		if strings.HasSuffix(field, suffix) {
+			return strings.TrimSuffix(field, suffix)
+		}
+	}
+	return field
+}
+
+func contentFieldSet(ct *interfaces.ContentType) map[string]bool {
+	fields := make(map[string]bool, len(systemFieldNames)+len(ct.Fields))
+	for name := range systemFieldNames {
+		fields[name] = true
+	}
+	for _, field := range ct.Fields {
+		fields[field.Name] = true
+	}
+	return fields
 }
 
 func (s *Store) CreateVersion(ctx context.Context, contentType, contentID string, versionNumber int, data map[string]interface{}, modifiedBy string) error {
@@ -850,16 +898,20 @@ func (s *Store) scanMap(rows *sql.Rows) (map[string]interface{}, error) {
 	return result, nil
 }
 
-func (s *Store) columnsAndValues(data map[string]interface{}) ([]string, []interface{}) {
+func (s *Store) columnsAndValues(data map[string]interface{}) ([]string, []interface{}, error) {
 	cols := make([]string, 0, len(data))
 	vals := make([]interface{}, 0, len(data))
 
 	for col := range data {
-		cols = append(cols, col)
+		quoted, err := quoteIdentifier(col)
+		if err != nil {
+			return nil, nil, err
+		}
+		cols = append(cols, quoted)
 	}
 	sort.Strings(cols)
 	for _, col := range cols {
-		vals = append(vals, data[col])
+		vals = append(vals, data[strings.Trim(col, `"`)])
 	}
-	return cols, vals
+	return cols, vals, nil
 }

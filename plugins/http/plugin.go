@@ -8,8 +8,10 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +69,7 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 	p.router = chi.NewRouter()
 
 	// Setup global middleware FIRST (before any routes)
-	p.setupMiddleware(logger)
+	p.setupMiddleware(ctx, logger)
 
 	// Setup CORS (must be before routes)
 	p.setupCORS(ctx)
@@ -91,16 +93,93 @@ func (p *Plugin) Init(ctx core.CoreContext) error {
 }
 
 // setupMiddleware configures the global middleware stack.
-func (p *Plugin) setupMiddleware(logger *slog.Logger) {
+func (p *Plugin) setupMiddleware(ctx core.CoreContext, logger *slog.Logger) {
 	p.router.Use(middleware.RequestID)
-	p.router.Use(middleware.RealIP)
+	p.router.Use(trustedRealIPMiddleware(ctx.Config()))
 	p.router.Use(middleware.Recoverer)
 	p.router.Use(p.slogMiddleware(logger))
 	p.router.Use(middleware.Timeout(60 * time.Second))
 
 	logger.Debug("Middleware stack configured",
-		"middlewares", []string{"RequestID", "RealIP", "Recoverer", "SlogLogger", "Timeout"},
+		"middlewares", []string{"RequestID", "TrustedRealIP", "Recoverer", "SlogLogger", "Timeout"},
 	)
+}
+
+func trustedRealIPMiddleware(config core.ConfigProvider) func(http.Handler) http.Handler {
+	trusted := parseTrustedProxies(config)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if len(trusted) == 0 || !remoteAddrInCIDRs(r.RemoteAddr, trusted) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if clientIP := forwardedClientIP(r); clientIP != "" {
+				r.RemoteAddr = clientIP
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func parseTrustedProxies(config core.ConfigProvider) []*net.IPNet {
+	if config == nil {
+		return nil
+	}
+	raw := config.GetString("http.trusted_proxies")
+	if raw == "" {
+		raw = config.GetString("auth.trusted_proxies")
+	}
+	var out []*net.IPNet
+	for _, cidr := range strings.Split(raw, ",") {
+		cidr = strings.TrimSpace(cidr)
+		if cidr == "" {
+			continue
+		}
+		_, network, err := net.ParseCIDR(cidr)
+		if err == nil {
+			out = append(out, network)
+		}
+	}
+	return out
+}
+
+func remoteAddrInCIDRs(remoteAddr string, cidrs []*net.IPNet) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range cidrs {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func forwardedClientIP(r *http.Request) string {
+	if rip := strings.TrimSpace(r.Header.Get("X-Real-IP")); rip != "" {
+		if host, _, err := net.SplitHostPort(rip); err == nil {
+			rip = host
+		}
+		if net.ParseIP(rip) != nil {
+			return rip
+		}
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		first, _, _ := strings.Cut(xff, ",")
+		first = strings.TrimSpace(first)
+		if host, _, err := net.SplitHostPort(first); err == nil {
+			first = host
+		}
+		if net.ParseIP(first) != nil {
+			return first
+		}
+	}
+	return ""
 }
 
 func (p *Plugin) slogMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {

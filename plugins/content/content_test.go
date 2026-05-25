@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1154,6 +1155,49 @@ func TestFieldValidationRichtext(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected valid richtext, got: %v", err)
+	}
+}
+
+func TestFieldValidationRejectsUnknownFields(t *testing.T) {
+	v := &FieldValidator{}
+	ctx := context.Background()
+
+	ct := &interfaces.ContentType{
+		Name: "test",
+		Fields: []interfaces.Field{
+			{Name: "title", Type: "text", Required: true},
+		},
+	}
+
+	err := v.Validate(ctx, ct, map[string]interface{}{
+		"title":       "Hello",
+		`bad" = ? --`: "boom",
+	})
+	if err == nil {
+		t.Fatal("expected unknown/invalid field validation error")
+	}
+}
+
+func TestRichTextIsSanitizedBeforeStorage(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, "page", map[string]interface{}{
+		"title": "XSS",
+		"body":  `<p onclick="alert(1)">Hello<script>alert(2)</script><img src="javascript:alert(3)" onerror="alert(4)"></p>`,
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	body, _ := created.Data["body"].(string)
+	for _, forbidden := range []string{"<script", "onclick", "onerror", "javascript:"} {
+		if strings.Contains(strings.ToLower(body), forbidden) {
+			t.Fatalf("sanitized body still contains %q: %s", forbidden, body)
+		}
+	}
+	if !strings.Contains(body, "Hello") {
+		t.Fatalf("sanitized body lost safe text: %s", body)
 	}
 }
 
@@ -2585,7 +2629,10 @@ func TestParseFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clause, args := parseFilter(tt.field, tt.value)
+			clause, args, err := parseFilter(tt.field, tt.value)
+			if err != nil {
+				t.Fatalf("parseFilter(%q) unexpected error: %v", tt.field, err)
+			}
 			if !containsStr(clause, tt.wantLike) {
 				t.Errorf("parseFilter(%q) clause = %q, want containing %q", tt.field, clause, tt.wantLike)
 			}
@@ -2994,9 +3041,9 @@ func TestValidateRelationCircular(t *testing.T) {
 	err := svc.validator.Validate(ctx, ct, map[string]interface{}{
 		"parent": "some-id",
 	})
-		if err != nil {
-			t.Errorf("self-referencing relations should be allowed, got: %v", err)
-		}
+	if err != nil {
+		t.Errorf("self-referencing relations should be allowed, got: %v", err)
+	}
 }
 
 func TestValidateRelationArrayWithStore(t *testing.T) {

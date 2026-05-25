@@ -151,6 +151,15 @@ func (s *Store) UpdateUser(ctx context.Context, user *interfaces.User) error {
 	return nil
 }
 
+// DeleteUser removes a user row. Missing users are treated as already deleted.
+func (s *Store) DeleteUser(ctx context.Context, id string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM users WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return nil
+}
+
 // UpdateLastLogin sets the last_login_at timestamp for a user.
 func (s *Store) UpdateLastLogin(ctx context.Context, id string) error {
 	_, err := s.db.Exec(ctx,
@@ -551,6 +560,15 @@ func (s *Store) RevokeAPIToken(ctx context.Context, id string) error {
 	_, err := s.db.Exec(ctx, `UPDATE api_tokens SET revoked = 1 WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("revoke api token: %w", err)
+	}
+	return nil
+}
+
+// RevokeAPITokensByUser marks every API token for a user as revoked.
+func (s *Store) RevokeAPITokensByUser(ctx context.Context, userID string) error {
+	_, err := s.db.Exec(ctx, `UPDATE api_tokens SET revoked = 1 WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("revoke api tokens by user: %w", err)
 	}
 	return nil
 }

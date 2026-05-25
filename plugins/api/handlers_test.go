@@ -460,6 +460,60 @@ func TestCreate_Success(t *testing.T) {
 	assert.Equal(t, "new-1", got.ID)
 }
 
+func TestCreate_RequiresContentCreatePermission(t *testing.T) {
+	called := false
+	mock := &mockContentService{
+		createFunc: func(_ context.Context, _ string, _ map[string]interface{}) (*interfaces.Content, error) {
+			called = true
+			return sampleContent("new-1", "post"), nil
+		},
+	}
+	h := NewHandler(mock)
+	h.authSvc = &mockAuthService{
+		hasPermissionFunc: func(_ context.Context, _ string, resource, action string) (bool, error) {
+			assert.Equal(t, "content", resource)
+			assert.Equal(t, "create", action)
+			return false, nil
+		},
+	}
+	router := setupRouter(h)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/post", strings.NewReader(`{"title":"x"}`))
+	req = req.WithContext(context.WithValue(req.Context(), claimsContextKey, &interfaces.UserClaims{UserID: "user-1"}))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	assert.False(t, called)
+}
+
+func TestCreate_StampsAuthenticatedAuthor(t *testing.T) {
+	mock := &mockContentService{
+		createFunc: func(_ context.Context, ct string, data map[string]interface{}) (*interfaces.Content, error) {
+			assert.Equal(t, "post", ct)
+			assert.Equal(t, "user-42", data["created_by"])
+			assert.Equal(t, "user-42", data["updated_by"])
+			return sampleContent("new-1", "post"), nil
+		},
+	}
+	h := NewHandler(mock)
+	h.authSvc = &mockAuthService{
+		hasPermissionFunc: func(_ context.Context, _ string, resource, action string) (bool, error) {
+			return resource == "content" && action == "create", nil
+		},
+	}
+	router := setupRouter(h)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/post", strings.NewReader(`{"title":"x","created_by":"spoofed"}`))
+	req = req.WithContext(context.WithValue(req.Context(), claimsContextKey, &interfaces.UserClaims{UserID: "user-42"}))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusCreated, rr.Code)
+}
+
 func TestCreate_InvalidJSON(t *testing.T) {
 	h := NewHandler(&mockContentService{})
 	router := setupRouter(h)

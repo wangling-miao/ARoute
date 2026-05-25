@@ -150,6 +150,9 @@ func (s *Service) VerifyToken(ctx context.Context, token string) (*interfaces.Us
 	if err != nil {
 		return nil, fmt.Errorf("verify token: %w", err)
 	}
+	if claims.TokenType != "access" {
+		return nil, fmt.Errorf("invalid token type for access: %w", interfaces.ErrUnauthorized)
+	}
 
 	// Check if token is blacklisted.
 	blacklisted, err := s.store.IsTokenBlacklisted(ctx, claims.TokenID)
@@ -172,6 +175,21 @@ func (s *Service) VerifyToken(ctx context.Context, token string) (*interfaces.Us
 		}
 	}
 
+	user, err := s.store.GetUserByID(ctx, claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("get token user: %w", err)
+	}
+	if user.Status != "active" {
+		return nil, fmt.Errorf("account is %s: %w", user.Status, interfaces.ErrForbidden)
+	}
+
+	roleNames, err := s.store.GetUserRoleNames(ctx, claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("get user roles: %w", err)
+	}
+	claims.Email = user.Email
+	claims.Roles = roleNames
+
 	return claims, nil
 }
 
@@ -181,6 +199,9 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*inter
 	if err != nil {
 		return nil, fmt.Errorf("verify refresh token: %w", err)
 	}
+	if claims.TokenType != "refresh" {
+		return nil, fmt.Errorf("invalid token type for refresh: %w", interfaces.ErrUnauthorized)
+	}
 
 	// Check if refresh token is blacklisted.
 	blacklisted, err := s.store.IsTokenBlacklisted(ctx, claims.TokenID)
@@ -189,6 +210,17 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*inter
 	}
 	if blacklisted {
 		return nil, fmt.Errorf("refresh token has been revoked: %w", interfaces.ErrUnauthorized)
+	}
+
+	revokedBefore, err := s.store.GetUserRevocation(ctx, claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("check user revocation: %w", err)
+	}
+	if revokedBefore != nil {
+		issuedAt := time.Unix(claims.IssuedAt, 0)
+		if issuedAt.Before(*revokedBefore) {
+			return nil, fmt.Errorf("refresh token revoked by user: %w", interfaces.ErrUnauthorized)
+		}
 	}
 
 	// Get user and role names.
@@ -392,6 +424,13 @@ func (s *Service) CreateAPIToken(ctx context.Context, userID, name string, expir
 	if name == "" {
 		return nil, fmt.Errorf("token name is required: %w", interfaces.ErrValidation)
 	}
+	user, err := s.store.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get api token user: %w", err)
+	}
+	if user.Status != "active" {
+		return nil, fmt.Errorf("account is %s: %w", user.Status, interfaces.ErrForbidden)
+	}
 
 	// Generate a random token.
 	tokenBytes := make([]byte, apiTokenBytes)
@@ -470,10 +509,13 @@ func (s *Service) ChangePassword(ctx context.Context, userID, currentPassword, n
 		return fmt.Errorf("update user: %w", err)
 	}
 
-	// Revoke all existing tokens by setting user revocation timestamp.
+	// Revoke all existing JWTs and long-lived API tokens.
 	now := time.Now().UTC()
 	if err := s.store.SetUserRevocation(ctx, userID, now); err != nil {
 		s.logger.Warn("failed to set user token revocation", "user_id", userID, "error", err)
+	}
+	if err := s.store.RevokeAPITokensByUser(ctx, userID); err != nil {
+		s.logger.Warn("failed to revoke api tokens after password change", "user_id", userID, "error", err)
 	}
 
 	s.logger.Info("password changed", "user_id", userID)
@@ -530,6 +572,14 @@ func (s *Service) VerifyAPIToken(ctx context.Context, tokenString string) (*inte
 		return nil, fmt.Errorf("api token expired: %w", interfaces.ErrUnauthorized)
 	}
 
+	user, err := s.store.GetUserByID(ctx, apiToken.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("get api token user: %w", err)
+	}
+	if user.Status != "active" {
+		return nil, fmt.Errorf("account is %s: %w", user.Status, interfaces.ErrForbidden)
+	}
+
 	// Update last used timestamp asynchronously.
 	s.bgWg.Add(1)
 	go func() {
@@ -550,10 +600,12 @@ func (s *Service) VerifyAPIToken(ctx context.Context, tokenString string) (*inte
 	now := time.Now().UTC()
 	return &interfaces.UserClaims{
 		UserID:    apiToken.UserID,
+		Email:     user.Email,
 		Roles:     roleNames,
 		ExpiresAt: now.Add(1 * time.Hour).Unix(),
 		IssuedAt:  now.Unix(),
 		TokenID:   apiToken.ID,
+		TokenType: "api",
 	}, nil
 }
 
@@ -585,6 +637,8 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req *interfaces.Upd
 	if err != nil {
 		return nil, fmt.Errorf("get user for update: %w", err)
 	}
+	wasActive := user.Status == "active"
+	passwordChanged := false
 
 	if req.Email != nil {
 		if _, err := mail.ParseAddress(*req.Email); err != nil {
@@ -607,6 +661,7 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req *interfaces.Upd
 			return nil, fmt.Errorf("hash password: %w", err)
 		}
 		user.PasswordHash = string(hash)
+		passwordChanged = true
 	}
 	if req.Status != nil {
 		user.Status = *req.Status
@@ -615,6 +670,17 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req *interfaces.Upd
 
 	if err := s.store.UpdateUser(ctx, user); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
+	}
+
+	statusRevoked := wasActive && user.Status != "active"
+	if passwordChanged || statusRevoked {
+		now := time.Now().UTC()
+		if err := s.store.SetUserRevocation(ctx, id, now); err != nil {
+			s.logger.Warn("failed to revoke user JWTs after update", "user_id", id, "error", err)
+		}
+		if err := s.store.RevokeAPITokensByUser(ctx, id); err != nil {
+			s.logger.Warn("failed to revoke api tokens after user update", "user_id", id, "error", err)
+		}
 	}
 
 	if len(req.Roles) > 0 {
@@ -662,8 +728,23 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req *interfaces.Upd
 
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	now := time.Now().UTC()
+	user, err := s.store.GetUserByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, interfaces.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get user for delete: %w", err)
+	}
+	user.Status = "deleted"
+	user.UpdatedAt = now
+	if err := s.store.UpdateUser(ctx, user); err != nil {
+		return fmt.Errorf("disable user: %w", err)
+	}
 	if err := s.store.SetUserRevocation(ctx, id, now); err != nil {
 		return fmt.Errorf("revoke user: %w", err)
+	}
+	if err := s.store.RevokeAPITokensByUser(ctx, id); err != nil {
+		return fmt.Errorf("revoke user api tokens: %w", err)
 	}
 	return nil
 }

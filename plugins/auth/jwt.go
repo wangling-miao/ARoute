@@ -26,9 +26,10 @@ type JWTManager struct {
 // jwtClaims extends the standard JWT claims with user information.
 type jwtClaims struct {
 	jwt.RegisteredClaims
-	Email    string   `json:"email"`
-	Username string   `json:"username"`
-	Roles    []string `json:"roles"`
+	Email     string   `json:"email"`
+	Username  string   `json:"username"`
+	Roles     []string `json:"roles"`
+	TokenType string   `json:"token_type"`
 }
 
 // NewJWTManager creates a new JWTManager from configuration.
@@ -80,9 +81,10 @@ func (m *JWTManager) GenerateAccessToken(_ context.Context, user *interfaces.Use
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        jti,
 		},
-		Email:    user.Email,
-		Username: user.Username,
-		Roles:    roleNames,
+		Email:     user.Email,
+		Username:  user.Username,
+		Roles:     roleNames,
+		TokenType: "access",
 	}
 
 	token := jwt.NewWithClaims(m.signingMethod(), claims)
@@ -108,8 +110,9 @@ func (m *JWTManager) GenerateRefreshToken(_ context.Context, user *interfaces.Us
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        jti,
 		},
-		Email:    user.Email,
-		Username: user.Username,
+		Email:     user.Email,
+		Username:  user.Username,
+		TokenType: "refresh",
 	}
 
 	token := jwt.NewWithClaims(m.signingMethod(), claims)
@@ -124,6 +127,9 @@ func (m *JWTManager) GenerateRefreshToken(_ context.Context, user *interfaces.Us
 // VerifyToken parses and verifies a JWT token string, returning the user claims.
 func (m *JWTManager) VerifyToken(tokenString string) (*interfaces.UserClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwtClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if token.Method == nil || token.Method.Alg() != m.algorithm {
+			return nil, fmt.Errorf("unexpected signing algorithm: %v", token.Header["alg"])
+		}
 		switch token.Method.(type) {
 		case *jwt.SigningMethodRSA:
 			if m.publicKey == nil {
@@ -152,6 +158,7 @@ func (m *JWTManager) VerifyToken(tokenString string) (*interfaces.UserClaims, er
 		ExpiresAt: claims.ExpiresAt.Unix(),
 		IssuedAt:  claims.IssuedAt.Unix(),
 		TokenID:   claims.ID,
+		TokenType: claims.TokenType,
 	}, nil
 }
 

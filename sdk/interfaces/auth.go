@@ -101,6 +101,9 @@ type UserClaims struct {
 
 	// TokenID is a unique identifier for this token (jti claim).
 	TokenID string `json:"jti"`
+
+	// TokenType distinguishes access tokens from refresh tokens.
+	TokenType string `json:"token_type"`
 }
 
 // CreateUserRequest contains parameters for creating a new user.

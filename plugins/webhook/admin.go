@@ -1,9 +1,12 @@
 package webhook
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -16,13 +19,17 @@ type adminHandler struct {
 	authSvc interfaces.AuthService
 }
 
+type apiTokenVerifier interface {
+	VerifyAPIToken(ctx context.Context, token string) (*interfaces.UserClaims, error)
+}
+
 func (h *adminHandler) checkPerm(w http.ResponseWriter, r *http.Request, resource, action string) bool {
 	if h.authSvc == nil {
-		return true
+		http.Error(w, "auth service unavailable", http.StatusServiceUnavailable)
+		return false
 	}
-	claims := authplugin.GetClaimsFromContext(r.Context())
-	if claims == nil {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
+	claims, ok := h.claimsFromRequest(w, r)
+	if !ok {
 		return false
 	}
 	allowed, err := h.authSvc.HasPermission(r.Context(), claims.UserID, resource, action)
@@ -35,6 +42,49 @@ func (h *adminHandler) checkPerm(w http.ResponseWriter, r *http.Request, resourc
 		return false
 	}
 	return true
+}
+
+func (h *adminHandler) claimsFromRequest(w http.ResponseWriter, r *http.Request) (*interfaces.UserClaims, bool) {
+	claims := authplugin.GetClaimsFromContext(r.Context())
+	if claims != nil {
+		return claims, true
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return nil, false
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return nil, false
+	}
+
+	var err error
+	if strings.HasPrefix(token, "aroute_") {
+		verifier, ok := h.authSvc.(apiTokenVerifier)
+		if !ok {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return nil, false
+		}
+		claims, err = verifier.VerifyAPIToken(r.Context(), token)
+	} else {
+		claims, err = h.authSvc.VerifyToken(r.Context(), token)
+	}
+	if err != nil {
+		if errors.Is(err, interfaces.ErrForbidden) {
+			http.Error(w, "account is not active", http.StatusForbidden)
+			return nil, false
+		}
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return nil, false
+	}
+	if claims == nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return nil, false
+	}
+	return claims, true
 }
 
 func (h *adminHandler) createWebhook(w http.ResponseWriter, r *http.Request) {
