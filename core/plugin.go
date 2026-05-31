@@ -151,19 +151,23 @@ const (
 	// Maximum performance, minimum isolation - trusted plugins only.
 	EngineL1Native EngineType = iota
 
+	// EngineL2GRPC indicates a plugin running in a local subprocess and
+	// communicating with Core over the ARoute gRPC control protocol.
+	// L2 plugins have process isolation and capability-gated host calls.
+	EngineL2GRPC
+
 	// EngineL3Wasm indicates a WebAssembly plugin running in a sandbox.
 	// L3 plugins are isolated via wazero runtime with memory limits.
 	// Zero trust isolation - suitable for untrusted plugins.
 	EngineL3Wasm
-
-	// Note: L2 gRPC plugins are reserved for Pro/Enterprise versions
-	// and provide process isolation with gRPC communication.
 )
 
 func (e EngineType) String() string {
 	switch e {
 	case EngineL1Native:
 		return "native"
+	case EngineL2GRPC:
+		return "grpc"
 	case EngineL3Wasm:
 		return "wasm"
 	default:

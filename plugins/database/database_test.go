@@ -1081,6 +1081,10 @@ func (m *mockConfig) Unmarshal(key string, target interface{}) error {
 	return nil
 }
 
+func (m *mockConfig) Set(key string, value interface{}) {}
+
+func (m *mockConfig) Save() error { return nil }
+
 type mockServiceContainer struct{}
 
 func (m *mockServiceContainer) Provide(fn interface{}) error {
@@ -1416,6 +1420,44 @@ func TestService_SqliteListIndexes_ErrorPaths(t *testing.T) {
 	_, err = service.sqliteListIndexes(ctx, "idx_test")
 	if err == nil {
 		t.Error("Expected error with closed DB")
+	}
+}
+
+func TestService_SqliteListIndexes_SingleConnection(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open SQLite: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	service := NewService(db, DriverSQLite)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if _, err := service.Exec(ctx, `
+		CREATE TABLE single_conn_idx_test (
+			id INTEGER PRIMARY KEY,
+			email TEXT,
+			name TEXT
+		)
+	`); err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+	if _, err := service.Exec(ctx, "CREATE UNIQUE INDEX idx_single_conn_email ON single_conn_idx_test(email)"); err != nil {
+		t.Fatalf("Failed to create index: %v", err)
+	}
+
+	indexes, err := service.sqliteListIndexes(ctx, "single_conn_idx_test")
+	if err != nil {
+		t.Fatalf("sqliteListIndexes should not block with one SQLite connection: %v", err)
+	}
+	if len(indexes) != 1 {
+		t.Fatalf("len(indexes) = %d, want 1", len(indexes))
+	}
+	if indexes[0].Name != "idx_single_conn_email" || !indexes[0].Unique {
+		t.Fatalf("index = %+v, want unique idx_single_conn_email", indexes[0])
 	}
 }
 
@@ -1895,6 +1937,8 @@ func (m *mockSQLitePathConfig) GetBool(key string) bool                        {
 func (m *mockSQLitePathConfig) GetStringSlice(key string) []string             { return nil }
 func (m *mockSQLitePathConfig) Get(key string) interface{}                     { return nil }
 func (m *mockSQLitePathConfig) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockSQLitePathConfig) Set(key string, value interface{})              {}
+func (m *mockSQLitePathConfig) Save() error                                    { return nil }
 
 // mockSQLiteCustomConfig returns custom SQLite pragma values
 type mockSQLiteCustomConfig struct {
@@ -1936,6 +1980,8 @@ func (m *mockSQLiteCustomConfig) GetBool(key string) bool {
 func (m *mockSQLiteCustomConfig) GetStringSlice(key string) []string             { return nil }
 func (m *mockSQLiteCustomConfig) Get(key string) interface{}                     { return nil }
 func (m *mockSQLiteCustomConfig) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockSQLiteCustomConfig) Set(key string, value interface{})              {}
+func (m *mockSQLiteCustomConfig) Save() error                                    { return nil }
 
 // ============================================================================
 // Additional coverage tests
@@ -2689,7 +2735,7 @@ func TestExtractVersionAndName_EdgeCases(t *testing.T) {
 		// Invalid formats - should return 0, ""
 		{"no_digits.sql", 0, ""},
 		{".sql", 0, ""},
-		{"123.sql", 0, ""}, // too short on name part
+		{"123.sql", 0, ""},  // too short on name part
 		{"123_.sql", 0, ""}, // empty name
 	}
 
@@ -2711,12 +2757,16 @@ type mockCoreContextWithConfigAndAutoMigrate struct {
 func (m mockCoreContextWithConfigAndAutoMigrate) Config() core.ConfigProvider {
 	return &mockAutoMigrateConfig{}
 }
-func (m mockCoreContextWithConfigAndAutoMigrate) Logger() *slog.Logger       { return slog.Default() }
-func (m mockCoreContextWithConfigAndAutoMigrate) Context() context.Context    { return context.Background() }
-func (m mockCoreContextWithConfigAndAutoMigrate) Services() core.ServiceContainer { return &mockServiceContainer{} }
-func (m mockCoreContextWithConfigAndAutoMigrate) Events() core.EventBus       { return nil }
-func (m mockCoreContextWithConfigAndAutoMigrate) DataDir() string             { return m.dataDir }
-func (m mockCoreContextWithConfigAndAutoMigrate) PluginDir() string           { return "" }
+func (m mockCoreContextWithConfigAndAutoMigrate) Logger() *slog.Logger { return slog.Default() }
+func (m mockCoreContextWithConfigAndAutoMigrate) Context() context.Context {
+	return context.Background()
+}
+func (m mockCoreContextWithConfigAndAutoMigrate) Services() core.ServiceContainer {
+	return &mockServiceContainer{}
+}
+func (m mockCoreContextWithConfigAndAutoMigrate) Events() core.EventBus { return nil }
+func (m mockCoreContextWithConfigAndAutoMigrate) DataDir() string       { return m.dataDir }
+func (m mockCoreContextWithConfigAndAutoMigrate) PluginDir() string     { return "" }
 
 type mockAutoMigrateConfig struct{}
 
@@ -2726,7 +2776,7 @@ func (m *mockAutoMigrateConfig) GetString(key string) string {
 	}
 	return ""
 }
-func (m *mockAutoMigrateConfig) GetInt(key string) int                  { return 0 }
+func (m *mockAutoMigrateConfig) GetInt(key string) int { return 0 }
 func (m *mockAutoMigrateConfig) GetBool(key string) bool {
 	if key == "database.auto_migrate" {
 		return true
@@ -2736,6 +2786,8 @@ func (m *mockAutoMigrateConfig) GetBool(key string) bool {
 func (m *mockAutoMigrateConfig) GetStringSlice(key string) []string             { return nil }
 func (m *mockAutoMigrateConfig) Get(key string) interface{}                     { return nil }
 func (m *mockAutoMigrateConfig) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockAutoMigrateConfig) Set(key string, value interface{})              {}
+func (m *mockAutoMigrateConfig) Save() error                                    { return nil }
 
 func TestMigrationRunner_Load_QueryAppliedFails(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -3076,11 +3128,13 @@ func (m *mockSQLiteAltPathConfig) GetString(key string) string {
 		return ""
 	}
 }
-func (m *mockSQLiteAltPathConfig) GetInt(key string) int                  { return 0 }
-func (m *mockSQLiteAltPathConfig) GetBool(key string) bool                { return false }
-func (m *mockSQLiteAltPathConfig) GetStringSlice(key string) []string     { return nil }
-func (m *mockSQLiteAltPathConfig) Get(key string) interface{}             { return nil }
+func (m *mockSQLiteAltPathConfig) GetInt(key string) int                          { return 0 }
+func (m *mockSQLiteAltPathConfig) GetBool(key string) bool                        { return false }
+func (m *mockSQLiteAltPathConfig) GetStringSlice(key string) []string             { return nil }
+func (m *mockSQLiteAltPathConfig) Get(key string) interface{}                     { return nil }
 func (m *mockSQLiteAltPathConfig) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockSQLiteAltPathConfig) Set(key string, value interface{})              {}
+func (m *mockSQLiteAltPathConfig) Save() error                                    { return nil }
 
 func TestService_BeginTx_Success(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")

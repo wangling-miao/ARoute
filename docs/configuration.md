@@ -293,9 +293,9 @@ plugins:
 
 | 键 | 类型 | 默认值 | 说明 |
 |----|------|--------|------|
-| `plugins.dir` | string | `"plugins"` | L2 原生插件目录 |
+| `plugins.dir` | string | `"plugins"` | L2 gRPC Pro 插件目录 |
 
-内置插件（L1）随二进制分发，无需额外安装。L2 插件放置在 `plugins.dir` 目录，L3 社区 WASM 插件放置在 `data/plugins/` 目录。
+内置插件（L1）随二进制分发，无需额外安装。L2 gRPC 插件是 Pro 功能，放置在 `plugins.dir` 目录；L3 社区 WASM 插件放置在 `data/plugins/` 目录。
 
 ---
 
@@ -315,6 +315,7 @@ data_dir: "data"
 data/
   aroute.db          # SQLite 数据库（使用 SQLite 时）
   registry.db        # bbolt 插件注册表
+  trust-ledger.jsonl # 插件信任决策账本
   uploads/           # 上传文件（本地存储时）
   search/            # 搜索索引
   logs/              # 日志文件

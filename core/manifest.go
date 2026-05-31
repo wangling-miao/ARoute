@@ -14,18 +14,44 @@ import (
 var nameRegex = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 type Manifest struct {
-	Name        string   `yaml:"name" json:"name"`
-	Version     string   `yaml:"version" json:"version"`
-	Description string   `yaml:"description" json:"description"`
-	Author      string   `yaml:"author" json:"author"`
-	License     string   `yaml:"license" json:"license"`
-	Engine      string   `yaml:"engine" json:"engine"`
-	Requires    []string `yaml:"requires" json:"requires"`
-	After       []string `yaml:"after" json:"after"`
-	Provides    []string `yaml:"provides" json:"provides"`
-	Homepage    string   `yaml:"homepage" json:"homepage,omitempty"`
-	Repository  string   `yaml:"repository" json:"repository,omitempty"`
-	Keywords    []string `yaml:"keywords" json:"keywords,omitempty"`
+	Name         string            `yaml:"name" json:"name"`
+	Version      string            `yaml:"version" json:"version"`
+	Description  string            `yaml:"description" json:"description"`
+	Author       string            `yaml:"author" json:"author"`
+	License      string            `yaml:"license" json:"license"`
+	Engine       string            `yaml:"engine" json:"engine"`
+	Trust        string            `yaml:"trust" json:"trust,omitempty"`
+	Capabilities []string          `yaml:"capabilities" json:"capabilities,omitempty"`
+	Publisher    string            `yaml:"publisher" json:"publisher,omitempty"`
+	Digest       string            `yaml:"digest" json:"digest,omitempty"`
+	Signature    string            `yaml:"signature" json:"signature,omitempty"`
+	Resources    ResourcePolicy    `yaml:"resources" json:"resources,omitempty"`
+	Runtime      RuntimeConfig     `yaml:"runtime" json:"runtime,omitempty"`
+	Requires     []string          `yaml:"requires" json:"requires"`
+	After        []string          `yaml:"after" json:"after"`
+	Provides     []string          `yaml:"provides" json:"provides"`
+	Homepage     string            `yaml:"homepage" json:"homepage,omitempty"`
+	Repository   string            `yaml:"repository" json:"repository,omitempty"`
+	Keywords     []string          `yaml:"keywords" json:"keywords,omitempty"`
+	Metadata     map[string]string `yaml:"metadata" json:"metadata,omitempty"`
+}
+
+// ResourcePolicy declares coarse runtime resource boundaries for isolated plugins.
+type ResourcePolicy struct {
+	MaxMemoryMB   int      `yaml:"max_memory_mb" json:"max_memory_mb,omitempty"`
+	MaxCPUPercent int      `yaml:"max_cpu_percent" json:"max_cpu_percent,omitempty"`
+	MaxOpenFiles  int      `yaml:"max_open_files" json:"max_open_files,omitempty"`
+	Network       []string `yaml:"network" json:"network,omitempty"`
+	FileSystem    []string `yaml:"filesystem" json:"filesystem,omitempty"`
+}
+
+// RuntimeConfig declares how an isolated plugin process should be launched.
+type RuntimeConfig struct {
+	Command        string            `yaml:"command" json:"command,omitempty"`
+	Args           []string          `yaml:"args" json:"args,omitempty"`
+	Env            map[string]string `yaml:"env" json:"env,omitempty"`
+	WorkingDir     string            `yaml:"working_dir" json:"working_dir,omitempty"`
+	TimeoutSeconds int               `yaml:"timeout_seconds" json:"timeout_seconds,omitempty"`
 }
 
 func (m *Manifest) Validate() error {
@@ -44,9 +70,19 @@ func (m *Manifest) Validate() error {
 	}
 
 	if m.Engine == "" {
-		errs = append(errs, errors.New("engine is required (must be 'native' or 'wasm')"))
+		errs = append(errs, errors.New("engine is required (must be 'native', 'grpc', or 'wasm')"))
 	} else if _, err := ParseEngine(m.Engine); err != nil {
 		errs = append(errs, err)
+	}
+
+	if m.Trust != "" && !isValidTrustLevel(m.Trust) {
+		errs = append(errs, fmt.Errorf("trust must be one of L1, L2, L3, got %q", m.Trust))
+	}
+
+	for _, cap := range m.Capabilities {
+		if err := validateCapability(cap); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	for _, req := range m.Requires {
@@ -70,15 +106,18 @@ func (m *Manifest) Validate() error {
 }
 
 // ParseEngine parses an engine type string and returns the corresponding EngineType.
-// Supports "native" and "l1" for L1Native, "wasm" and "l3" for L3Wasm.
+// Supports "native" and "l1" for L1Native, "grpc" and "l2" for L2GRPC,
+// and "wasm" and "l3" for L3Wasm.
 func ParseEngine(s string) (EngineType, error) {
 	switch s {
 	case "native", "l1":
 		return EngineL1Native, nil
+	case "grpc", "l2":
+		return EngineL2GRPC, nil
 	case "wasm", "l3":
 		return EngineL3Wasm, nil
 	default:
-		return EngineType(0), fmt.Errorf("engine must be 'native' or 'wasm', got %q", s)
+		return EngineType(0), fmt.Errorf("engine must be 'native', 'grpc', or 'wasm', got %q", s)
 	}
 }
 
@@ -204,4 +243,35 @@ func isValidConstraint(c string) bool {
 		}
 	}
 	return true // Default to accepting any format for MVP
+}
+
+func isValidTrustLevel(s string) bool {
+	switch strings.ToUpper(s) {
+	case "L1", "L2", "L3":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateCapability(capability string) error {
+	if capability == "" {
+		return fmt.Errorf("capability cannot be empty")
+	}
+	parts := strings.Split(capability, ":")
+	if len(parts) < 2 {
+		return fmt.Errorf("capability %q must use namespace:scope form", capability)
+	}
+	for _, part := range parts {
+		if part == "" {
+			return fmt.Errorf("capability %q contains an empty segment", capability)
+		}
+		for _, ch := range part {
+			if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == '_' || ch == '*' {
+				continue
+			}
+			return fmt.Errorf("capability %q contains invalid character %q", capability, ch)
+		}
+	}
+	return nil
 }

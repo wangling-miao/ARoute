@@ -821,12 +821,55 @@ X-API-Key <api_token>
       "version": "1.0.0",
       "enabled": true,
       "description": "HTTP server plugin",
-      "author": "ARoute"
+      "author": "ARoute",
+      "engine": "native",
+      "trust_level": "L1",
+      "effective_trust": "L1",
+      "risk_score": 0,
+      "trust_state": "allow",
+      "capabilities": [],
+      "capability_grants": [],
+      "policy_revision": "builtin:v1"
     }
   ],
   "meta": {}
 }
 ```
+
+---
+
+### GET /api/v1/plugins/{name}/trust
+
+获取插件信任画像、能力授权和历史决策。
+
+**成功响应（200）：**
+
+```json
+{
+  "data": {
+    "name": "analytics",
+    "engine": "wasm",
+    "trust_level": "L3",
+    "effective_trust": "L3",
+    "risk_score": 35,
+    "trust_state": "guarded",
+    "capabilities": ["service:content.read"],
+    "capability_grants": ["service:content.read"],
+    "last_decision": {
+      "action": "guard",
+      "reason": "capability denied: service:content.write",
+      "risk_score": 35,
+      "policy_revision": "builtin:v1"
+    },
+    "history": []
+  },
+  "meta": {}
+}
+```
+
+### POST /api/v1/plugins/{name}/trust/{action}
+
+对插件执行信任处置。`action` 支持 `approve`、`restore`、`quarantine`、`disable`。
 
 ---
 

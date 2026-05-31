@@ -145,6 +145,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		lifecycleMgr,
 		&coreDispAdapter{d: dispatcher},
 		&coreLicAdapter{v: licenseValidator},
+		nil,
 		core.WithDataDir(tmpDir),
 		core.WithPluginDir(filepath.Join(tmpDir, "plugins")),
 		core.WithLogger(logger),
@@ -310,10 +311,10 @@ func (a *coreRegAdapter) Close() error                              { return a.r
 
 type coreLicAdapter struct{ v *license.Validator }
 
-func (a *coreLicAdapter) Tier() core.LicenseTier                        { return core.LicenseTierOpen }
-func (a *coreLicAdapter) IsFeatureAllowed(f string) bool                { return a.v.IsFeatureAllowed(f) }
-func (a *coreLicAdapter) IsExpired() bool                               { return a.v.IsExpired() }
-func (a *coreLicAdapter) Validate() error                               { return a.v.Validate() }
+func (a *coreLicAdapter) Tier() core.LicenseTier         { return core.LicenseTierOpen }
+func (a *coreLicAdapter) IsFeatureAllowed(f string) bool { return a.v.IsFeatureAllowed(f) }
+func (a *coreLicAdapter) IsExpired() bool                { return a.v.IsExpired() }
+func (a *coreLicAdapter) Validate() error                { return a.v.Validate() }
 func (a *coreLicAdapter) LicenseInfo() core.LicenseInfoResult {
 	info := a.v.LicenseInfo()
 	return core.LicenseInfoResult{Tier: core.LicenseTierOpen, Features: info.Features, ExpiresAt: info.ExpiresAt}

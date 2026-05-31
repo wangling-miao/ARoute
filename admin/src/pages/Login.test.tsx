@@ -99,7 +99,7 @@ describe('Login page', () => {
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(mockLogin).toHaveBeenCalledWith('admin@test.com', 'password123');
+      expect(mockLogin).toHaveBeenCalledWith('admin@test.com', 'password123', false);
     });
   });
 
@@ -112,7 +112,7 @@ describe('Login page', () => {
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(mockLogin).toHaveBeenCalledWith('admin@test.com', 'password');
+      expect(mockLogin).toHaveBeenCalledWith('admin@test.com', 'password', false);
     });
   });
 

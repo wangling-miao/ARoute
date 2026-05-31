@@ -312,6 +312,7 @@ func TestEngineType_String(t *testing.T) {
 		want   string
 	}{
 		{EngineL1Native, "native"},
+		{EngineL2GRPC, "grpc"},
 		{EngineL3Wasm, "wasm"},
 		{EngineType(99), "unknown"},
 	}
@@ -333,6 +334,8 @@ func TestParseEngine(t *testing.T) {
 	}{
 		{"native", EngineL1Native, false},
 		{"l1", EngineL1Native, false},
+		{"grpc", EngineL2GRPC, false},
+		{"l2", EngineL2GRPC, false},
 		{"wasm", EngineL3Wasm, false},
 		{"l3", EngineL3Wasm, false},
 		{"invalid", EngineType(0), true},

@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import type { DashboardStats } from '@/types';
 
 const mockDashboardGetStats = vi.fn();
 vi.mock('@/api/endpoints', () => ({
   dashboard: { getStats: () => mockDashboardGetStats() },
+  settings: { get: () => Promise.resolve({ site_url: 'https://example.com' }) },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -29,6 +31,14 @@ const MOCK_STATS: DashboardStats = {
   system_status: { database: 'healthy' as const, plugin_count: 7, cache_hit_ratio: 0.85 },
 };
 
+function renderDashboard() {
+  return render(
+    <MemoryRouter>
+      <Dashboard />
+    </MemoryRouter>,
+  );
+}
+
 describe('Dashboard page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -36,13 +46,13 @@ describe('Dashboard page', () => {
 
   it('shows loading skeleton initially', () => {
     mockDashboardGetStats.mockReturnValue(new Promise(() => {}));
-    render(<Dashboard />);
+    renderDashboard();
     expect(document.querySelector('.skeleton')).toBeInTheDocument();
   });
 
   it('renders content counts after loading', async () => {
     mockDashboardGetStats.mockResolvedValueOnce(MOCK_STATS);
-    render(<Dashboard />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText('12')).toBeInTheDocument();
@@ -52,7 +62,7 @@ describe('Dashboard page', () => {
 
   it('renders recent activity items', async () => {
     mockDashboardGetStats.mockResolvedValueOnce(MOCK_STATS);
-    render(<Dashboard />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText(/dashboard\.action_create.*post/i)).toBeInTheDocument();
@@ -61,7 +71,7 @@ describe('Dashboard page', () => {
 
   it('renders system status section', async () => {
     mockDashboardGetStats.mockResolvedValueOnce(MOCK_STATS);
-    render(<Dashboard />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText('7')).toBeInTheDocument();
@@ -71,7 +81,7 @@ describe('Dashboard page', () => {
 
   it('shows error state with retry button on fetch failure', async () => {
     mockDashboardGetStats.mockRejectedValueOnce(new Error('fail'));
-    render(<Dashboard />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText('common.error_occurred')).toBeInTheDocument();
@@ -84,7 +94,7 @@ describe('Dashboard page', () => {
       ...MOCK_STATS,
       recent_activity: [],
     });
-    render(<Dashboard />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText('dashboard.no_activity')).toBeInTheDocument();

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/wangling-miao/aroute/core"
 )
 
 // RouteType enumerates all addressable entity categories in the unified routing table.
@@ -81,10 +83,24 @@ func (t *TrustLevel) UnmarshalJSON(data []byte) error {
 type RouteState string
 
 const (
-	RouteStateActive   RouteState = "active"
-	RouteStateInactive RouteState = "inactive"
-	RouteStateOrphaned RouteState = "orphaned"
-	RouteStateError    RouteState = "error"
+	RouteStateActive        RouteState = "active"
+	RouteStateInactive      RouteState = "inactive"
+	RouteStatePendingReview RouteState = "pending_review"
+	RouteStateGuarded       RouteState = "guarded"
+	RouteStateQuarantined   RouteState = "quarantined"
+	RouteStateOrphaned      RouteState = "orphaned"
+	RouteStateError         RouteState = "error"
+)
+
+// TrustState is the policy engine's runtime trust decision for a route.
+type TrustState string
+
+const (
+	TrustStateAllow         TrustState = "allow"
+	TrustStateGuarded       TrustState = "guarded"
+	TrustStatePendingReview TrustState = "pending_review"
+	TrustStateQuarantined   TrustState = "quarantined"
+	TrustStateDisabled      TrustState = "disabled"
 )
 
 // RouteRef is a reference to another route, used in dependency declarations.
@@ -111,19 +127,42 @@ type Route struct {
 	Name    string    `json:"name"`
 	Version string    `json:"version"`
 
-	TrustLevel TrustLevel `json:"trust_level"`
-	Engine     string     `json:"engine,omitempty"`
+	TrustLevel          TrustLevel `json:"trust_level"`
+	DeclaredTrustLevel  TrustLevel `json:"declared_trust_level,omitempty"`
+	EffectiveTrustLevel TrustLevel `json:"effective_trust_level,omitempty"`
+	Engine              string     `json:"engine,omitempty"`
 
 	State   RouteState `json:"state"`
 	Enabled bool       `json:"enabled"`
 
-	Requires []RouteRef        `json:"requires,omitempty"`
-	Provides []RouteRef        `json:"provides,omitempty"`
-	Payload  json.RawMessage   `json:"payload,omitempty"`
+	Requires []RouteRef      `json:"requires,omitempty"`
+	Provides []RouteRef      `json:"provides,omitempty"`
+	Payload  json.RawMessage `json:"payload,omitempty"`
+
+	Capabilities     []string            `json:"capabilities,omitempty"`
+	CapabilityGrants []string            `json:"capability_grants,omitempty"`
+	RiskScore        int                 `json:"risk_score,omitempty"`
+	TrustState       TrustState          `json:"trust_state,omitempty"`
+	LastDecision     *TrustDecision      `json:"last_decision,omitempty"`
+	PolicyRevision   string              `json:"policy_revision,omitempty"`
+	Publisher        string              `json:"publisher,omitempty"`
+	Digest           string              `json:"digest,omitempty"`
+	Signature        string              `json:"signature,omitempty"`
+	Resources        core.ResourcePolicy `json:"resources,omitempty"`
+	Runtime          core.RuntimeConfig  `json:"runtime,omitempty"`
 
 	DiscoveredPath string    `json:"discovered_path,omitempty"`
 	RegisteredAt   time.Time `json:"registered_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// TrustDecision records the latest policy action applied to a route.
+type TrustDecision struct {
+	Action         string    `json:"action"`
+	Reason         string    `json:"reason"`
+	RiskScore      int       `json:"risk_score"`
+	PolicyRevision string    `json:"policy_revision"`
+	At             time.Time `json:"at"`
 }
 
 // Key returns the composite storage key for this route.
@@ -160,8 +199,12 @@ func (r *Route) Validate() error {
 		errs = append(errs, errors.New("version is required"))
 	}
 
-	if r.Engine != "" && r.Engine != "native" && r.Engine != "grpc" && r.Engine != "wasm" {
+	if r.Engine != "" && r.Engine != "native" && r.Engine != "l1" && r.Engine != "grpc" && r.Engine != "l2" && r.Engine != "wasm" && r.Engine != "l3" {
 		errs = append(errs, fmt.Errorf("engine must be 'native', 'grpc', or 'wasm', got %q", r.Engine))
+	}
+
+	if r.RiskScore < 0 || r.RiskScore > 100 {
+		errs = append(errs, fmt.Errorf("risk_score must be between 0 and 100, got %d", r.RiskScore))
 	}
 
 	for i, ref := range r.Requires {
@@ -199,6 +242,9 @@ type PluginPayload struct {
 	Homepage    string   `json:"homepage,omitempty"`
 	Repository  string   `json:"repository,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
+	Publisher   string   `json:"publisher,omitempty"`
+	Digest      string   `json:"digest,omitempty"`
+	Signature   string   `json:"signature,omitempty"`
 }
 
 // ServicePayload carries service registration data.
@@ -212,17 +258,17 @@ type ServicePayload struct {
 type HookPayload struct {
 	Topic     string `json:"topic"`
 	Priority  int    `json:"priority"`
-	Mode      string `json:"mode"`       // "filter" or "broadcast"
+	Mode      string `json:"mode"` // "filter" or "broadcast"
 	HandlerID string `json:"handler_id"`
 }
 
 // ThemePayload carries theme-specific data.
 type ThemePayload struct {
-	ScriptEngine string           `json:"script_engine"`
-	PreviewImage string           `json:"preview_image,omitempty"`
-	MinVersion   string           `json:"min_version,omitempty"`
-	Active       bool             `json:"active"`
-	ConfigSchema json.RawMessage  `json:"config_schema,omitempty"`
+	ScriptEngine string          `json:"script_engine"`
+	PreviewImage string          `json:"preview_image,omitempty"`
+	MinVersion   string          `json:"min_version,omitempty"`
+	Active       bool            `json:"active"`
+	ConfigSchema json.RawMessage `json:"config_schema,omitempty"`
 }
 
 // MiddlewarePayload carries middleware registration data.

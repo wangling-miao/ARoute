@@ -4,6 +4,10 @@ package registry
 // starting from the given route, using pure route data without database access.
 func ComputeImpact(route *Route, allRoutes []*Route) *RemovalImpact {
 	impact := &RemovalImpact{}
+	if route.TrustState == TrustStateQuarantined || route.TrustState == TrustStateDisabled || route.State == RouteStateQuarantined {
+		impact.RiskReasons = append(impact.RiskReasons, "source route is isolated or disabled by trust policy")
+		impact.RecommendedActions = append(impact.RecommendedActions, "re-evaluate dependents and downgrade to guarded if alternate providers are unavailable")
+	}
 
 	// Build forward dependency map: provider -> dependents
 	dependentsOf := make(map[string][]*Route)
@@ -57,6 +61,11 @@ func ComputeImpact(route *Route, allRoutes []*Route) *RemovalImpact {
 
 			if !hasOtherProviders {
 				impact.OrphanedRoutes = append(impact.OrphanedRoutes, dep.Ref())
+				impact.RiskReasons = append(impact.RiskReasons, dep.Ref().String()+" loses its only trusted provider")
+				impact.RecommendedActions = append(impact.RecommendedActions, "mark "+dep.Ref().String()+" as orphaned")
+			} else if route.TrustState == TrustStateQuarantined || route.State == RouteStateQuarantined {
+				impact.RiskReasons = append(impact.RiskReasons, dep.Ref().String()+" is reachable from quarantined route")
+				impact.RecommendedActions = append(impact.RecommendedActions, "mark "+dep.Ref().String()+" as guarded")
 			}
 
 			if directSet[depKey] {

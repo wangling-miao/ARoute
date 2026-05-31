@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Spin, Typography, Switch } from '@arco-design/web-react';
-import { Package, User, Upload, Eye, EyeOff, Zap } from 'lucide-react';
+import { Package, User, Upload, Eye, EyeOff, Zap, Shield, Gauge } from 'lucide-react';
 import { plugins as pluginsApi } from '@/api/endpoints';
 import { ApiError } from '@/api/client';
 import { showError, showSuccess } from '@/components/Toast';
@@ -28,6 +28,20 @@ function stateColor(state: string) {
     case 'failed': return 'var(--color-danger, #f53f3f)';
     default: return 'var(--color-warning, #ff7d00)';
   }
+}
+
+function trustColor(state?: string, score?: number) {
+  if (state === 'disabled' || (score ?? 0) >= 80) return 'var(--color-danger, #f53f3f)';
+  if (state === 'quarantined' || (score ?? 0) >= 60) return 'var(--color-danger, #f53f3f)';
+  if (state === 'guarded' || state === 'pending_review' || (score ?? 0) >= 30) return 'var(--color-warning, #ff7d00)';
+  return 'var(--color-success, #00b42a)';
+}
+
+function engineLabel(plugin: Plugin) {
+  const engine = plugin.engine || 'native';
+  if (engine === 'grpc' || engine === 'l2') return 'L2 gRPC';
+  if (engine === 'wasm' || engine === 'l3') return 'L3 Wasm';
+  return 'L1 Native';
 }
 
 export default function PluginManagement() {
@@ -253,6 +267,9 @@ export default function PluginManagement() {
                             <Zap size={10} /> {t('plugins.system')}
                           </span>
                         )}
+                        <span className={styles.systemBadge}>
+                          <Shield size={10} /> {engineLabel(plugin)}
+                        </span>
                       </div>
                     </div>
                     <Switch
@@ -271,6 +288,12 @@ export default function PluginManagement() {
                       style={{ background: stateColor(plugin.state) }}
                     />
                     <span className={styles.stateText}>{stateLabel(t, plugin.state)}</span>
+                    <span
+                      className={styles.stateText}
+                      style={{ marginLeft: 12, color: trustColor(plugin.trust_state, plugin.risk_score) }}
+                    >
+                      <Gauge size={12} /> {plugin.trust_state || 'allow'} · {plugin.risk_score ?? 0}
+                    </span>
                   </div>
 
                   {isExpanded && (
@@ -293,6 +316,30 @@ export default function PluginManagement() {
                           {plugin.enabled ? t('common.enabled') : t('common.disabled')}
                         </span>
                       </div>
+                      <div className={styles.detailRow}>
+                        <span className={styles.detailLabel}>Trust</span>
+                        <span className={styles.detailValue}>
+                          {plugin.effective_trust || plugin.trust_level || 'L1'} / {plugin.trust_state || 'allow'}
+                        </span>
+                      </div>
+                      <div className={styles.detailRow}>
+                        <span className={styles.detailLabel}>Risk</span>
+                        <span className={styles.detailValue} style={{ color: trustColor(plugin.trust_state, plugin.risk_score) }}>
+                          {plugin.risk_score ?? 0}
+                        </span>
+                      </div>
+                      <div className={styles.detailRow}>
+                        <span className={styles.detailLabel}>Capabilities</span>
+                        <span className={styles.detailValue}>
+                          {(plugin.capability_grants || plugin.capabilities || []).slice(0, 4).join(', ') || '-'}
+                        </span>
+                      </div>
+                      {plugin.last_decision && (
+                        <div className={styles.detailRow}>
+                          <span className={styles.detailLabel}>Decision</span>
+                          <span className={styles.detailValue}>{plugin.last_decision.reason}</span>
+                        </div>
+                      )}
                       <div className={styles.detailRow}>
                         <span className={styles.detailLabel}>{t('plugins.state_active')}</span>
                         <span className={styles.detailValue} style={{ color: stateColor(plugin.state) }}>

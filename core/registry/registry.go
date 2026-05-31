@@ -19,6 +19,16 @@ type PluginEntry struct {
 	// DiscoveredPath is the filesystem path where the plugin was found.
 	// Empty for programmatically registered plugins.
 	DiscoveredPath string `json:"discovered_path,omitempty"`
+
+	// Trust metadata is populated by the unified registry and policy engine.
+	TrustLevel       string         `json:"trust_level,omitempty"`
+	EffectiveTrust   string         `json:"effective_trust,omitempty"`
+	RiskScore        int            `json:"risk_score,omitempty"`
+	TrustState       string         `json:"trust_state,omitempty"`
+	Capabilities     []string       `json:"capabilities,omitempty"`
+	CapabilityGrants []string       `json:"capability_grants,omitempty"`
+	LastDecision     *TrustDecision `json:"last_decision,omitempty"`
+	PolicyRevision   string         `json:"policy_revision,omitempty"`
 }
 
 // Registry defines the interface for plugin registration and discovery.

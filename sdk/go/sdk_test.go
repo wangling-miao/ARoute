@@ -29,13 +29,14 @@ func newMockConfig() *mockConfigProvider {
 	return &mockConfigProvider{data: make(map[string]interface{})}
 }
 
-func (m *mockConfigProvider) GetString(key string) string    { v, _ := m.data[key].(string); return v }
-func (m *mockConfigProvider) GetInt(key string) int          { v, _ := m.data[key].(int); return v }
-func (m *mockConfigProvider) GetBool(key string) bool        { v, _ := m.data[key].(bool); return v }
+func (m *mockConfigProvider) GetString(key string) string { v, _ := m.data[key].(string); return v }
+func (m *mockConfigProvider) GetInt(key string) int       { v, _ := m.data[key].(int); return v }
+func (m *mockConfigProvider) GetBool(key string) bool     { v, _ := m.data[key].(bool); return v }
 func (m *mockConfigProvider) GetStringSlice(key string) []string {
-	v, _ := m.data[key].([]string); return v
+	v, _ := m.data[key].([]string)
+	return v
 }
-func (m *mockConfigProvider) Get(key string) interface{}     { return m.data[key] }
+func (m *mockConfigProvider) Get(key string) interface{}                     { return m.data[key] }
 func (m *mockConfigProvider) Unmarshal(key string, target interface{}) error { return nil }
 func (m *mockConfigProvider) Set(key string, value interface{})              { m.data[key] = value }
 func (m *mockConfigProvider) Save() error                                    { return nil }
@@ -79,7 +80,7 @@ func newMockCoreContext(container core.ServiceContainer) *mockCoreContext {
 }
 
 func (m *mockCoreContext) Services() core.ServiceContainer { return m.services }
-func (m *mockCoreContext) Events() core.EventBus          { return m.eventBus }
+func (m *mockCoreContext) Events() core.EventBus           { return m.eventBus }
 func (m *mockCoreContext) Config() core.ConfigProvider     { return m.config }
 func (m *mockCoreContext) Logger() *slog.Logger            { return m.logger }
 func (m *mockCoreContext) DataDir() string                 { return m.dataDir }
@@ -909,8 +910,8 @@ func (m *mockDBSvc) Exec(ctx context.Context, q string, args ...interface{}) (sq
 func (m *mockDBSvc) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	return nil, nil
 }
-func (m *mockDBSvc) Ping(ctx context.Context) error                          { return nil }
-func (m *mockDBSvc) Close() error                                            { return nil }
+func (m *mockDBSvc) Ping(ctx context.Context) error { return nil }
+func (m *mockDBSvc) Close() error                   { return nil }
 func (m *mockDBSvc) SchemaIntrospect(ctx context.Context) (*interfaces.DatabaseSchema, error) {
 	return nil, nil
 }
@@ -945,7 +946,7 @@ func (m *mockAuthSvc) RevokeAPIToken(ctx context.Context, id string) error { ret
 func (m *mockAuthSvc) UpdateUser(ctx context.Context, id string, req *interfaces.UpdateUserRequest) (*interfaces.User, error) {
 	return nil, nil
 }
-func (m *mockAuthSvc) DeleteUser(ctx context.Context, id string) error      { return nil }
+func (m *mockAuthSvc) DeleteUser(ctx context.Context, id string) error { return nil }
 func (m *mockAuthSvc) ListUsers(ctx context.Context, q *interfaces.UserQuery) (*interfaces.Page, error) {
 	return nil, nil
 }
@@ -1025,9 +1026,9 @@ func (m *mockQueueSvc) Close(ctx context.Context) error { return nil }
 func (m *mockQueueSvc) ListDeadLetters(ctx context.Context, page, size int) ([]*interfaces.DeadLetterEntry, int, error) {
 	return nil, 0, nil
 }
-func (m *mockQueueSvc) RetryDeadLetter(ctx context.Context, id string) error { return nil }
+func (m *mockQueueSvc) RetryDeadLetter(ctx context.Context, id string) error  { return nil }
 func (m *mockQueueSvc) DeleteDeadLetter(ctx context.Context, id string) error { return nil }
-func (m *mockQueueSvc) WorkerCount() int                                  { return 0 }
+func (m *mockQueueSvc) WorkerCount() int                                      { return 0 }
 
 type mockThemeSvc struct{}
 
@@ -1039,13 +1040,15 @@ func (m *mockThemeSvc) SetActiveTheme(ctx context.Context, name string) error {
 	return nil
 }
 func (m *mockThemeSvc) ListThemes(ctx context.Context) ([]string, error) { return nil, nil }
+func (m *mockThemeSvc) ThemeMeta(slug string) map[string]string          { return nil }
 func (m *mockThemeSvc) InstallTheme(ctx context.Context, path string) error {
 	return nil
 }
+func (m *mockThemeSvc) ReloadThemes() error { return nil }
 
 type mockRouteRegistrar struct{}
 
-func (m *mockRouteRegistrar) Handle(pattern string, handler http.Handler)                   {}
-func (m *mockRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc)            {}
-func (m *mockRouteRegistrar) Use(mw ...func(http.Handler) http.Handler)                     {}
-func (m *mockRouteRegistrar) Middlewares() []func(http.Handler) http.Handler { return nil }
+func (m *mockRouteRegistrar) Handle(pattern string, handler http.Handler)         {}
+func (m *mockRouteRegistrar) HandleFunc(pattern string, handler http.HandlerFunc) {}
+func (m *mockRouteRegistrar) Use(mw ...func(http.Handler) http.Handler)           {}
+func (m *mockRouteRegistrar) Middlewares() []func(http.Handler) http.Handler      { return nil }

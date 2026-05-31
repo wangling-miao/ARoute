@@ -46,10 +46,10 @@ func TestTypeMapper_MapColumnType_SQLite_AllTypes(t *testing.T) {
 			expected:    "TEXT",
 		},
 		{
-			name:        "relation maps to TEXT",
+			name:        "relation maps to INTEGER",
 			fieldType:   FieldTypeRelation,
 			constraints: nil,
-			expected:    "TEXT",
+			expected:    "INTEGER",
 		},
 		{
 			name:        "unknown maps to TEXT",
@@ -131,10 +131,10 @@ func TestTypeMapper_MapColumnType_PostgreSQL_AllTypes(t *testing.T) {
 			expected:    "JSONB",
 		},
 		{
-			name:        "relation maps to TEXT",
+			name:        "relation maps to BIGINT",
 			fieldType:   FieldTypeRelation,
 			constraints: nil,
-			expected:    "TEXT",
+			expected:    "BIGINT",
 		},
 		{
 			name:        "unknown maps to TEXT",
@@ -208,7 +208,7 @@ func TestTypeMapper_FormatDefaultValue_SQLite(t *testing.T) {
 			name:      "string with single quote",
 			value:     "O'Reilly",
 			fieldType: FieldTypeText,
-			expected:  "'O'Reilly'",
+			expected:  "'O''Reilly'",
 		},
 		{
 			name:      "int value",
@@ -275,7 +275,7 @@ func TestTypeMapper_FormatDefaultValue_PostgreSQL(t *testing.T) {
 			name:      "string with single quote",
 			value:     "O'Reilly",
 			fieldType: FieldTypeText,
-			expected:  "'O'Reilly'",
+			expected:  "'O''Reilly'",
 		},
 		{
 			name:      "int value",

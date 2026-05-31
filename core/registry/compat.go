@@ -19,15 +19,22 @@ func PluginEntryFromRoute(route *Route) *PluginEntry {
 	}
 
 	manifest := core.Manifest{
-		Name:        route.Name,
-		Version:     route.Version,
-		Description: payload.Description,
-		Author:      payload.Author,
-		License:     payload.License,
-		Engine:      route.Engine,
-		Homepage:    payload.Homepage,
-		Repository:  payload.Repository,
-		Keywords:    payload.Keywords,
+		Name:         route.Name,
+		Version:      route.Version,
+		Description:  payload.Description,
+		Author:       payload.Author,
+		License:      payload.License,
+		Engine:       route.Engine,
+		Trust:        route.TrustLevel.String(),
+		Capabilities: append([]string(nil), route.Capabilities...),
+		Publisher:    firstNonEmpty(route.Publisher, payload.Publisher),
+		Digest:       firstNonEmpty(route.Digest, payload.Digest),
+		Signature:    firstNonEmpty(route.Signature, payload.Signature),
+		Resources:    route.Resources,
+		Runtime:      route.Runtime,
+		Homepage:     payload.Homepage,
+		Repository:   payload.Repository,
+		Keywords:     payload.Keywords,
 	}
 
 	for _, req := range route.Requires {
@@ -38,9 +45,17 @@ func PluginEntryFromRoute(route *Route) *PluginEntry {
 	}
 
 	return &PluginEntry{
-		Manifest:       manifest,
-		Enabled:        route.Enabled,
-		DiscoveredPath: route.DiscoveredPath,
+		Manifest:         manifest,
+		Enabled:          route.Enabled,
+		DiscoveredPath:   route.DiscoveredPath,
+		TrustLevel:       route.TrustLevel.String(),
+		EffectiveTrust:   route.EffectiveTrustLevel.String(),
+		RiskScore:        route.RiskScore,
+		TrustState:       string(route.TrustState),
+		Capabilities:     append([]string(nil), route.Capabilities...),
+		CapabilityGrants: append([]string(nil), route.CapabilityGrants...),
+		LastDecision:     route.LastDecision,
+		PolicyRevision:   route.PolicyRevision,
 	}
 }
 
@@ -53,6 +68,9 @@ func RouteFromPluginEntry(entry *PluginEntry) *Route {
 		Homepage:    entry.Manifest.Homepage,
 		Repository:  entry.Manifest.Repository,
 		Keywords:    entry.Manifest.Keywords,
+		Publisher:   entry.Manifest.Publisher,
+		Digest:      entry.Manifest.Digest,
+		Signature:   entry.Manifest.Signature,
 	})
 
 	var requires []RouteRef
@@ -73,12 +91,7 @@ func RouteFromPluginEntry(entry *PluginEntry) *Route {
 		})
 	}
 
-	trustLevel := TrustL1
-	if entry.Manifest.Engine == "wasm" || entry.Manifest.Engine == "l3" {
-		trustLevel = TrustL3
-	} else if entry.Manifest.Engine == "grpc" || entry.Manifest.Engine == "l2" {
-		trustLevel = TrustL2
-	}
+	trustLevel := trustLevelFromManifest(entry.Manifest)
 
 	state := RouteStateInactive
 	if entry.Enabled {
@@ -86,21 +99,93 @@ func RouteFromPluginEntry(entry *PluginEntry) *Route {
 	}
 
 	return &Route{
-		Type:          RouteTypePlugin,
-		Domain:        defaultDomain,
-		Name:          entry.Manifest.Name,
-		Version:       entry.Manifest.Version,
-		TrustLevel:    trustLevel,
-		Engine:        entry.Manifest.Engine,
-		State:         state,
-		Enabled:       entry.Enabled,
-		Requires:      requires,
-		Provides:      provides,
-		Payload:       payload,
-		DiscoveredPath: entry.DiscoveredPath,
-		RegisteredAt:  time.Now(),
-		UpdatedAt:     time.Now(),
+		Type:                RouteTypePlugin,
+		Domain:              defaultDomain,
+		Name:                entry.Manifest.Name,
+		Version:             entry.Manifest.Version,
+		TrustLevel:          trustLevel,
+		DeclaredTrustLevel:  trustLevel,
+		EffectiveTrustLevel: trustLevel,
+		Engine:              canonicalEngine(entry.Manifest.Engine),
+		State:               state,
+		Enabled:             entry.Enabled,
+		Requires:            requires,
+		Provides:            provides,
+		Payload:             payload,
+		Capabilities:        append([]string(nil), firstStringSlice(entry.Capabilities, entry.Manifest.Capabilities)...),
+		CapabilityGrants:    append([]string(nil), firstStringSlice(entry.CapabilityGrants, entry.Manifest.Capabilities)...),
+		RiskScore:           entry.RiskScore,
+		TrustState:          trustStateOrDefault(entry.TrustState),
+		LastDecision:        entry.LastDecision,
+		PolicyRevision:      firstNonEmpty(entry.PolicyRevision, "builtin:v1"),
+		Publisher:           entry.Manifest.Publisher,
+		Digest:              entry.Manifest.Digest,
+		Signature:           entry.Manifest.Signature,
+		Resources:           entry.Manifest.Resources,
+		Runtime:             entry.Manifest.Runtime,
+		DiscoveredPath:      entry.DiscoveredPath,
+		RegisteredAt:        time.Now(),
+		UpdatedAt:           time.Now(),
 	}
+}
+
+func firstStringSlice(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
+func trustStateOrDefault(state string) TrustState {
+	switch TrustState(state) {
+	case TrustStateGuarded, TrustStatePendingReview, TrustStateQuarantined, TrustStateDisabled:
+		return TrustState(state)
+	default:
+		return TrustStateAllow
+	}
+}
+
+func canonicalEngine(engine string) string {
+	switch engine {
+	case "l1":
+		return "native"
+	case "l2":
+		return "grpc"
+	case "l3":
+		return "wasm"
+	default:
+		return engine
+	}
+}
+
+func trustLevelFromManifest(manifest core.Manifest) TrustLevel {
+	switch manifest.Trust {
+	case "L1", "l1":
+		return TrustL1
+	case "L2", "l2":
+		return TrustL2
+	case "L3", "l3":
+		return TrustL3
+	}
+	switch manifest.Engine {
+	case "wasm", "l3":
+		return TrustL3
+	case "grpc", "l2":
+		return TrustL2
+	default:
+		return TrustL1
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // LegacyRegistry wraps a UnifiedRegistry to satisfy the old Registry interface.

@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/core/trust"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
 
@@ -32,14 +34,34 @@ const (
 )
 
 type AdminHandler struct {
-	ctx        core.CoreContext
-	contentSvc interfaces.ContentService
-	authSvc    interfaces.AuthService
-	themeSvc   interfaces.ThemeService
-	adminUI    interfaces.AdminUISwitcher
-	lifecycle  core.LifecycleManager
-	registry   core.PluginRegistry
-	cacheSvc   interfaces.CacheService
+	ctx         core.CoreContext
+	contentSvc  interfaces.ContentService
+	authSvc     interfaces.AuthService
+	themeSvc    interfaces.ThemeService
+	adminUI     interfaces.AdminUISwitcher
+	lifecycle   core.LifecycleManager
+	registry    core.PluginRegistry
+	cacheSvc    interfaces.CacheService
+	trustBroker trust.Service
+}
+
+type pluginListEntry struct {
+	Name             string                    `json:"name"`
+	Version          string                    `json:"version"`
+	Description      string                    `json:"description"`
+	Author           string                    `json:"author"`
+	Enabled          bool                      `json:"enabled"`
+	State            string                    `json:"state"`
+	IsSystem         bool                      `json:"is_system"`
+	Engine           string                    `json:"engine"`
+	TrustLevel       string                    `json:"trust_level"`
+	EffectiveTrust   string                    `json:"effective_trust"`
+	RiskScore        int                       `json:"risk_score"`
+	TrustState       string                    `json:"trust_state"`
+	Capabilities     []string                  `json:"capabilities"`
+	CapabilityGrants []string                  `json:"capability_grants"`
+	LastDecision     *core.PluginTrustDecision `json:"last_decision,omitempty"`
+	PolicyRevision   string                    `json:"policy_revision"`
 }
 
 func NewAdminHandler(ctx core.CoreContext, contentSvc interfaces.ContentService, authSvc interfaces.AuthService) *AdminHandler {
@@ -65,6 +87,13 @@ func NewAdminHandler(ctx core.CoreContext, contentSvc interfaces.ContentService,
 			ctx.Logger().Warn("cache service not available for admin handler")
 		} else {
 			h.cacheSvc = cs
+		}
+
+		var tb trust.Service
+		if err := ctx.Services().Get(&tb); err != nil {
+			ctx.Logger().Warn("trust broker not available for admin handler")
+		} else {
+			h.trustBroker = tb
 		}
 
 		var ts interfaces.ThemeService
@@ -129,6 +158,8 @@ func (h *AdminHandler) handleDashboardStats(w http.ResponseWriter, r *http.Reque
 		if err == nil {
 			pluginCount = len(entries)
 		}
+	} else if h.lifecycle != nil {
+		pluginCount = len(h.lifecycle.ListPlugins())
 	}
 
 	var cacheHitRatio float64
@@ -203,7 +234,52 @@ func (h *AdminHandler) handleListPlugins(w http.ResponseWriter, r *http.Request)
 	}
 
 	if h.registry == nil {
-		writeJSON(w, http.StatusOK, []interface{}{})
+		if h.lifecycle == nil {
+			writeJSON(w, http.StatusOK, []interface{}{})
+			return
+		}
+		names := h.lifecycle.ListPlugins()
+		plugins := make([]pluginListEntry, 0, len(names))
+		sort.Strings(names)
+		for _, name := range names {
+			plugin := h.lifecycle.GetPlugin(name)
+			if plugin == nil {
+				continue
+			}
+			manifest := plugin.Manifest()
+			state := "not_loaded"
+			if s, err := h.lifecycle.GetState(name); err == nil {
+				state = s.String()
+			}
+			version := plugin.Version()
+			description := ""
+			author := ""
+			engine := "native"
+			if manifest != nil {
+				if manifest.Version != "" {
+					version = manifest.Version
+				}
+				description = manifest.Description
+				author = manifest.Author
+				if manifest.Engine != "" {
+					engine = manifest.Engine
+				}
+			}
+			plugins = append(plugins, pluginListEntry{
+				Name:           name,
+				Version:        version,
+				Description:    description,
+				Author:         author,
+				Enabled:        state == "active",
+				State:          state,
+				Engine:         engine,
+				TrustLevel:     "L1",
+				EffectiveTrust: "L1",
+				TrustState:     "allow",
+				PolicyRevision: "builtin:v1",
+			})
+		}
+		writeJSON(w, http.StatusOK, plugins)
 		return
 	}
 
@@ -218,17 +294,7 @@ func (h *AdminHandler) handleListPlugins(w http.ResponseWriter, r *http.Request)
 		return entries[i].Manifest.Name < entries[j].Manifest.Name
 	})
 
-	type pluginEntry struct {
-		Name        string `json:"name"`
-		Version     string `json:"version"`
-		Description string `json:"description"`
-		Author      string `json:"author"`
-		Enabled     bool   `json:"enabled"`
-		State       string `json:"state"`
-		IsSystem    bool   `json:"is_system"`
-	}
-
-	plugins := make([]pluginEntry, 0, len(entries))
+	plugins := make([]pluginListEntry, 0, len(entries))
 	for _, e := range entries {
 		state := "not_loaded"
 		if h.lifecycle != nil {
@@ -239,18 +305,88 @@ func (h *AdminHandler) handleListPlugins(w http.ResponseWriter, r *http.Request)
 
 		isSystem := systemPluginEngines[e.Manifest.Engine]
 
-		plugins = append(plugins, pluginEntry{
-			Name:        e.Manifest.Name,
-			Version:     e.Manifest.Version,
-			Description: e.Manifest.Description,
-			Author:      e.Manifest.Author,
-			Enabled:     e.Enabled,
-			State:       state,
-			IsSystem:    isSystem,
+		plugins = append(plugins, pluginListEntry{
+			Name:             e.Manifest.Name,
+			Version:          e.Manifest.Version,
+			Description:      e.Manifest.Description,
+			Author:           e.Manifest.Author,
+			Enabled:          e.Enabled,
+			State:            state,
+			IsSystem:         isSystem,
+			Engine:           e.Manifest.Engine,
+			TrustLevel:       firstNonEmptyString(e.TrustLevel, e.Manifest.Trust),
+			EffectiveTrust:   firstNonEmptyString(e.EffectiveTrust, e.TrustLevel, e.Manifest.Trust),
+			RiskScore:        e.RiskScore,
+			TrustState:       firstNonEmptyString(e.TrustState, "allow"),
+			Capabilities:     firstStringSlice(e.Capabilities, e.Manifest.Capabilities),
+			CapabilityGrants: firstStringSlice(e.CapabilityGrants, e.Manifest.Capabilities),
+			LastDecision:     e.LastDecision,
+			PolicyRevision:   firstNonEmptyString(e.PolicyRevision, "builtin:v1"),
 		})
 	}
 
 	writeJSON(w, http.StatusOK, plugins)
+}
+
+func (h *AdminHandler) handleGetPluginTrust(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "plugins", "read") {
+		return
+	}
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "plugin name is required")
+		return
+	}
+	if h.registry == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "registry not available")
+		return
+	}
+	entry, err := h.registry.Get(name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "plugin not found")
+		return
+	}
+	var history []trust.Decision
+	if h.trustBroker != nil {
+		history, _ = h.trustBroker.History(name)
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"name":              entry.Manifest.Name,
+		"engine":            entry.Manifest.Engine,
+		"trust_level":       firstNonEmptyString(entry.TrustLevel, entry.Manifest.Trust),
+		"effective_trust":   firstNonEmptyString(entry.EffectiveTrust, entry.TrustLevel, entry.Manifest.Trust),
+		"risk_score":        entry.RiskScore,
+		"trust_state":       firstNonEmptyString(entry.TrustState, "allow"),
+		"capabilities":      firstStringSlice(entry.Capabilities, entry.Manifest.Capabilities),
+		"capability_grants": firstStringSlice(entry.CapabilityGrants, entry.Manifest.Capabilities),
+		"last_decision":     entry.LastDecision,
+		"policy_revision":   firstNonEmptyString(entry.PolicyRevision, "builtin:v1"),
+		"history":           history,
+	})
+}
+
+func (h *AdminHandler) handlePluginTrustAction(w http.ResponseWriter, r *http.Request) {
+	if !h.checkPerm(w, r, "plugins", "enable") {
+		return
+	}
+	if h.trustBroker == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "trust broker not available")
+		return
+	}
+	name := chi.URLParam(r, "name")
+	action := chi.URLParam(r, "action")
+	if name == "" || action == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "plugin name and action are required")
+		return
+	}
+
+	decision, ok := trustDecisionForAction(name, action)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "unsupported trust action")
+		return
+	}
+	decision = h.trustBroker.RecordDecision(r.Context(), decision)
+	writeJSON(w, http.StatusOK, decision)
 }
 
 func (h *AdminHandler) handleEnablePlugin(w http.ResponseWriter, r *http.Request) {
@@ -278,6 +414,10 @@ func (h *AdminHandler) handleEnablePlugin(w http.ResponseWriter, r *http.Request
 			// Plugin may not be loaded in lifecycle (e.g., requires restart).
 			// Log but don't fail — the registry state is what matters.
 			slog.Warn("plugin enable in lifecycle failed", "plugin", name, "error", err)
+			if h.registry == nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+				return
+			}
 		}
 	}
 
@@ -286,6 +426,52 @@ func (h *AdminHandler) handleEnablePlugin(w http.ResponseWriter, r *http.Request
 		"name":    name,
 		"status":  "enabled",
 	})
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstStringSlice(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return []string{}
+}
+
+func trustDecisionForAction(plugin, action string) (trust.Decision, bool) {
+	decision := trust.Decision{
+		Plugin:         plugin,
+		PolicyRevision: "builtin:v1",
+		At:             time.Now(),
+	}
+	switch action {
+	case "approve", "restore":
+		decision.Action = trust.ActionAllow
+		decision.State = trust.StateAllow
+		decision.Reason = "administrator approved plugin trust state"
+		decision.RiskScore = 0
+	case "quarantine":
+		decision.Action = trust.ActionQuarantine
+		decision.State = trust.StateQuarantined
+		decision.Reason = "administrator quarantined plugin"
+		decision.RiskScore = 75
+	case "disable":
+		decision.Action = trust.ActionDisable
+		decision.State = trust.StateDisabled
+		decision.Reason = "administrator disabled plugin by trust policy"
+		decision.RiskScore = 100
+	default:
+		return trust.Decision{}, false
+	}
+	return decision, true
 }
 
 func (h *AdminHandler) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
@@ -316,6 +502,10 @@ func (h *AdminHandler) handleDisablePlugin(w http.ResponseWriter, r *http.Reques
 	if h.lifecycle != nil {
 		if err := h.lifecycle.Disable(r.Context(), name); err != nil {
 			slog.Warn("plugin disable in lifecycle failed", "plugin", name, "error", err)
+			if h.registry == nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+				return
+			}
 		}
 	}
 

@@ -1038,7 +1038,7 @@ func (m *mockInvalidPostgresConfig) GetString(key string) string {
 	case "database.driver":
 		return "postgres"
 	case "database.postgres.host":
-		return "invalid_host_999"
+		return "127.0.0.1"
 	case "database.postgres.user":
 		return "invalid_user"
 	case "database.postgres.password":
@@ -1047,6 +1047,8 @@ func (m *mockInvalidPostgresConfig) GetString(key string) string {
 		return "invalid_db"
 	case "database.postgres.sslmode":
 		return "disable"
+	case "database.postgres.connect_timeout":
+		return "100ms"
 	default:
 		return ""
 	}
@@ -1055,7 +1057,9 @@ func (m *mockInvalidPostgresConfig) GetString(key string) string {
 func (m *mockInvalidPostgresConfig) GetInt(key string) int {
 	switch key {
 	case "database.postgres.port":
-		return 9999
+		return 1
+	case "database.postgres.max_retries":
+		return 1
 	default:
 		return 0
 	}
@@ -1114,7 +1118,7 @@ func (m *mockConnStringPostgresConfig) GetString(key string) string {
 	case "database.driver":
 		return "postgres"
 	case "database.connection_string":
-		return "postgres://testuser:testpass@nonexistent-host-999:5432/testdb?sslmode=disable"
+		return "postgres://testuser:testpass@127.0.0.1:1/testdb?sslmode=disable"
 	case "database.pool.max_conn_lifetime":
 		return "30m"
 	case "database.pool.max_conn_idle_time":
@@ -1123,6 +1127,8 @@ func (m *mockConnStringPostgresConfig) GetString(key string) string {
 		return "5000"
 	case "database.timezone":
 		return "UTC"
+	case "database.postgres.connect_timeout":
+		return "100ms"
 	default:
 		return ""
 	}
@@ -1134,6 +1140,8 @@ func (m *mockConnStringPostgresConfig) GetInt(key string) int {
 		return 10
 	case "database.pool.min_conns":
 		return 2
+	case "database.postgres.max_retries":
+		return 1
 	default:
 		return 0
 	}
@@ -1186,10 +1194,10 @@ func (m *mockInvalidConnStringConfig) GetString(key string) string {
 	}
 }
 
-func (m *mockInvalidConnStringConfig) GetInt(key string) int                  { return 0 }
-func (m *mockInvalidConnStringConfig) GetStringSlice(key string) []string     { return nil }
-func (m *mockInvalidConnStringConfig) GetBool(key string) bool                { return false }
-func (m *mockInvalidConnStringConfig) Get(key string) interface{}             { return nil }
+func (m *mockInvalidConnStringConfig) GetInt(key string) int                          { return 0 }
+func (m *mockInvalidConnStringConfig) GetStringSlice(key string) []string             { return nil }
+func (m *mockInvalidConnStringConfig) GetBool(key string) bool                        { return false }
+func (m *mockInvalidConnStringConfig) Get(key string) interface{}                     { return nil }
 func (m *mockInvalidConnStringConfig) Unmarshal(key string, target interface{}) error { return nil }
 
 func TestPlugin_InitPostgres_Defaults(t *testing.T) {
@@ -1233,12 +1241,19 @@ func (m *mockDefaultPostgresConfig) GetString(key string) string {
 		return "not-a-duration"
 	case "database.pool.max_conn_idle_time":
 		return "also-not-a-duration"
+	case "database.postgres.connect_timeout":
+		return "100ms"
 	default:
 		return ""
 	}
 }
 
-func (m *mockDefaultPostgresConfig) GetInt(key string) int { return 0 }
+func (m *mockDefaultPostgresConfig) GetInt(key string) int {
+	if key == "database.postgres.max_retries" {
+		return 1
+	}
+	return 0
+}
 
 func (m *mockDefaultPostgresConfig) GetStringSlice(key string) []string { return nil }
 func (m *mockDefaultPostgresConfig) GetBool(key string) bool            { return false }
@@ -1296,6 +1311,8 @@ func (m *mockDurationPostgresConfig) GetString(key string) string {
 		return "3000"
 	case "database.timezone":
 		return "America/New_York"
+	case "database.postgres.connect_timeout":
+		return "100ms"
 	default:
 		return ""
 	}
@@ -1307,6 +1324,8 @@ func (m *mockDurationPostgresConfig) GetInt(key string) int {
 		return 5432
 	case "database.pool.max_conns":
 		return 0 // tests the else branch (default 20)
+	case "database.postgres.max_retries":
+		return 1
 	default:
 		return 0
 	}
@@ -1352,9 +1371,11 @@ func (m *mockInvalidTimeoutConfig) GetString(key string) string {
 	case "database.driver":
 		return "postgres"
 	case "database.connection_string":
-		return "postgres://user:pass@invalid-host-999:5432/db?sslmode=disable"
+		return "postgres://user:pass@127.0.0.1:1/db?sslmode=disable"
 	case "database.statement_timeout":
 		return "not-a-number"
+	case "database.postgres.connect_timeout":
+		return "100ms"
 	default:
 		return ""
 	}
@@ -1365,6 +1386,8 @@ func (m *mockInvalidTimeoutConfig) GetInt(key string) int {
 	case "database.pool.max_conns":
 		return 5
 	case "database.pool.min_conns":
+		return 1
+	case "database.postgres.max_retries":
 		return 1
 	default:
 		return 0
@@ -1409,9 +1432,11 @@ func (m *mockNegTimeoutConfig) GetString(key string) string {
 	case "database.driver":
 		return "postgres"
 	case "database.connection_string":
-		return "postgres://user:pass@invalid-host-999:5432/db?sslmode=disable"
+		return "postgres://user:pass@127.0.0.1:1/db?sslmode=disable"
 	case "database.statement_timeout":
 		return "-100"
+	case "database.postgres.connect_timeout":
+		return "100ms"
 	default:
 		return ""
 	}
@@ -1422,6 +1447,8 @@ func (m *mockNegTimeoutConfig) GetInt(key string) int {
 	case "database.pool.max_conns":
 		return 5
 	case "database.pool.min_conns":
+		return 1
+	case "database.postgres.max_retries":
 		return 1
 	default:
 		return 0
@@ -1466,9 +1493,11 @@ func (m *mockBadTZConfig) GetString(key string) string {
 	case "database.driver":
 		return "postgres"
 	case "database.connection_string":
-		return "postgres://user:pass@invalid-host-999:5432/db?sslmode=disable"
+		return "postgres://user:pass@127.0.0.1:1/db?sslmode=disable"
 	case "database.timezone":
 		return "Invalid/Timezone"
+	case "database.postgres.connect_timeout":
+		return "100ms"
 	default:
 		return ""
 	}
@@ -1479,6 +1508,8 @@ func (m *mockBadTZConfig) GetInt(key string) int {
 	case "database.pool.max_conns":
 		return 5
 	case "database.pool.min_conns":
+		return 1
+	case "database.postgres.max_retries":
 		return 1
 	default:
 		return 0

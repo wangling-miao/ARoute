@@ -1050,6 +1050,8 @@ func (m *mockMediaConfig) GetBool(key string) bool                        { retu
 func (m *mockMediaConfig) GetStringSlice(key string) []string             { return nil }
 func (m *mockMediaConfig) Get(key string) interface{}                     { return nil }
 func (m *mockMediaConfig) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockMediaConfig) Set(key string, value interface{})              {}
+func (m *mockMediaConfig) Save() error                                    { return nil }
 
 type mockMediaServiceContainer struct {
 	dbSvc interfaces.DatabaseService
@@ -1440,6 +1442,8 @@ func (m *mockS3Config) GetBool(key string) bool {
 func (m *mockS3Config) GetStringSlice(key string) []string             { return nil }
 func (m *mockS3Config) Get(key string) interface{}                     { return m.data[key] }
 func (m *mockS3Config) Unmarshal(key string, target interface{}) error { return nil }
+func (m *mockS3Config) Set(key string, value interface{})              { m.data[key] = value }
+func (m *mockS3Config) Save() error                                    { return nil }
 
 func TestNewS3StorageMissingConfig(t *testing.T) {
 	cfg := &mockS3Config{data: map[string]interface{}{}}
@@ -2118,10 +2122,12 @@ func (m *mockMediaServiceContainerWithSvc) Get(target interface{}) error {
 	}
 	return fmt.Errorf("service not found")
 }
-func (m *mockMediaServiceContainerWithSvc) GetNamed(name string, target interface{}) error { return nil }
-func (m *mockMediaServiceContainerWithSvc) Unregister(target interface{}) error            { return nil }
-func (m *mockMediaServiceContainerWithSvc) Has(target interface{}) bool                    { return false }
-func (m *mockMediaServiceContainerWithSvc) Keys() []string                                 { return nil }
+func (m *mockMediaServiceContainerWithSvc) GetNamed(name string, target interface{}) error {
+	return nil
+}
+func (m *mockMediaServiceContainerWithSvc) Unregister(target interface{}) error { return nil }
+func (m *mockMediaServiceContainerWithSvc) Has(target interface{}) bool         { return false }
+func (m *mockMediaServiceContainerWithSvc) Keys() []string                      { return nil }
 
 func TestHandleUploadSuccess(t *testing.T) {
 	_, router := setupPluginWithRoutes(t)

@@ -35,14 +35,25 @@ func (e *SQLiteExecutor) Execute(ctx context.Context, ops []DiffOperation, force
 		}
 	}
 
+	rebuildSchemas := make(map[int]*interfaces.TableDefinition)
+	for i, op := range ops {
+		if e.mapper.NeedsRebuild(op) {
+			schema, err := e.getIntrospectedSchema(ctx, op.TableName)
+			if err != nil {
+				return fmt.Errorf("introspecting table for %s: %w", op.Type, err)
+			}
+			rebuildSchemas[i] = schema
+		}
+	}
+
 	tx, err := e.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	for _, op := range ops {
-		if err := e.executeOp(ctx, tx, op); err != nil {
+	for i, op := range ops {
+		if err := e.executeOp(ctx, tx, op, rebuildSchemas[i]); err != nil {
 			return fmt.Errorf("executing %s: %w", op.Type, err)
 		}
 	}
@@ -54,9 +65,9 @@ func (e *SQLiteExecutor) Execute(ctx context.Context, ops []DiffOperation, force
 	return nil
 }
 
-func (e *SQLiteExecutor) executeOp(ctx context.Context, tx *sql.Tx, op DiffOperation) error {
+func (e *SQLiteExecutor) executeOp(ctx context.Context, tx *sql.Tx, op DiffOperation, rebuildSchema *interfaces.TableDefinition) error {
 	if e.mapper.NeedsRebuild(op) {
-		return e.rebuildTable(ctx, tx, op)
+		return e.rebuildTable(ctx, tx, op, rebuildSchema)
 	}
 
 	switch op.Type {
@@ -203,10 +214,9 @@ func (e *SQLiteExecutor) dropIndex(ctx context.Context, tx *sql.Tx, op DiffOpera
 	return err
 }
 
-func (e *SQLiteExecutor) rebuildTable(ctx context.Context, tx *sql.Tx, op DiffOperation) error {
-	schema, err := e.getIntrospectedSchema(ctx, op.TableName)
-	if err != nil {
-		return fmt.Errorf("introspecting table: %w", err)
+func (e *SQLiteExecutor) rebuildTable(ctx context.Context, tx *sql.Tx, op DiffOperation, schema *interfaces.TableDefinition) error {
+	if schema == nil {
+		return fmt.Errorf("missing introspected schema for table %s", op.TableName)
 	}
 
 	var desiredSchema *Schema

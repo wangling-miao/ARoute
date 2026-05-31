@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  插件沙箱隔离 · 动态内容类型 · 混合渲染引擎 · 单二进制部署
+  三级插件信任体系 · 动态内容类型 · 混合渲染引擎 · 单二进制部署
 </p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version" />
@@ -43,7 +43,7 @@ Go 生态中缺少一个同时具备微内核架构、三层插件沙箱隔离�
 | Ponzu | 🚫 已废弃 | ❌ | ❌ | ❌ | ✅ |
 | FastSchema | 维护中 | ❌ | ❌ | ✅ | ✅ |
 | Hugo | 维护中 | ❌ | ❌ | ❌ | ✅ |
-| **ARoute** | **v1.0** | **✅** | **✅ (L1/L3)** | **✅** | **✅** |
+| **ARoute** | **v1.0** | **✅** | **✅ (L1/L3，L2 Pro)** | **✅** | **✅** |
 
 ---
 
@@ -57,7 +57,8 @@ Core **不包含任何业务逻辑** — 仅负责插件生命周期管理、服
 - **ServiceContainer** — 泛型依赖注入容器，`Provide[T]`/`Get[T]`/`GetNamed[T]`
 - **EventBus** — 双模式事件总线：Filter 链（有序、可中止、结果传递）+ Broadcast（并发、fire-and-forget），支持通配符订阅
 - **Lifecycle Manager** — 插件生命周期状态机，拓扑排序启动，热插拔支持，循环依赖检测
-- **Engine Dispatcher** — 双引擎调度：L1 native（Go 接口直调）+ L3 Wasm（wazero 沙箱）
+- **Engine Dispatcher** — 开源版支持 L1 native（Go 接口直调）+ L3 Wasm（wazero 沙箱），L2 gRPC 子进程为 Pro 分支特性
+- **Trust Policy Engine** — 运行时风险评分、能力授权、信任账本、自动 guarded/quarantined/disabled 决策
 
 ### 📦 动态内容类型
 
@@ -78,12 +79,15 @@ Core **不包含任何业务逻辑** — 仅负责插件生命周期管理、服
 | Lua (gopher-lua) | 灵活脚本，LState 池化 | 纯 Go |
 | React SSR (fastschema/qjs) | 现代 JS 生态，组件化 | 纯 Go + Wasm |
 
-### 🔒 插件沙箱隔离
+### 🔒 三级插件信任体系
 
 | 层级 | 引擎 | 隔离级别 | 适用场景 |
 |------|------|---------|---------|
 | **L1** | Native Go | 进程级 | 官方插件、可信扩展 |
-| **L3** | Wasm (wazero) | 沙箱隔离 | 第三方插件 |
+| **L2** | gRPC 子进程 | 进程隔离 + 能力网关 | Pro 插件、商业扩展 |
+| **L3** | Wasm (wazero) | 沙箱隔离 + Host Call 授权 | 第三方插件 |
+
+ARoute 会把插件声明的 `trust`、`capabilities`、`digest`、`signature` 与运行时事件写入统一注册表和 trust ledger。策略引擎根据能力越权、L2 进程异常、Wasm timeout、事件洪泛、热替换新增能力等证据生成 0-100 风险分，并自动进入 `allow`、`guarded`、`pending_review`、`quarantined` 或 `disabled` 状态。
 
 ### 🛡️ RBAC 权限控制
 
@@ -214,8 +218,8 @@ aroute version                      # 打印版本信息
 │  │API │ │缓存│ │队列│ │Hook│ │前端│ │Admin UI│ │ SDK │  │
 │  └────┘ └────┘ └────┘ └────┘ └────┘ └────────┘ └─────┘  │
 ├─────────────────────────────────────────────────────────────┤
-│                    L3 Wasm 沙箱                              │
-│              (wazero — 零 CGO，纯 Go)                       │
+│                    隔离执行域                                  │
+│       L3 Wasm 沙箱 (wazero) · L2 gRPC 子进程见 Pro 分支          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -530,7 +534,7 @@ make admin-dev
 
 ### 🔮 计划中（v1.x+）
 
-- [ ] L2 gRPC 插件引擎（Pro 版特性）
+- [ ] L2 gRPC 插件引擎（Pro 分支/Pro 版特性）
 - [ ] 集群部署 / 多节点同步（v2.0）
 - [ ] WebSocket 实时推送
 - [ ] 可视化页面编辑器（Pro 版特性）

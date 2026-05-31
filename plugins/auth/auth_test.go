@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 	"github.com/wangling-miao/aroute/plugins/database"
 	"github.com/wangling-miao/aroute/sdk/interfaces"
 )
+
+var authTestCounter int64
 
 // mockConfigProvider implements core.ConfigProvider for tests.
 type mockConfigProvider struct {
@@ -424,7 +427,7 @@ func TestAuthenticate_Success(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	createTestUser(t, svc, "auth@example.com", "authuser", "password123", nil)
+	createTestUser(t, svc, "auth@example.com", "authuser", "password123", []string{"admin"})
 
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "auth@example.com", Password: "password123",
@@ -1034,7 +1037,7 @@ func TestRefreshToken_Success(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	createTestUser(t, svc, "refresh@example.com", "refreshuser", "password123", nil)
+	createTestUser(t, svc, "refresh@example.com", "refreshuser", "password123", []string{"admin"})
 
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "refresh@example.com", Password: "password123",
@@ -1062,7 +1065,7 @@ func TestRefreshToken_WithRotation(t *testing.T) {
 	svc := setupTestServiceWithRotate(t, true)
 	ctx := context.Background()
 
-	createTestUser(t, svc, "rotate@example.com", "rotateuser", "password123", nil)
+	createTestUser(t, svc, "rotate@example.com", "rotateuser", "password123", []string{"admin"})
 
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "rotate@example.com", Password: "password123",
@@ -1091,7 +1094,7 @@ func TestRefreshToken_WithoutRotation(t *testing.T) {
 	svc := setupTestServiceWithRotate(t, false)
 	ctx := context.Background()
 
-	createTestUser(t, svc, "norotate@example.com", "norotateuser", "password123", nil)
+	createTestUser(t, svc, "norotate@example.com", "norotateuser", "password123", []string{"admin"})
 
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "norotate@example.com", Password: "password123",
@@ -1162,7 +1165,7 @@ func TestRefreshToken_BlacklistedRefreshToken(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	createTestUser(t, svc, "blrefresh@example.com", "blrefreshuser", "password123", nil)
+	createTestUser(t, svc, "blrefresh@example.com", "blrefreshuser", "password123", []string{"admin"})
 
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "blrefresh@example.com", Password: "password123",
@@ -1731,7 +1734,7 @@ func TestChangePassword_Success(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	user := createTestUser(t, svc, "chpw@example.com", "chpwuser", "oldpassword", nil)
+	user := createTestUser(t, svc, "chpw@example.com", "chpwuser", "oldpassword", []string{"admin"})
 
 	if err := svc.ChangePassword(ctx, user.ID, "oldpassword", "newpassword123"); err != nil {
 		t.Fatalf("ChangePassword: %v", err)
@@ -1780,7 +1783,7 @@ func TestChangePassword_RevokesOldTokens(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	user := createTestUser(t, svc, "chpwrevoke@example.com", "chpwrevokeuser", "password123", nil)
+	user := createTestUser(t, svc, "chpwrevoke@example.com", "chpwrevokeuser", "password123", []string{"admin"})
 
 	// Get a token before password change.
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
@@ -1962,7 +1965,7 @@ func TestMiddleware_RequirePermissionUnauthorized(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	createTestUser(t, svc, "permno@example.com", "permnouser", "password123", []string{"viewer"})
+	createTestUser(t, svc, "permno@example.com", "permnouser", "password123", []string{"author"})
 
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "permno@example.com", Password: "password123",
@@ -2743,7 +2746,7 @@ func TestAuthenticate_SuccessResetsRateLimit(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	createTestUser(t, svc, "resetrl@example.com", "resetrluser", "password123", nil)
+	createTestUser(t, svc, "resetrl@example.com", "resetrluser", "password123", []string{"editor"})
 
 	// Record some failures.
 	svc.rateLimiter.RecordFailure("default")
@@ -2767,7 +2770,7 @@ func TestRefreshToken_DisabledUser(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	user := createTestUser(t, svc, "refreshdisabled@example.com", "refreshdisableduser", "password123", nil)
+	user := createTestUser(t, svc, "refreshdisabled@example.com", "refreshdisableduser", "password123", []string{"editor"})
 
 	result, err := svc.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "refreshdisabled@example.com", Password: "password123",
@@ -3269,6 +3272,20 @@ func authedRequest(t *testing.T, svc *Service, user *interfaces.User, method, pa
 	return req
 }
 
+func adminAuthedRequest(t *testing.T, p *Plugin, method, path, body string) *http.Request {
+	t.Helper()
+	suffix := atomic.AddInt64(&authTestCounter, 1)
+	admin := createTestUser(
+		t,
+		p.service,
+		fmt.Sprintf("handler-admin-%d@example.com", suffix),
+		fmt.Sprintf("handleradmin%d", suffix),
+		"password123",
+		[]string{"admin"},
+	)
+	return authedRequest(t, p.service, admin, method, path, body)
+}
+
 // =============================================================================
 // handlers.go: handleLogin
 // =============================================================================
@@ -3276,7 +3293,7 @@ func authedRequest(t *testing.T, svc *Service, user *interfaces.User, method, pa
 func TestHandleLogin_Success(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	createTestUser(t, p.service, "login@example.com", "loginuser", "password123", nil)
+	createTestUser(t, p.service, "login@example.com", "loginuser", "password123", []string{"admin"})
 
 	body := `{"email":"login@example.com","password":"password123"}`
 	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
@@ -3364,7 +3381,7 @@ func TestHandleRefresh_Success(t *testing.T) {
 	p := setupTestPlugin(t)
 	ctx := context.Background()
 
-	createTestUser(t, p.service, "handlerrefresh@example.com", "handlerrefreshuser", "password123", nil)
+	createTestUser(t, p.service, "handlerrefresh@example.com", "handlerrefreshuser", "password123", []string{"admin"})
 
 	result, err := p.service.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "handlerrefresh@example.com", Password: "password123",
@@ -3468,7 +3485,7 @@ func TestHandleListUsers_Success(t *testing.T) {
 	createTestUser(t, p.service, "listu1@example.com", "listu1", "password123", nil)
 	createTestUser(t, p.service, "listu2@example.com", "listu2", "password123", nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/users/?page=1&per_page=10", nil)
+	req := adminAuthedRequest(t, p, "GET", "/api/v1/users/?page=1&per_page=10", "")
 	w := httptest.NewRecorder()
 	p.handleListUsers(w, req)
 
@@ -3488,8 +3505,7 @@ func TestHandleCreateUser_Success(t *testing.T) {
 	p := setupTestPlugin(t)
 
 	body := `{"email":"new@example.com","username":"newuser","password":"password123"}`
-	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "POST", "/api/v1/users/", body)
 	w := httptest.NewRecorder()
 	p.handleCreateUser(w, req)
 
@@ -3501,8 +3517,7 @@ func TestHandleCreateUser_Success(t *testing.T) {
 func TestHandleCreateUser_InvalidJSON(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader("{bad"))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "POST", "/api/v1/users/", "{bad")
 	w := httptest.NewRecorder()
 	p.handleCreateUser(w, req)
 
@@ -3515,8 +3530,7 @@ func TestHandleCreateUser_Validation(t *testing.T) {
 	p := setupTestPlugin(t)
 
 	body := `{"email":"","username":"","password":""}`
-	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "POST", "/api/v1/users/", body)
 	w := httptest.NewRecorder()
 	p.handleCreateUser(w, req)
 
@@ -3531,8 +3545,7 @@ func TestHandleCreateUser_Conflict(t *testing.T) {
 	createTestUser(t, p.service, "conflict@example.com", "conflictuser", "password123", nil)
 
 	body := `{"email":"conflict@example.com","username":"other","password":"password123"}`
-	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "POST", "/api/v1/users/", body)
 	w := httptest.NewRecorder()
 	p.handleCreateUser(w, req)
 
@@ -3551,8 +3564,7 @@ func TestHandleUpdateUser_Success(t *testing.T) {
 	user := createTestUser(t, p.service, "upd@example.com", "upduser", "password123", nil)
 
 	body := fmt.Sprintf(`{"username":"updateduser","status":"active"}`)
-	req := httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/users/"+user.ID, body)
 	// Set chi URL params.
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
@@ -3570,8 +3582,7 @@ func TestHandleUpdateUser_InvalidJSON(t *testing.T) {
 
 	user := createTestUser(t, p.service, "updinv@example.com", "updinvuser", "password123", nil)
 
-	req := httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader("{bad"))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/users/"+user.ID, "{bad")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
 	}))
@@ -3587,8 +3598,7 @@ func TestHandleUpdateUser_NotFound(t *testing.T) {
 	p := setupTestPlugin(t)
 
 	body := `{"username":"x"}`
-	req := httptest.NewRequest("PUT", "/api/v1/users/nonexistent-id", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/users/nonexistent-id", body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{"nonexistent-id"}},
 	}))
@@ -3609,7 +3619,7 @@ func TestHandleDeleteUser_Success(t *testing.T) {
 
 	user := createTestUser(t, p.service, "del@example.com", "deluser", "password123", nil)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/users/"+user.ID, nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/users/"+user.ID, "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
 	}))
@@ -3624,7 +3634,7 @@ func TestHandleDeleteUser_Success(t *testing.T) {
 func TestHandleDeleteUser_NoID(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/users/", nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/users/", "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{""}},
 	}))
@@ -3643,7 +3653,7 @@ func TestHandleDeleteUser_NoID(t *testing.T) {
 func TestHandleListRoles_Success(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	req := httptest.NewRequest("GET", "/api/v1/roles/", nil)
+	req := adminAuthedRequest(t, p, "GET", "/api/v1/roles/", "")
 	w := httptest.NewRecorder()
 	p.handleListRoles(w, req)
 
@@ -3669,8 +3679,7 @@ func TestHandleUpdateRole_Success(t *testing.T) {
 	}
 
 	body := `{"description":"Updated editor role","permissions":[{"resource":"content","actions":["read"]}]}`
-	req := httptest.NewRequest("PUT", "/api/v1/roles/"+role.ID, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/roles/"+role.ID, body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{role.ID}},
 	}))
@@ -3691,8 +3700,7 @@ func TestHandleUpdateRole_InvalidJSON(t *testing.T) {
 		t.Fatalf("GetRoleByName: %v", err)
 	}
 
-	req := httptest.NewRequest("PUT", "/api/v1/roles/"+role.ID, strings.NewReader("{bad"))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/roles/"+role.ID, "{bad")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{role.ID}},
 	}))
@@ -3708,8 +3716,7 @@ func TestHandleUpdateRole_NotFound(t *testing.T) {
 	p := setupTestPlugin(t)
 
 	body := `{"description":"test"}`
-	req := httptest.NewRequest("PUT", "/api/v1/roles/nonexistent", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/roles/nonexistent", body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{"nonexistent"}},
 	}))
@@ -3863,7 +3870,7 @@ func TestHandleRevokeAPIToken_Success(t *testing.T) {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
 
-	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/"+token.ID, nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/api-tokens/"+token.ID, "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{token.ID}},
 	}))
@@ -3878,7 +3885,7 @@ func TestHandleRevokeAPIToken_Success(t *testing.T) {
 func TestHandleRevokeAPIToken_NoID(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/", nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/api-tokens/", "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{""}},
 	}))
@@ -3989,7 +3996,7 @@ func TestService_UpdateUser_Password(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	user := createTestUser(t, svc, "updpwsvc@example.com", "updpwsvcuser", "password123", nil)
+	user := createTestUser(t, svc, "updpwsvc@example.com", "updpwsvcuser", "password123", []string{"admin"})
 
 	_, err := svc.UpdateUser(ctx, user.ID, &interfaces.UpdateUserRequest{
 		Password: new("newpassword456"),
@@ -4703,11 +4710,10 @@ func TestHandleGetCurrentUser_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	p.handleGetCurrentUser(w, req)
 
-	// Either 200 (if GetUser still returns the user) or 404 — either way we cover the branch.
-	// The actual result depends on whether DeleteUser soft-deletes or just sets revocation.
-	// This test exercises the GetUser error path in the handler.
-	if w.Code != http.StatusOK && w.Code != http.StatusNotFound && w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 200, 404, or 500", w.Code)
+	// Depending on whether deletion revokes the token before /me reaches GetUser,
+	// this may be rejected during authentication or by the GetUser path.
+	if w.Code != http.StatusOK && w.Code != http.StatusUnauthorized && w.Code != http.StatusNotFound && w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 200, 401, 404, or 500", w.Code)
 	}
 }
 
@@ -4715,7 +4721,7 @@ func TestHandleRefresh_Forbidden(t *testing.T) {
 	p := setupTestPlugin(t)
 	ctx := context.Background()
 
-	user := createTestUser(t, p.service, "refreshforbidden@example.com", "refreshforbiddenuser", "password123", nil)
+	user := createTestUser(t, p.service, "refreshforbidden@example.com", "refreshforbiddenuser", "password123", []string{"admin"})
 
 	result, err := p.service.Authenticate(ctx, &interfaces.AuthRequest{
 		Email: "refreshforbidden@example.com", Password: "password123",
@@ -4745,8 +4751,7 @@ func TestHandleUpdateUser_EmptyID(t *testing.T) {
 	p := setupTestPlugin(t)
 
 	body := `{"username":"test"}`
-	req := httptest.NewRequest("PUT", "/api/v1/users/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/users/", body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
 	w := httptest.NewRecorder()
 	p.handleUpdateUser(w, req)
@@ -4759,7 +4764,7 @@ func TestHandleUpdateUser_EmptyID(t *testing.T) {
 func TestHandleDeleteUser_EmptyID(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/users/", nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/users/", "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
 	w := httptest.NewRecorder()
 	p.handleDeleteUser(w, req)
@@ -4773,8 +4778,7 @@ func TestHandleUpdateRole_EmptyID(t *testing.T) {
 	p := setupTestPlugin(t)
 
 	body := `{"description":"test"}`
-	req := httptest.NewRequest("PUT", "/api/v1/roles/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/roles/", body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
 	w := httptest.NewRecorder()
 	p.handleUpdateRole(w, req)
@@ -4787,7 +4791,7 @@ func TestHandleUpdateRole_EmptyID(t *testing.T) {
 func TestHandleRevokeAPIToken_EmptyID(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/", nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/api-tokens/", "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{}))
 	w := httptest.NewRecorder()
 	p.handleRevokeAPIToken(w, req)
@@ -4819,7 +4823,7 @@ func TestHandleListUsers_WithQueryParams(t *testing.T) {
 	createTestUser(t, p.service, "lq1@example.com", "lq1", "password123", nil)
 	createTestUser(t, p.service, "lq2@example.com", "lq2", "password123", nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/users/?page=1&per_page=1&status=active&search=lq&sort=email&order=asc", nil)
+	req := adminAuthedRequest(t, p, "GET", "/api/v1/users/?page=1&per_page=1&status=active&search=lq&sort=email&order=asc", "")
 	w := httptest.NewRecorder()
 	p.handleListUsers(w, req)
 
@@ -4839,8 +4843,7 @@ func TestHandleUpdateUser_ValidationErrors(t *testing.T) {
 
 	// Short username via update.
 	body := `{"username":"ab"}`
-	req := httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/users/"+user.ID, body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
 	}))
@@ -4853,8 +4856,7 @@ func TestHandleUpdateUser_ValidationErrors(t *testing.T) {
 
 	// Invalid email via update.
 	body = `{"email":"not-valid"}`
-	req = httptest.NewRequest("PUT", "/api/v1/users/"+user.ID, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req = adminAuthedRequest(t, p, "PUT", "/api/v1/users/"+user.ID, body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
 	}))
@@ -4876,8 +4878,7 @@ func TestHandleUpdateRole_WithPermissions(t *testing.T) {
 	}
 
 	body := `{"description":"test role","permissions":[{"resource":"content","actions":["read","create"]}]}`
-	req := httptest.NewRequest("PUT", "/api/v1/roles/"+role.ID, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "PUT", "/api/v1/roles/"+role.ID, body)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{role.ID}},
 	}))
@@ -4893,8 +4894,7 @@ func TestHandleCreateUser_WithRoles(t *testing.T) {
 	p := setupTestPlugin(t)
 
 	body := `{"email":"newuser@example.com","username":"newuser","password":"password123","roles":["admin"]}`
-	req := httptest.NewRequest("POST", "/api/v1/users/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := adminAuthedRequest(t, p, "POST", "/api/v1/users/", body)
 	w := httptest.NewRecorder()
 	p.handleCreateUser(w, req)
 
@@ -5061,7 +5061,7 @@ func TestHandleDeleteUser_WithValidUser(t *testing.T) {
 
 	user := createTestUser(t, p.service, "delhdl@example.com", "delhdluser", "password123", nil)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/users/"+user.ID, nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/users/"+user.ID, "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{user.ID}},
 	}))
@@ -5083,7 +5083,7 @@ func TestHandleRevokeAPIToken_WithValidToken(t *testing.T) {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
 
-	req := httptest.NewRequest("DELETE", "/api/v1/api-tokens/"+token.ID, nil)
+	req := adminAuthedRequest(t, p, "DELETE", "/api/v1/api-tokens/"+token.ID, "")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, &chi.Context{
 		URLParams: chi.RouteParams{Keys: []string{"id"}, Values: []string{token.ID}},
 	}))
@@ -5112,7 +5112,7 @@ func TestHandleListAPITokens_EmptyList(t *testing.T) {
 func TestHandleListUsers_DefaultParams(t *testing.T) {
 	p := setupTestPlugin(t)
 
-	req := httptest.NewRequest("GET", "/api/v1/users/", nil)
+	req := adminAuthedRequest(t, p, "GET", "/api/v1/users/", "")
 	w := httptest.NewRecorder()
 	p.handleListUsers(w, req)
 

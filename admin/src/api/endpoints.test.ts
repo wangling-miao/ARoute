@@ -171,6 +171,18 @@ describe('plugins endpoints', () => {
     await plugins.disable('my-plugin');
     expect(fetchClient.post).toHaveBeenCalledWith('/plugins/my-plugin/disable');
   });
+
+  it('trust calls GET /plugins/:name/trust', async () => {
+    (fetchClient.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ name: 'my-plugin', history: [] });
+    await plugins.trust('my-plugin');
+    expect(fetchClient.get).toHaveBeenCalledWith('/plugins/my-plugin/trust');
+  });
+
+  it('trustAction calls POST /plugins/:name/trust/:action', async () => {
+    (fetchClient.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    await plugins.trustAction('my-plugin', 'quarantine');
+    expect(fetchClient.post).toHaveBeenCalledWith('/plugins/my-plugin/trust/quarantine');
+  });
 });
 
 describe('settings endpoints', () => {

@@ -34,18 +34,41 @@ func mimeByExt(filename string) string {
 }
 
 var blockedTypes = map[string]bool{
-	"application/x-executable":     true,
-	"application/x-msdos-program":  true,
-	"application/x-sh":             true,
-	"application/x-bat":            true,
+	"application/x-executable":    true,
+	"application/x-msdos-program": true,
+	"application/x-sh":            true,
+	"application/x-bat":           true,
+}
+
+var allowedTypes = map[string]bool{
+	"application/pdf": true,
+}
+
+func init() {
+	for _, mimeType := range extMIME {
+		allowedTypes[mimeType] = true
+	}
+}
+
+func isAllowedUploadMIME(mimeType string) bool {
+	if blockedTypes[mimeType] {
+		return false
+	}
+	if isImageMIME(mimeType) {
+		return true
+	}
+	if strings.HasPrefix(mimeType, "video/") || strings.HasPrefix(mimeType, "audio/") {
+		return true
+	}
+	return allowedTypes[mimeType]
 }
 
 type Service struct {
-	store      *Store
-	storage    StorageBackend
-	events     core.EventBus
-	logger     *slog.Logger
-	stopClean  chan struct{}
+	store     *Store
+	storage   StorageBackend
+	events    core.EventBus
+	logger    *slog.Logger
+	stopClean chan struct{}
 }
 
 func NewService(store *Store, storage StorageBackend, ev core.EventBus, logger *slog.Logger) *Service {
@@ -148,7 +171,7 @@ func (s *Service) Upload(ctx context.Context, reader io.Reader, filename string,
 		}
 	}
 
-	if blockedTypes[mimeType] {
+	if !isAllowedUploadMIME(mimeType) {
 		return nil, fmt.Errorf("mime type %q is not allowed: %w", mimeType, interfaces.ErrValidation)
 	}
 
@@ -363,7 +386,7 @@ func (s *Service) UploadFromReader(ctx context.Context, reader io.Reader, filena
 		}
 	}
 
-	if blockedTypes[mimeType] {
+	if !isAllowedUploadMIME(mimeType) {
 		return nil, fmt.Errorf("mime type %q is not allowed: %w", mimeType, interfaces.ErrValidation)
 	}
 

@@ -200,11 +200,11 @@ export default function Dashboard() {
       const data = await dashboard.getStats();
       setStats(data);
     } catch {
-      setError(t('common.error_occurred'));
+      setError('common.error_occurred');
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     settings.get().then((s) => setSiteUrl(s.site_url)).catch(() => {});
@@ -226,7 +226,7 @@ export default function Dashboard() {
     return (
       <div className={styles.page}>
         <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-text-tertiary)' }}>
-          <p>{error}</p>
+          <p>{t(error)}</p>
           <button
             type="button"
             onClick={fetchStats}

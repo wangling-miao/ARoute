@@ -24,6 +24,7 @@ export default function ContentList() {
   const { t } = useTranslation();
   const { contentType } = useParams<{ contentType: string }>();
   const navigate = useNavigate();
+  const commonError = t('common.error_occurred');
 
   const [ctDef, setCtDef] = useState<ContentType | null>(null);
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -44,9 +45,9 @@ export default function ContentList() {
       const ct = await contentTypes.get(contentType);
       setCtDef(ct);
     } catch {
-      showError(t('common.error_occurred'));
+      showError(commonError);
     }
-  }, [contentType, t]);
+  }, [contentType, commonError]);
 
   const fetchItems = useCallback(async () => {
     if (!contentType) return;
@@ -66,16 +67,17 @@ export default function ContentList() {
       }
       const res: PaginatedResponse<ContentItem> = await content.list(contentType, params);
       setItems(res.data ?? []);
-      setPagination(prev => ({
-        ...prev,
-        total: res.meta?.total ?? 0,
-      }));
+      const nextTotal = res.meta?.total ?? 0;
+      setPagination(prev => {
+        if (prev.total === nextTotal) return prev;
+        return { ...prev, total: nextTotal };
+      });
     } catch {
-      showError(t('common.error_occurred'));
+      showError(commonError);
     } finally {
       setLoading(false);
     }
-  }, [contentType, pagination.page, pagination.perPage, sortBy, sortOrder, searchTerm, statusFilter, t]);
+  }, [contentType, pagination.page, pagination.perPage, sortBy, sortOrder, searchTerm, statusFilter, commonError]);
 
   useEffect(() => {
     fetchContentType();
@@ -136,6 +138,10 @@ export default function ContentList() {
   const getTitle = (item: ContentItem): string => {
     const val = item[titleField];
     if (typeof val === 'string' && val.length > 0) return val;
+    if (item.data && typeof item.data === 'object') {
+      const dataVal = (item.data as Record<string, unknown>)[titleField];
+      if (typeof dataVal === 'string' && dataVal.length > 0) return dataVal;
+    }
     if (item.title && typeof item.title === 'string') return item.title;
     return item.id.slice(0, 8);
   };

@@ -11,6 +11,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/wangling-miao/aroute/core"
+	"github.com/wangling-miao/aroute/core/trust"
 )
 
 // WasmLoader implements the PluginLoader interface for Wasm (L3) plugins.
@@ -29,12 +30,18 @@ import (
 type WasmLoader struct {
 	mu        sync.RWMutex
 	pluginDir string
+	broker    *trust.Broker
 }
 
 // NewWasmLoader creates a WasmLoader that reads L3 plugins from pluginDir.
-func NewWasmLoader(pluginDir string) *WasmLoader {
+func NewWasmLoader(pluginDir string, broker ...*trust.Broker) *WasmLoader {
+	var b *trust.Broker
+	if len(broker) > 0 {
+		b = broker[0]
+	}
 	return &WasmLoader{
 		pluginDir: pluginDir,
+		broker:    b,
 	}
 }
 
@@ -61,6 +68,7 @@ func (l *WasmLoader) Load(manifest core.Manifest) (core.Plugin, error) {
 		wasmBytes:  wasmBytes,
 		wasmPath:   wasmFile,
 		pluginPath: pluginPath,
+		broker:     l.broker,
 	}, nil
 }
 
@@ -73,17 +81,26 @@ type FilesystemWasmPlugin struct {
 	pluginPath string
 	runtime    wazero.Runtime
 	module     api.Module
+	broker     *trust.Broker
 }
 
-func (p *FilesystemWasmPlugin) Name() string             { return p.manifest.Name }
-func (p *FilesystemWasmPlugin) Version() string          { return p.manifest.Version }
-func (p *FilesystemWasmPlugin) Manifest() *core.Manifest { return &p.manifest }
+func (p *FilesystemWasmPlugin) Name() string               { return p.manifest.Name }
+func (p *FilesystemWasmPlugin) Version() string            { return p.manifest.Version }
+func (p *FilesystemWasmPlugin) Manifest() *core.Manifest   { return &p.manifest }
 func (p *FilesystemWasmPlugin) WasmBytes() ([]byte, error) { return p.wasmBytes, nil }
-func (p *FilesystemWasmPlugin) PluginPath() string        { return p.pluginPath }
+func (p *FilesystemWasmPlugin) PluginPath() string         { return p.pluginPath }
 
 func (p *FilesystemWasmPlugin) Init(ctx core.CoreContext) error {
 	logger := ctx.Logger()
 	logger.Info("Initializing L3 Wasm plugin", "engine", "wasm", "binary_size", len(p.wasmBytes), "path", p.wasmPath)
+	if p.broker != nil {
+		p.broker.RegisterGrant(trust.Grant{
+			Plugin:       p.manifest.Name,
+			Engine:       "wasm",
+			TrustLevel:   "L3",
+			Capabilities: append([]string(nil), p.manifest.Capabilities...),
+		})
+	}
 
 	wasmCtx := context.Background()
 	p.runtime = wazero.NewRuntimeWithConfig(wasmCtx,
@@ -95,20 +112,32 @@ func (p *FilesystemWasmPlugin) Init(ctx core.CoreContext) error {
 		NewFunctionBuilder().
 		WithFunc(func(c context.Context, m api.Module, serviceID uint32) uint32 {
 			logger.Debug("Wasm host: service_has", "service_id", serviceID)
+			if !p.authorizeHostCall(c, "service:has") {
+				return 0
+			}
 			return 1
 		}).Export("service_has").
 		NewFunctionBuilder().
 		WithFunc(func(c context.Context, m api.Module, serviceID uint32) uint32 {
+			if !p.authorizeHostCall(c, "service:get") {
+				return 0
+			}
 			return serviceID + 1
 		}).Export("service_get").
 		NewFunctionBuilder().
 		WithFunc(func(c context.Context, m api.Module, topicPtr, topicLen, callbackPtr, callbackLen uint32) uint32 {
+			if !p.authorizeHostCall(c, "event:subscribe") {
+				return 0
+			}
 			return 1
 		}).Export("event_subscribe").
 		NewFunctionBuilder().
 		WithFunc(func(c context.Context, m api.Module, topicPtr, topicLen, dataPtr, dataLen uint32) {
 			topic := readWasmString(m, topicPtr, topicLen)
 			data := readWasmString(m, dataPtr, dataLen)
+			if !p.authorizeHostCall(c, "event:publish:"+topic) {
+				return
+			}
 			logger.Info("Wasm plugin published event", "topic", topic, "data", data)
 		}).Export("event_publish").
 		NewFunctionBuilder().
@@ -186,4 +215,16 @@ func readWasmString(m api.Module, ptr, length uint32) string {
 		return ""
 	}
 	return string(buf)
+}
+
+func (p *FilesystemWasmPlugin) authorizeHostCall(ctx context.Context, capability string) bool {
+	if p.broker == nil {
+		return true
+	}
+	result := p.broker.Authorize(ctx, trust.AuthorizationRequest{
+		Plugin:     p.manifest.Name,
+		Engine:     "wasm",
+		Capability: capability,
+	})
+	return result.Allowed
 }

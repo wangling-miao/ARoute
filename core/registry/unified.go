@@ -91,10 +91,12 @@ func (o ListOptions) Matches(r *Route) bool {
 
 // RemovalImpact describes the cascading effect of disabling/removing a route.
 type RemovalImpact struct {
-	DirectlyAffected      []RouteRef
+	DirectlyAffected     []RouteRef
 	TransitivelyAffected []RouteRef
-	OrphanedRoutes        []RouteRef
-	TrustViolations       []string
+	OrphanedRoutes       []RouteRef
+	TrustViolations      []string
+	RiskReasons          []string
+	RecommendedActions   []string
 }
 
 // HasImpact returns true if the removal affects any other routes.
@@ -102,16 +104,18 @@ func (ri *RemovalImpact) HasImpact() bool {
 	return len(ri.DirectlyAffected) > 0 ||
 		len(ri.TransitivelyAffected) > 0 ||
 		len(ri.OrphanedRoutes) > 0 ||
-		len(ri.TrustViolations) > 0
+		len(ri.TrustViolations) > 0 ||
+		len(ri.RiskReasons) > 0 ||
+		len(ri.RecommendedActions) > 0
 }
 
 // Errors returned by the unified registry.
 var (
-	ErrRouteNotFound   = &RouteError{Op: "get", Msg: "route not found"}
-	ErrRouteExists     = &RouteError{Op: "register", Msg: "route already exists"}
+	ErrRouteNotFound         = &RouteError{Op: "get", Msg: "route not found"}
+	ErrRouteExists           = &RouteError{Op: "register", Msg: "route already exists"}
 	ErrUnifiedRegistryClosed = &RouteError{Op: "registry", Msg: "registry is closed"}
-	ErrTrustViolation  = &RouteError{Op: "trust", Msg: "trust boundary violation"}
-	ErrDependencyCycle = &RouteError{Op: "resolve", Msg: "dependency cycle detected"}
+	ErrTrustViolation        = &RouteError{Op: "trust", Msg: "trust boundary violation"}
+	ErrDependencyCycle       = &RouteError{Op: "resolve", Msg: "dependency cycle detected"}
 )
 
 // RouteError represents an error from unified registry operations.

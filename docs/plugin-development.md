@@ -1,6 +1,6 @@
 # 插件开发指南
 
-本文档介绍如何为 ARoute CMS 开发插件，涵盖 L1 原生 Go 插件和 L3 Wasm 沙箱插件的完整开发流程。
+本文档介绍如何为 ARoute CMS 开发插件，涵盖 L1 原生 Go 插件、L2 gRPC 子进程插件（Pro）和 L3 Wasm 沙箱插件的完整开发流程。
 
 ## 插件系统概述
 
@@ -11,9 +11,23 @@ ARoute CMS 采用微内核架构，所有功能（包括 HTTP 服务器、数据
 | 级别 | 引擎 | 隔离性 | 性能 | 适用场景 |
 |------|------|--------|------|----------|
 | L1 | Native Go | 无隔离（同进程） | 最高 | 官方插件、可信插件 |
+| L2 | gRPC 子进程 | 进程隔离 + 能力网关 | 高 | Pro/商业扩展 |
 | L3 | Wasm (wazero) | 沙箱隔离（内存限制） | 中等 | 第三方插件、不可信插件 |
 
-> L2 gRPC 插件为 Pro/Enterprise 版本保留，提供进程级隔离。
+L2 gRPC 插件受 `plugin:l2-grpc` Pro 特性控制。L2/L3 插件的服务访问、事件发布、日志、配置读取等 Host Call 都经过能力网关；L1 默认允许但会写入审计。
+
+### 动态信任闭环
+
+插件清单可以声明 `trust`、`capabilities`、`publisher`、`digest`、`signature`、`resources` 和 `runtime`。ARoute 会把这些静态证据与运行时事件写入统一注册表和 trust ledger，并按默认策略生成风险分：
+
+| 风险分 | 决策 | 含义 |
+|------:|------|------|
+| 0-29 | allow | 正常运行 |
+| 30-59 | guarded | 允许但进入增强审计 |
+| 60-79 | quarantined | 隔离插件并传播影响 |
+| 80-100 | disabled | 自动禁用 |
+
+风险事件包括能力越权、签名/摘要不匹配、L2 子进程异常退出、Wasm timeout、事件洪泛、依赖方异常和热替换新增敏感能力。
 
 ### 插件生命周期
 
@@ -156,7 +170,14 @@ keywords:
 | `description` | 否 | 插件描述 |
 | `author` | 否 | 作者 |
 | `license` | 否 | 许可证 |
-| `engine` | 是 | `native` 或 `wasm` |
+| `engine` | 是 | `native`、`grpc`（Pro）或 `wasm` |
+| `trust` | 否 | 声明信任级别：`L1`、`L2`、`L3` |
+| `capabilities` | 否 | 能力声明，如 `service:content.read`、`event:publish:content.*` |
+| `publisher` | 否 | 发布者标识 |
+| `digest` | 否 | 插件产物摘要 |
+| `signature` | 否 | 插件签名 |
+| `resources` | 否 | 隔离插件资源边界 |
+| `runtime` | 否 | 隔离插件运行时参数；L2 gRPC 子进程使用该字段 |
 | `requires` | 否 | 依赖的其他插件列表，支持版本约束（如 `database@^1.0.0`） |
 | `after` | 否 | 启动顺序约束，列出的插件必须先启动 |
 | `provides` | 否 | 插件提供的功能标识 |
@@ -165,6 +186,10 @@ keywords:
 | `keywords` | 否 | 搜索关键词 |
 
 版本约束格式：`name`（任意版本）、`name@^1.2.3`（兼容版本）、`name@~1.2.3`（补丁版本）、`name@>=1.0.0`（最低版本）。
+
+### L2 gRPC 插件（Pro）
+
+L2 gRPC 子进程插件属于 Pro 分支/Pro 版特性，开源版保留注册表、信任画像、能力声明和策略决策字段，便于 Pro 分支在同一数据模型上扩展进程隔离执行域。
 
 ### 使用 CoreContext 服务
 

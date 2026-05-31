@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Button, Input, Spin, Typography, Form, Select,
 } from '@arco-design/web-react';
-import { Settings as SettingsIcon, Save, Globe, Clock } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Globe, Clock, Mail } from 'lucide-react';
 import { settings as settingsApi } from '@/api/endpoints';
 import { ApiError } from '@/api/client';
 import { showError, showSuccess } from '@/components/Toast';
@@ -27,6 +27,7 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeSection, setActiveSection] = useState<'general' | 'email'>('general');
   const [formData, setFormData] = useState<Settings>({
     site_name: '',
     site_url: '',
@@ -92,54 +93,97 @@ export default function SettingsPage() {
 
       <div className={styles.body}>
         <Form form={form} layout="vertical" initialValues={formData}>
+          <div className={styles.sectionNav}>
+            <Button
+              type={activeSection === 'general' ? 'primary' : 'default'}
+              icon={<Globe size={16} />}
+              onClick={() => setActiveSection('general')}
+            >
+              {t('settings.general')}
+            </Button>
+            <Button
+              type={activeSection === 'email' ? 'primary' : 'default'}
+              icon={<Mail size={16} />}
+              onClick={() => setActiveSection('email')}
+            >
+              {t('settings.email')}
+            </Button>
+          </div>
+
           <div className={styles.sections}>
-            <div className={styles.section}>
-              <div className={styles.sectionTitle}>
-                <Globe size={18} /> {t('settings.general')}
-              </div>
-              <div className={styles.formRow}>
-                <Form.Item label={t('settings.site_name')} field="site_name" rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
-                <Form.Item
-                  label={t('settings.site_url')}
-                  field="site_url"
-                  rules={[
-                    { required: true },
-                    {
-                      validator: (val, cb) => {
-                        if (val && !/^https?:\/\/.+/.test(val)) {
-                          cb('Must be a valid URL starting with http:// or https://');
-                        }
-                        cb();
+            {activeSection === 'general' && (
+              <div className={styles.section}>
+                <div className={styles.sectionTitle}>
+                  <Globe size={18} /> {t('settings.general')}
+                </div>
+                <div className={styles.formRow}>
+                  <Form.Item label={t('settings.site_name')} field="site_name" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item
+                    label={t('settings.site_url')}
+                    field="site_url"
+                    rules={[
+                      { required: true },
+                      {
+                        validator: (val, cb) => {
+                          if (val && !/^https?:\/\/.+/.test(val)) {
+                            cb('Must be a valid URL starting with http:// or https://');
+                          }
+                          cb();
+                        },
                       },
-                    },
-                  ]}
-                >
-                  <Input placeholder="https://example.com" />
-                </Form.Item>
+                    ]}
+                  >
+                    <Input placeholder="https://example.com" />
+                  </Form.Item>
+                </div>
+                <div className={styles.formRow}>
+                  <Form.Item label={t('settings.language')} field="language">
+                    <Select>
+                      {LANGUAGES.map((l) => (
+                        <Select.Option key={l.value} value={l.value}>{l.label}</Select.Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                  <Form.Item label={t('settings.timezone')} field="timezone">
+                    <Select showSearch>
+                      {TIMEZONES.map((tz) => (
+                        <Select.Option key={tz} value={tz}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <Clock size={12} /> {tz}
+                          </span>
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </div>
               </div>
-              <div className={styles.formRow}>
-                <Form.Item label={t('settings.language')} field="language">
-                  <Select>
-                    {LANGUAGES.map((l) => (
-                      <Select.Option key={l.value} value={l.value}>{l.label}</Select.Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-                <Form.Item label={t('settings.timezone')} field="timezone">
-                  <Select showSearch>
-                    {TIMEZONES.map((tz) => (
-                      <Select.Option key={tz} value={tz}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <Clock size={12} /> {tz}
-                        </span>
-                      </Select.Option>
-                    ))}
-                  </Select>
-                </Form.Item>
+            )}
+
+            {activeSection === 'email' && (
+              <div className={styles.section}>
+                <div className={styles.sectionTitle}>
+                  <Mail size={18} /> {t('settings.email')}
+                </div>
+                <div className={styles.formRow}>
+                  <Form.Item label={t('settings.smtp_host')} field="smtp_host">
+                    <Input />
+                  </Form.Item>
+                  <Form.Item label={t('settings.smtp_port')} field="smtp_port">
+                    <Input />
+                  </Form.Item>
+                </div>
+                <div className={styles.formRow}>
+                  <Form.Item label={t('settings.smtp_username')} field="smtp_username">
+                    <Input />
+                  </Form.Item>
+                  <Form.Item label={t('settings.sender_email')} field="sender_email">
+                    <Input />
+                  </Form.Item>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className={styles.footer}>

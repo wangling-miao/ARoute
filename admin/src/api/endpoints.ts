@@ -9,6 +9,7 @@ import type {
   PaginatedResponse,
   ListParams,
   Plugin,
+  PluginTrustDetail,
   Role,
   UpdateRoleRequest,
   Settings,
@@ -28,7 +29,11 @@ export type { User, ContentItem, ContentType, MediaFile, Plugin, Role, Settings,
 export const auth = {
   async login(email: string, password: string, remember?: boolean): Promise<AuthTokens> {
     const tokens = await fetchClient.post<AuthTokens>('/auth/login', { email, password });
-    setTokens(tokens.access_token, tokens.refresh_token, remember);
+    if (remember === undefined) {
+      setTokens(tokens.access_token, tokens.refresh_token);
+    } else {
+      setTokens(tokens.access_token, tokens.refresh_token, remember);
+    }
     return tokens;
   },
 
@@ -146,6 +151,14 @@ export const plugins = {
 
   upload(file: File, onProgress?: (pct: number) => void): Promise<Plugin> {
     return fetchClient.upload<Plugin>('/plugins/upload', file, onProgress);
+  },
+
+  trust(name: string): Promise<PluginTrustDetail> {
+    return fetchClient.get<PluginTrustDetail>(`/plugins/${name}/trust`);
+  },
+
+  trustAction(name: string, action: 'approve' | 'restore' | 'quarantine' | 'disable'): Promise<unknown> {
+    return fetchClient.post(`/plugins/${name}/trust/${action}`);
   },
 };
 

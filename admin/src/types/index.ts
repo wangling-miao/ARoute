@@ -115,6 +115,27 @@ export interface Plugin {
   enabled: boolean;
   state: string;
   is_system: boolean;
+  engine?: string;
+  trust_level?: string;
+  effective_trust?: string;
+  risk_score?: number;
+  trust_state?: string;
+  capabilities?: string[];
+  capability_grants?: string[];
+  last_decision?: PluginTrustDecision;
+  policy_revision?: string;
+}
+
+export interface PluginTrustDecision {
+  action: string;
+  reason: string;
+  risk_score: number;
+  policy_revision: string;
+  at: string;
+}
+
+export interface PluginTrustDetail extends Plugin {
+  history: PluginTrustDecision[];
 }
 
 // ─── Settings ────────────────────────────────────────────────────

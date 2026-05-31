@@ -22,6 +22,7 @@ import (
 	"github.com/wangling-miao/aroute/core/loader"
 	"github.com/wangling-miao/aroute/core/registry"
 	"github.com/wangling-miao/aroute/core/services"
+	"github.com/wangling-miao/aroute/core/trust"
 	"github.com/wangling-miao/aroute/plugins/admin"
 	"github.com/wangling-miao/aroute/plugins/api"
 	"github.com/wangling-miao/aroute/plugins/auth"
@@ -102,9 +103,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create registry: %w", err)
 	}
 	reg := registry.NewLegacyRegistry(unifiedReg)
+	var trustLedger trust.Ledger
+	fileLedger, err := trust.NewFileLedger(filepath.Join(dataDir, "trust-ledger.jsonl"))
+	if err != nil {
+		logger.Warn("trust ledger file unavailable, using memory ledger", "error", err)
+	} else {
+		trustLedger = fileLedger
+	}
 
 	dispatcher := engine.NewDispatcher()
 	licenseValidator := license.NewValidator(nil, (*ecdsa.PublicKey)(nil))
+	trustBroker := trust.NewBroker(trustLedger, trust.NewEvaluator(), eventBus, unifiedReg)
 
 	discovery := registry.NewFSDiscovery(pluginDir)
 	registered, err := registry.LoadAndRegister(reg, discovery)
@@ -186,7 +195,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 
 	// L3 Wasm loader: loads community plugins from data/plugins/ at runtime
-	wasmLoader := loader.NewWasmLoader(l3PluginDir)
+	wasmLoader := loader.NewWasmLoader(l3PluginDir, trustBroker)
 
 	compositeLoader := loader.NewCompositeLoader(pluginLoader, wasmLoader)
 
@@ -212,6 +221,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Provide core services in container
 	container.Provide(func(c *services.Container) (*events.EventBus, error) { return eventBus, nil })
 	container.Provide(func(c *services.Container) (*license.Validator, error) { return licenseValidator, nil })
+	container.Provide(func(c *services.Container) (*trust.Broker, error) { return trustBroker, nil })
+	container.Provide(func(c *services.Container) (trust.Service, error) { return trustBroker, nil })
 	container.Provide(func(c *services.Container) (core.LifecycleManager, error) { return lifecycleManager, nil })
 	container.Provide(func(c *services.Container) (core.PluginRegistry, error) { return aroute.Registry(), nil })
 
@@ -290,9 +301,17 @@ type pluginRegistryAdapter struct {
 
 func (a *pluginRegistryAdapter) Register(entry *core.PluginEntry) error {
 	return a.reg.Register(&registry.PluginEntry{
-		Manifest:       entry.Manifest,
-		Enabled:        entry.Enabled,
-		DiscoveredPath: entry.DiscoveredPath,
+		Manifest:         entry.Manifest,
+		Enabled:          entry.Enabled,
+		DiscoveredPath:   entry.DiscoveredPath,
+		TrustLevel:       entry.TrustLevel,
+		EffectiveTrust:   entry.EffectiveTrust,
+		RiskScore:        entry.RiskScore,
+		TrustState:       entry.TrustState,
+		Capabilities:     append([]string(nil), entry.Capabilities...),
+		CapabilityGrants: append([]string(nil), entry.CapabilityGrants...),
+		LastDecision:     registryTrustDecision(entry.LastDecision),
+		PolicyRevision:   entry.PolicyRevision,
 	})
 }
 
@@ -301,11 +320,7 @@ func (a *pluginRegistryAdapter) Get(name string) (*core.PluginEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &core.PluginEntry{
-		Manifest:       entry.Manifest,
-		Enabled:        entry.Enabled,
-		DiscoveredPath: entry.DiscoveredPath,
-	}, nil
+	return corePluginEntry(entry), nil
 }
 
 func (a *pluginRegistryAdapter) List() ([]*core.PluginEntry, error) {
@@ -315,11 +330,7 @@ func (a *pluginRegistryAdapter) List() ([]*core.PluginEntry, error) {
 	}
 	result := make([]*core.PluginEntry, len(entries))
 	for i, e := range entries {
-		result[i] = &core.PluginEntry{
-			Manifest:       e.Manifest,
-			Enabled:        e.Enabled,
-			DiscoveredPath: e.DiscoveredPath,
-		}
+		result[i] = corePluginEntry(e)
 	}
 	return result, nil
 }
@@ -332,6 +343,48 @@ func (a *pluginRegistryAdapter) Remove(name string) error  { return a.reg.Remove
 func (a *pluginRegistryAdapter) Enable(name string) error  { return a.reg.Enable(name) }
 func (a *pluginRegistryAdapter) Disable(name string) error { return a.reg.Disable(name) }
 func (a *pluginRegistryAdapter) Close() error              { return a.reg.Close() }
+
+func corePluginEntry(e *registry.PluginEntry) *core.PluginEntry {
+	return &core.PluginEntry{
+		Manifest:         e.Manifest,
+		Enabled:          e.Enabled,
+		DiscoveredPath:   e.DiscoveredPath,
+		TrustLevel:       e.TrustLevel,
+		EffectiveTrust:   e.EffectiveTrust,
+		RiskScore:        e.RiskScore,
+		TrustState:       e.TrustState,
+		Capabilities:     append([]string(nil), e.Capabilities...),
+		CapabilityGrants: append([]string(nil), e.CapabilityGrants...),
+		LastDecision:     coreTrustDecision(e.LastDecision),
+		PolicyRevision:   e.PolicyRevision,
+	}
+}
+
+func coreTrustDecision(d *registry.TrustDecision) *core.PluginTrustDecision {
+	if d == nil {
+		return nil
+	}
+	return &core.PluginTrustDecision{
+		Action:         d.Action,
+		Reason:         d.Reason,
+		RiskScore:      d.RiskScore,
+		PolicyRevision: d.PolicyRevision,
+		At:             d.At,
+	}
+}
+
+func registryTrustDecision(d *core.PluginTrustDecision) *registry.TrustDecision {
+	if d == nil {
+		return nil
+	}
+	return &registry.TrustDecision{
+		Action:         d.Action,
+		Reason:         d.Reason,
+		RiskScore:      d.RiskScore,
+		PolicyRevision: d.PolicyRevision,
+		At:             d.At,
+	}
+}
 
 type licenseAdapter struct {
 	v *license.Validator

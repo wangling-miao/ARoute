@@ -78,7 +78,7 @@ func NewBoltUnifiedRegistry(dbPath string) (*BoltUnifiedRegistry, error) {
 		return nil, err
 	}
 
-	 reg := &BoltUnifiedRegistry{db: db}
+	reg := &BoltUnifiedRegistry{db: db}
 
 	// Auto-migrate from legacy "plugins" bucket if it exists.
 	if err := reg.migrateLegacyBucket(); err != nil {
@@ -191,6 +191,21 @@ func (r *BoltUnifiedRegistry) Register(route *Route) error {
 	route.UpdatedAt = now
 	if route.State == "" {
 		route.State = RouteStateInactive
+	}
+	if route.DeclaredTrustLevel == TrustL1 && route.TrustLevel != TrustL1 {
+		route.DeclaredTrustLevel = route.TrustLevel
+	}
+	if route.EffectiveTrustLevel == TrustL1 && route.TrustLevel != TrustL1 {
+		route.EffectiveTrustLevel = route.TrustLevel
+	}
+	if route.TrustState == "" {
+		route.TrustState = TrustStateAllow
+	}
+	if len(route.CapabilityGrants) == 0 && len(route.Capabilities) > 0 {
+		route.CapabilityGrants = append([]string(nil), route.Capabilities...)
+	}
+	if route.PolicyRevision == "" {
+		route.PolicyRevision = "builtin:v1"
 	}
 
 	r.mu.Lock()
@@ -666,6 +681,29 @@ func (r *BoltUnifiedRegistry) HotSwap(routeType RouteType, domain, name string, 
 		newRoute.RegisteredAt = oldRoute.RegisteredAt
 		newRoute.UpdatedAt = time.Now()
 		newRoute.Enabled = oldRoute.Enabled
+		newRoute.DeclaredTrustLevel = oldRoute.DeclaredTrustLevel
+		if newRoute.DeclaredTrustLevel == TrustL1 && newRoute.TrustLevel != TrustL1 {
+			newRoute.DeclaredTrustLevel = newRoute.TrustLevel
+		}
+		newRoute.EffectiveTrustLevel = oldRoute.EffectiveTrustLevel
+		newRoute.RiskScore = oldRoute.RiskScore
+		newRoute.TrustState = oldRoute.TrustState
+		newRoute.LastDecision = oldRoute.LastDecision
+		newRoute.PolicyRevision = oldRoute.PolicyRevision
+		if len(newRoute.CapabilityGrants) == 0 {
+			newRoute.CapabilityGrants = append([]string(nil), oldRoute.CapabilityGrants...)
+		}
+		if len(newRoute.Capabilities) > len(oldRoute.Capabilities) {
+			newRoute.State = RouteStatePendingReview
+			newRoute.TrustState = TrustStatePendingReview
+			newRoute.LastDecision = &TrustDecision{
+				Action:         "review",
+				Reason:         "hot-swap expanded declared capabilities",
+				RiskScore:      newRoute.RiskScore,
+				PolicyRevision: firstNonEmpty(newRoute.PolicyRevision, "builtin:v1"),
+				At:             time.Now(),
+			}
+		}
 
 		// Remove old dependency indexes
 		if err := r.removeDependencyIndexes(tx, ref); err != nil {
@@ -812,7 +850,7 @@ func (r *BoltUnifiedRegistry) removeDependencyIndexes(tx *bolt.Tx, ref RouteRef)
 						if len(filtered) == 0 {
 							_ = fwd.Delete(depKey)
 						} else {
-						 newData, _ := json.Marshal(filtered)
+							newData, _ := json.Marshal(filtered)
 							_ = fwd.Put(depKey, newData)
 						}
 					}

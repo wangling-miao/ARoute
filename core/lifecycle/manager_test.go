@@ -83,6 +83,16 @@ func (r *mockRegistry) IsEnabled(name string) (bool, error) {
 	return r.enabled[name], nil
 }
 
+func (r *mockRegistry) Enable(name string) error {
+	r.enabled[name] = true
+	return nil
+}
+
+func (r *mockRegistry) Disable(name string) error {
+	r.enabled[name] = false
+	return nil
+}
+
 // mockLoader implements PluginLoader for testing.
 type mockLoader struct {
 	factory map[string]core.Plugin

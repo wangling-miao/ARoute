@@ -189,9 +189,13 @@ func (s *Service) sqliteListIndexes(ctx context.Context, tableName string) ([]in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	indexes := []interfaces.IndexDefinition{}
+	type sqliteIndexMeta struct {
+		name   string
+		unique bool
+	}
+
+	metas := []sqliteIndexMeta{}
 	for rows.Next() {
 		var seq int
 		var name, origin string
@@ -205,15 +209,27 @@ func (s *Service) sqliteListIndexes(ctx context.Context, tableName string) ([]in
 			continue
 		}
 
+		metas = append(metas, sqliteIndexMeta{name: name, unique: unique == 1})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	indexes := []interfaces.IndexDefinition{}
+	for _, meta := range metas {
 		indexDef := interfaces.IndexDefinition{
-			Name:   name,
-			Unique: unique == 1,
+			Name:   meta.name,
+			Unique: meta.unique,
 		}
 
-		if err := validateIdentifier(name); err != nil {
+		if err := validateIdentifier(meta.name); err != nil {
 			return nil, fmt.Errorf("invalid index name for PRAGMA index_info: %w", err)
 		}
-		idxInfoRows, err := s.Query(ctx, fmt.Sprintf("PRAGMA index_info(%s)", name))
+		idxInfoRows, err := s.Query(ctx, fmt.Sprintf("PRAGMA index_info(%s)", meta.name))
 		if err != nil {
 			return nil, err
 		}

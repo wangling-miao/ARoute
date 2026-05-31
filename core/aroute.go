@@ -59,9 +59,27 @@ type RoutingRegistry interface {
 
 // PluginEntry represents a registered plugin with its manifest and state.
 type PluginEntry struct {
-	Manifest       Manifest
-	Enabled        bool
-	DiscoveredPath string
+	Manifest         Manifest
+	Enabled          bool
+	DiscoveredPath   string
+	TrustLevel       string
+	EffectiveTrust   string
+	RiskScore        int
+	TrustState       string
+	Capabilities     []string
+	CapabilityGrants []string
+	LastDecision     *PluginTrustDecision
+	PolicyRevision   string
+}
+
+// PluginTrustDecision mirrors the registry trust decision shape without tying
+// core callers to the concrete registry package.
+type PluginTrustDecision struct {
+	Action         string
+	Reason         string
+	RiskScore      int
+	PolicyRevision string
+	At             time.Time
 }
 
 // LifecycleManager defines the interface for plugin lifecycle management.

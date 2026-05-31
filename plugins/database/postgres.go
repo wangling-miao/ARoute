@@ -53,6 +53,23 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 		return fmt.Errorf("failed to parse PostgreSQL config: %w", err)
 	}
 
+	connectTimeout := config.GetString("database.postgres.connect_timeout")
+	if connectTimeout == "" {
+		connectTimeout = config.GetString("database.connect_timeout")
+	}
+	if connectTimeout != "" {
+		duration, err := time.ParseDuration(connectTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid postgres connect_timeout %q: %w", connectTimeout, err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("postgres connect_timeout must be positive, got %s", connectTimeout)
+		}
+		poolConfig.ConnConfig.ConnectTimeout = duration
+	} else if poolConfig.ConnConfig.ConnectTimeout <= 0 {
+		poolConfig.ConnConfig.ConnectTimeout = 5 * time.Second
+	}
+
 	maxConns := config.GetInt("database.pool.max_conns")
 	if maxConns > 0 {
 		poolConfig.MaxConns = int32(maxConns)
@@ -120,14 +137,16 @@ func (p *Plugin) initPostgreSQL(ctx core.CoreContext, logger *slog.Logger) error
 	}
 
 	maxRetries := 3
-	backoffs := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	if configuredRetries := config.GetInt("database.postgres.max_retries"); configuredRetries > 0 {
+		maxRetries = configuredRetries
+	}
 
 	var pool *pgxpool.Pool
 	var lastErr error
 
 	for attempt := range maxRetries {
 		if attempt > 0 {
-			backoff := backoffs[attempt-1]
+			backoff := time.Duration(attempt) * time.Second
 			logger.Debug("Retrying PostgreSQL connection", "attempt", attempt+1, "backoff", backoff)
 			time.Sleep(backoff)
 		}
